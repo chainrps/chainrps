@@ -1,0 +1,662 @@
+/* ChainRPS 前端样式 */
+
+/* ==================== 全局样式 ==================== */
+:root {
+    --primary-color: #6366f1;
+    --primary-hover: #4f46e5;
+    --secondary-color: #64748b;
+    --success-color: #10b981;
+    --danger-color: #ef4444;
+    --warning-color: #f59e0b;
+    --bg-color: #0f172a;
+    --card-bg: #1e293b;
+    --text-color: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --border-color: #334155;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: var(--bg-color);
+    color: var(--text-color);
+    min-height: 100vh;
+    line-height: 1.6;
+}
+
+#app {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 20px;
+    padding-bottom: 80px; /* 底部导航空间 */
+}
+
+/* ==================== Header ==================== */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    margin-bottom: 24px;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+}
+
+.logo-text {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.lang-switch {
+    display: flex;
+    gap: 8px;
+}
+
+.lang-btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.lang-btn.active {
+    background: var(--primary-color);
+    color: var(--text-color);
+    border-color: var(--primary-color);
+}
+
+/* ==================== Section ==================== */
+.section {
+    margin-bottom: 24px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* ==================== Wallet ==================== */
+.wallet-container {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+}
+
+.wallet-info {
+    margin-top: 16px;
+}
+
+.address-display {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.balance-display {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 16px;
+}
+
+.balance-item {
+    display: flex;
+    gap: 8px;
+}
+
+.balance-item span:first-child {
+    color: var(--text-secondary);
+}
+
+.balance-item span:last-child {
+    font-weight: 600;
+}
+
+/* ==================== Buttons ==================== */
+.btn-primary {
+    background: var(--primary-color);
+    color: var(--text-color);
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background: var(--card-bg);
+}
+
+.btn-large {
+    width: 100%;
+    padding: 16px 32px;
+}
+
+/* ==================== Bet Container ==================== */
+.bet-container {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.bet-container h3 {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.token-select {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.token-btn {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.token-btn.active {
+    background: var(--primary-color);
+    color: var(--text-color);
+    border-color: var(--primary-color);
+}
+
+.preset-amounts {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.amount-btn {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.amount-btn:hover {
+    background: var(--card-bg);
+}
+
+.amount-btn.selected {
+    background: var(--primary-color);
+    color: var(--text-color);
+    border-color: var(--primary-color);
+}
+
+.custom-amount {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 24px;
+}
+
+.custom-amount input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: 16px;
+}
+
+.custom-amount input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.token-label {
+    padding: 12px 16px;
+    background: var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+}
+
+/* ==================== Matching ==================== */
+.matching-container {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 48px 24px;
+    text-align: center;
+}
+
+.matching-animation {
+    margin-bottom: 24px;
+}
+
+.spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.matching-container h3 {
+    margin-bottom: 12px;
+}
+
+.matching-container p {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+/* ==================== Game Container ==================== */
+.game-container {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.game-info {
+    margin-bottom: 24px;
+}
+
+.game-header {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.opponent-info, .bet-info, .timer-info {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.timer-info {
+    color: var(--warning-color);
+}
+
+.phase-indicator {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+}
+
+.phase {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.phase.active {
+    background: var(--primary-color);
+    color: var(--text-color);
+    border-color: var(--primary-color);
+}
+
+.phase.completed {
+    background: var(--success-color);
+    color: var(--text-color);
+    border-color: var(--success-color);
+}
+
+.choice-container h3 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.choices {
+    display: flex;
+    gap: 12px;
+}
+
+.choice-btn {
+    flex: 1;
+    padding: 20px 12px;
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.choice-btn:hover {
+    border-color: var(--primary-color);
+}
+
+.choice-btn.selected {
+    border-color: var(--primary-color);
+    background: rgba(99, 102, 241, 0.1);
+}
+
+.choice-icon {
+    font-size: 32px;
+}
+
+.choice-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.choice-btn.selected .choice-label {
+    color: var(--text-color);
+}
+
+.committed-info {
+    text-align: center;
+    padding: 20px;
+    background: rgba(16, 185, 129, 0.1);
+    border-radius: 12px;
+    margin-top: 20px;
+}
+
+.committed-info p {
+    margin-bottom: 8px;
+}
+
+.reveal-section {
+    text-align: center;
+    margin-top: 24px;
+}
+
+.reveal-section h3 {
+    margin-bottom: 16px;
+}
+
+/* ==================== Result ==================== */
+.result-section {
+    text-align: center;
+    padding: 24px;
+}
+
+.result-section h2 {
+    margin-bottom: 24px;
+}
+
+.result-details {
+    margin-bottom: 24px;
+}
+
+.player-result, .opponent-result {
+    font-size: 18px;
+    margin-bottom: 12px;
+}
+
+.prize-info {
+    font-size: 16px;
+    color: var(--success-color);
+    margin-top: 16px;
+}
+
+.draw-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* ==================== History ==================== */
+.history-container {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.history-container h3 {
+    margin-bottom: 20px;
+}
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.history-item {
+    padding: 16px;
+    background: var(--bg-color);
+    border-radius: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.history-item .game-info {
+    font-size: 14px;
+}
+
+.history-item .result {
+    font-weight: 600;
+}
+
+.history-item .result.win {
+    color: var(--success-color);
+}
+
+.history-item .result.loss {
+    color: var(--danger-color);
+}
+
+.history-item .result.draw {
+    color: var(--warning-color);
+}
+
+/* ==================== Future ==================== */
+.future-container {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.future-container h3 {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.future-items {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.future-item {
+    padding: 16px;
+    background: var(--bg-color);
+    border-radius: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.badge {
+    padding: 4px 12px;
+    background: var(--border-color);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ==================== Bottom Navigation ==================== */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--card-bg);
+    padding: 12px 20px;
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    border-top: 1px solid var(--border-color);
+}
+
+.nav-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 8px 16px;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.nav-btn.active {
+    color: var(--primary-color);
+}
+
+.nav-btn:hover {
+    background: var(--bg-color);
+}
+
+.nav-icon {
+    font-size: 24px;
+}
+
+/* ==================== Loading & Modal ==================== */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.loading-content {
+    text-align: center;
+}
+
+.loading-content p {
+    margin-top: 16px;
+    color: var(--text-secondary);
+}
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--card-bg);
+    padding: 32px;
+    border-radius: 16px;
+    max-width: 320px;
+    text-align: center;
+}
+
+.modal-content h3 {
+    margin-bottom: 16px;
+    color: var(--danger-color);
+}
+
+.modal-content p {
+    margin-bottom: 24px;
+    color: var(--text-secondary);
+}
+
+/* ==================== 响应式 ==================== */
+@media (min-width: 768px) {
+    #app {
+        max-width: 640px;
+    }
+
+    .choices {
+        gap: 24px;
+    }
+
+    .choice-btn {
+        padding: 32px 24px;
+    }
+
+    .choice-icon {
+        font-size: 48px;
+    }
+}
+
+@media (max-width: 360px) {
+    #app {
+        padding: 16px;
+    }
+
+    .preset-amounts {
+        flex-wrap: wrap;
+    }
+
+    .amount-btn {
+        flex: 1 1 45%;
+    }
+}

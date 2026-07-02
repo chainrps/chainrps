@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChainRPS - On-Chain Fair RPS</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- ethers.js v6 -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.1/dist/ethers.umd.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- 语言切换 -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-text">ChainRPS</span>
+            </div>
+            <div class="lang-switch">
+                <button id="lang-en" class="lang-btn active">EN</button>
+                <button id="lang-zh" class="lang-btn">中文</button>
+            </div>
+        </header>
+
+        <!-- 钱包连接区域 -->
+        <section id="wallet-section" class="section">
+            <div class="wallet-container">
+                <button id="connect-wallet" class="btn-primary">
+                    <span data-i18n="connect_wallet">Connect Wallet</span>
+                </button>
+                <div id="wallet-info" class="wallet-info hidden">
+                    <div class="address-display">
+                        <span data-i18n="address">Address:</span>
+                        <span id="wallet-address">-</span>
+                    </div>
+                    <div class="balance-display">
+                        <div class="balance-item">
+                            <span>USDC:</span>
+                            <span id="usdc-balance">0.00</span>
+                        </div>
+                        <div class="balance-item">
+                            <span>USDT:</span>
+                            <span id="usdt-balance">0.00</span>
+                        </div>
+                    </div>
+                    <button id="disconnect-wallet" class="btn-secondary">
+                        <span data-i18n="disconnect">Disconnect</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 对局选择区域 -->
+        <section id="game-section" class="section hidden">
+            <!-- 下注设置 -->
+            <div class="bet-container">
+                <h3 data-i18n="select_bet">Select Bet Amount</h3>
+                
+                <!-- 代币选择 -->
+                <div class="token-select">
+                    <button id="token-usdc" class="token-btn active">USDC</button>
+                    <button id="token-usdt" class="token-btn">USDT</button>
+                </div>
+
+                <!-- 预设金额 -->
+                <div class="preset-amounts">
+                    <button class="amount-btn" data-amount="1">1</button>
+                    <button class="amount-btn" data-amount="5">5</button>
+                    <button class="amount-btn" data-amount="10">10</button>
+                    <button class="amount-btn" data-amount="50">50</button>
+                </div>
+
+                <!-- 自由输入 -->
+                <div class="custom-amount">
+                    <input type="number" id="bet-input" placeholder="Custom amount" min="0.1" step="0.1">
+                    <span class="token-label" id="bet-token-label">USDC</span>
+                </div>
+
+                <!-- 开始匹配 -->
+                <button id="start-match" class="btn-primary btn-large">
+                    <span data-i18n="find_opponent">Find Opponent</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- 匹配等待区域 -->
+        <section id="matching-section" class="section hidden">
+            <div class="matching-container">
+                <div class="matching-animation">
+                    <div class="spinner"></div>
+                </div>
+                <h3 data-i18n="matching">Matching...</h3>
+                <p data-i18n="queue_position">Queue Position: <span id="queue-pos">-</span></p>
+                <button id="cancel-match" class="btn-secondary">
+                    <span data-i18n="cancel">Cancel</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- 对局进行区域 -->
+        <section id="play-section" class="section hidden">
+            <div class="game-container">
+                <!-- 对局信息 -->
+                <div class="game-info">
+                    <div class="game-header">
+                        <span data-i18n="game_id">Game #</span>
+                        <span id="current-game-id">-</span>
+                    </div>
+                    <div class="opponent-info">
+                        <span data-i18n="opponent">Opponent:</span>
+                        <span id="opponent-address">-</span>
+                    </div>
+                    <div class="bet-info">
+                        <span data-i18n="bet">Bet:</span>
+                        <span id="current-bet">-</span>
+                    </div>
+                    <div class="timer-info">
+                        <span data-i18n="time_left">Time Left:</span>
+                        <span id="time-left">-</span>
+                    </div>
+                </div>
+
+                <!-- 游戏阶段提示 -->
+                <div class="phase-indicator">
+                    <div id="phase-commit" class="phase active">
+                        <span data-i18n="commit_phase">Commit Phase</span>
+                    </div>
+                    <div id="phase-reveal" class="phase">
+                        <span data-i18n="reveal_phase">Reveal Phase</span>
+                    </div>
+                    <div id="phase-result" class="phase">
+                        <span data-i18n="result">Result</span>
+                    </div>
+                </div>
+
+                <!-- 出拳选择 -->
+                <div class="choice-container">
+                    <h3 data-i18n="your_choice">Your Choice</h3>
+                    <div class="choices">
+                        <button class="choice-btn" data-choice="rock">
+                            <span class="choice-icon">🪨</span>
+                            <span class="choice-label" data-i18n="rock">Rock</span>
+                        </button>
+                        <button class="choice-btn" data-choice="paper">
+                            <span class="choice-icon">📄</span>
+                            <span class="choice-label" data-i18n="paper">Paper</span>
+                        </button>
+                        <button class="choice-btn" data-choice="scissors">
+                            <span class="choice-icon">✂️</span>
+                            <span class="choice-label" data-i18n="scissors">Scissors</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 已提交提示 -->
+                <div id="committed-info" class="committed-info hidden">
+                    <p data-i18n="commit_success">✅ Commit submitted successfully!</p>
+                    <p data-i18n="waiting_opponent">Waiting for opponent...</p>
+                </div>
+
+                <!-- 揭晓按钮 -->
+                <div id="reveal-section" class="reveal-section hidden">
+                    <h3 data-i18n="reveal_your_choice">Reveal Your Choice</h3>
+                    <button id="reveal-btn" class="btn-primary">
+                        <span data-i18n="reveal">Reveal</span>
+                    </button>
+                </div>
+
+                <!-- 对局结果 -->
+                <div id="result-section" class="result-section hidden">
+                    <h2 id="result-title">-</h2>
+                    <div class="result-details">
+                        <div class="player-result">
+                            <span data-i18n="you">You:</span>
+                            <span id="your-choice">-</span>
+                        </div>
+                        <div class="opponent-result">
+                            <span data-i18n="opponent">Opponent:</span>
+                            <span id="opponent-choice">-</span>
+                        </div>
+                        <div class="prize-info" id="prize-info">
+                            <span data-i18n="prize">Prize:</span>
+                            <span id="prize-amount">-</span>
+                        </div>
+                    </div>
+                    <!-- 平局处理 -->
+                    <div id="draw-actions" class="draw-actions hidden">
+                        <button id="refund-btn" class="btn-secondary">
+                            <span data-i18n="refund">Refund</span>
+                        </button>
+                        <button id="rematch-btn" class="btn-primary hidden">
+                            <span data-i18n="rematch">Rematch</span>
+                        </button>
+                    </div>
+                    <button id="new-game-btn" class="btn-primary">
+                        <span data-i18n="new_game">New Game</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 对局历史 -->
+        <section id="history-section" class="section hidden">
+            <div class="history-container">
+                <h3 data-i18n="game_history">Game History</h3>
+                <div id="history-list" class="history-list">
+                    <!-- 动态加载 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 预留功能入口 -->
+        <section id="future-section" class="section hidden">
+            <div class="future-container">
+                <h3 data-i18n="coming_soon">Coming Soon</h3>
+                <div class="future-items">
+                    <div class="future-item">
+                        <span data-i18n="private_room">Private Room</span>
+                        <span class="badge" data-i18n="phase2">Phase 2</span>
+                    </div>
+                    <div class="future-item">
+                        <span data-i18n="leaderboard">Leaderboard</span>
+                        <span class="badge" data-i18n="phase2">Phase 2</span>
+                    </div>
+                    <div class="future-item">
+                        <span data-i18n="tournament">Tournament</span>
+                        <span class="badge" data-i18n="phase2">Phase 2</span>
+                    </div>
+                    <div class="future-item">
+                        <span data-i18n="nft_perks">NFT Perks</span>
+                        <span class="badge" data-i18n="phase2">Phase 2</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 底部导航 -->
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-tab="play">
+                <span class="nav-icon">🎮</span>
+                <span data-i18n="play">Play</span>
+            </button>
+            <button class="nav-btn" data-tab="history">
+                <span class="nav-icon">📜</span>
+                <span data-i18n="history">History</span>
+            </button>
+            <button class="nav-btn" data-tab="future">
+                <span class="nav-icon">🔮</span>
+                <span data-i18n="future">Future</span>
+            </button>
+        </nav>
+
+        <!-- 加载遮罩 -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p id="loading-text" data-i18n="loading">Loading...</p>
+            </div>
+        </div>
+
+        <!-- 错误提示 -->
+        <div id="error-modal" class="modal hidden">
+            <div class="modal-content">
+                <h3 data-i18n="error">Error</h3>
+                <p id="error-message">-</p>
+                <button id="error-close" class="btn-secondary">
+                    <span data-i18n="close">Close</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="js/i18n.js"></script>
+    <script src="js/crypto.js"></script>
+    <script src="js/wallet.js"></script>
+    <script src="js/contract.js"></script>
+    <script src="js/websocket.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
