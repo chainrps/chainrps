@@ -41,8 +41,47 @@ const App = (function() {
 
         await autoConnectWallet();
         
-        // 默认打开交易大厅
-        enterLobby();
+        // 处理 URL 路由
+        handleRoute();
+        
+        // 监听 URL 变化
+        window.addEventListener('popstate', handleRoute);
+    }
+
+    function handleRoute() {
+        const path = window.location.pathname;
+        const params = new URLSearchParams(window.location.search);
+        
+        // 解析路由
+        if (path === '/' || path === '/lobby') {
+            enterLobby();
+        } else if (path.startsWith('/room/')) {
+            const roomId = path.replace('/room/', '');
+            if (roomId) {
+                // 先进入大厅，然后加入房间
+                enterLobby();
+                setTimeout(() => {
+                    joinRoom(roomId);
+                }, 500);
+            } else {
+                enterLobby();
+            }
+        } else if (path.startsWith('/game/')) {
+            const gameId = path.replace('/game/', '');
+            if (gameId) {
+                enterLobby();
+                // 可以在这里添加查看游戏结果的逻辑
+            } else {
+                enterLobby();
+            }
+        } else {
+            enterLobby();
+        }
+    }
+
+    function navigateTo(path) {
+        window.history.pushState({}, '', path);
+        handleRoute();
     }
 
     async function autoConnectWallet() {
@@ -94,52 +133,89 @@ const App = (function() {
         document.getElementById('cancelMatchBtn').addEventListener('click', cancelMatch);
 
         document.getElementById('createRoomBtn').addEventListener('click', createRoom);
-        
-        document.getElementById('quickMatchBtn').addEventListener('click', () => {
-            // 直接开始快速匹配，不再跳转到旧界面
-            if (!Wallet.getAddress()) {
-                FWUI.Toast.warning('请先连接钱包');
-                return;
-            }
-            startGame();
-        });
-        
-        document.getElementById('modePublicBtn').addEventListener('click', () => {
-            switchMode('A');
-            document.getElementById('modePublicBtn').classList.add('active');
-            document.getElementById('modePrivateBtn').classList.remove('active');
-        });
-        
-        document.getElementById('modePrivateBtn').addEventListener('click', () => {
-            switchMode('B');
-            document.getElementById('modePrivateBtn').classList.add('active');
-            document.getElementById('modePublicBtn').classList.remove('active');
-        });
-        
-        document.getElementById('joinRoomBtn').addEventListener('click', () => {
-            FWUI.Modal.prompt({
-                title: '加入房间',
-                message: '请输入房间 ID:',
-                placeholder: '房间 ID',
-                confirmText: '加入',
-                cancelText: '取消',
-                onConfirm: (roomId) => {
-                    if (roomId && roomId.trim()) {
-                        joinRoom(roomId.trim());
-                    } else {
-                        FWUI.Toast.warning('请输入有效的房间 ID');
-                    }
-                }
+
+        // 刷新大厅按钮
+        const refreshBtn = document.getElementById('refreshRoomListBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', async () => {
+                refreshBtn.classList.add('refreshing');
+                await loadRoomList();
+                setTimeout(() => refreshBtn.classList.remove('refreshing'), 600);
+                FWUI.Toast.info('已刷新大厅');
+            });
+        }
+
+        // 视图切换（列表/卡片）
+        document.querySelectorAll('.view-switch-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const view = btn.dataset.view;
+                UI.setRoomListView(view);
+                loadRoomList(); // 重新渲染
             });
         });
 
+        // 私密模式复选框
+        const privateCheckbox = document.getElementById('modePrivateCheckbox');
+        if (privateCheckbox) {
+            // 从 localStorage 恢复
+            const savedMode = localStorage.getItem('rps_mode');
+            privateCheckbox.checked = (savedMode === 'B');
+            privateCheckbox.addEventListener('change', () => {
+                currentMode = privateCheckbox.checked ? 'B' : 'A';
+                localStorage.setItem('rps_mode', currentMode);
+                UI.switchMode(currentMode);
+                FWUI.Toast.info(privateCheckbox.checked ? '已切换到私密纯净模式' : '已切换到服务器交易大厅模式');
+            });
+        }
+
+        document.getElementById('joinRoomBtn').addEventListener('click', showJoinRoomDialog);
+
         document.getElementById('readyBtn').addEventListener('click', toggleReady);
 
-        document.getElementById('leaveRoomBtn').addEventListener('click', () => {
-            stopRoomPolling();
-            currentRoomId = null;
-            currentRoom = null;
-            UI.showStage('stageLobby');
+        document.getElementById('leaveRoomBtn').addEventListener('click', async () => {
+            if (!currentRoomId) {
+                UI.showStage('stageLobby');
+                return;
+            }
+
+            const myAddress = Wallet.getAddress();
+            if (!myAddress) {
+                stopRoomPolling();
+                currentRoomId = null;
+                currentRoom = null;
+                UI.showStage('stageLobby');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        room_id: currentRoomId,
+                        player_address: myAddress,
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    if (data.action === 'dissolved') {
+                        FWUI.Toast.info('房间已解散');
+                    } else {
+                        FWUI.Toast.info('已离开房间');
+                    }
+                } else {
+                    FWUI.Toast.warning(data.detail || '退出房间失败');
+                }
+            } catch (e) {
+                console.error('退出房间请求失败:', e);
+            } finally {
+                stopRoomPolling();
+                currentRoomId = null;
+                currentRoom = null;
+                UI.showStage('stageLobby');
+                loadRoomList();
+            }
         });
 
         // 点击房间号徽章或复制按钮，复制房间号
@@ -498,15 +574,21 @@ const App = (function() {
     }
 
     async function enterLobby() {
+        navigateTo('/lobby');
         UI.showStage('stageLobby');
+        // 应用首选视图（PC 默认列表，手机默认卡片，用户可手动切换）
+        UI.setRoomListView(UI.getPreferredRoomListView());
         loadRoomList();
         startLobbyRefresh();
+        connectLobbySocket();
     }
 
     let lobbyRefreshInterval = null;
+    let lobbyWsConnected = false;
 
     function startLobbyRefresh() {
         stopLobbyRefresh();
+        // 兜底轮询：每 30 秒拉取一次（WebSocket 是主要实时通道，轮询仅作补偿）
         lobbyRefreshInterval = setInterval(() => {
             // 离开大厅后自动停止刷新
             const lobby = document.getElementById('stageLobby');
@@ -515,7 +597,7 @@ const App = (function() {
                 return;
             }
             loadRoomList();
-        }, 5000);
+        }, 30000);
     }
 
     function stopLobbyRefresh() {
@@ -523,6 +605,28 @@ const App = (function() {
             clearInterval(lobbyRefreshInterval);
             lobbyRefreshInterval = null;
         }
+    }
+
+    /**
+     * 连接交易大厅 WebSocket，监听房间列表变更事件
+     * 收到 room_list_changed 事件后立即拉取最新房间列表
+     */
+    function connectLobbySocket() {
+        if (lobbyWsConnected) return;
+        if (!CONFIG.wsUrl || !Wallet.getAddress()) return;
+
+        if (!GameSocket.isConnected()) {
+            GameSocket.connect(CONFIG.wsUrl, Wallet.getAddress());
+        }
+        lobbyWsConnected = true;
+
+        // 房间列表变更：实时刷新
+        GameSocket.on('room_list_changed', (data) => {
+            // 只在大厅可见时刷新，避免无意义请求
+            const lobby = document.getElementById('stageLobby');
+            if (!lobby || lobby.classList.contains('hidden')) return;
+            loadRoomList();
+        });
     }
 
     async function loadRoomList() {
@@ -552,16 +656,16 @@ const App = (function() {
                     const tokenOptions = ['ETH', 'USDC', 'USDT'];
                     return `
                         <div style="margin-bottom: 20px;">
-                            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px;">选择代币</div>
+                            <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">选择代币</div>
                             <div style="display: flex; gap: 8px;">
                                 ${tokenOptions.map(t => `
                                     <button class="dialog-token-btn" data-token="${t}" style="
                                         flex: 1;
                                         padding: 10px;
-                                        border: 1px solid ${t === selectedToken ? 'var(--primary-color, #6366f1)' : 'var(--border-color, #e2e8f0)'};
-                                        border-radius: var(--radius-md, 10px);
-                                        background: ${t === selectedToken ? 'var(--primary-color, #6366f1)' : 'var(--bg-card, #fff)'};
-                                        color: ${t === selectedToken ? '#fff' : 'var(--text-primary)'};
+                                        border: 1px solid ${t === selectedToken ? '#6366f1' : '#e2e8f0'};
+                                        border-radius: 10px;
+                                        background: ${t === selectedToken ? '#6366f1' : '#fff'};
+                                        color: ${t === selectedToken ? '#fff' : '#0f172a'};
                                         cursor: pointer;
                                         font-size: 14px;
                                         font-weight: 500;
@@ -571,15 +675,15 @@ const App = (function() {
                             </div>
                         </div>
                         <div style="margin-bottom: 20px;">
-                            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px;">下注金额</div>
+                            <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">下注金额</div>
                             <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
                                 ${presetAmounts.map(a => `
                                     <button class="dialog-amount-btn" data-amount="${a}" style="
                                         padding: 6px 14px;
-                                        border: 1px solid ${a === selectedAmount ? 'var(--primary-color, #6366f1)' : 'var(--border-color, #e2e8f0)'};
-                                        border-radius: var(--radius-full, 999px);
-                                        background: ${a === selectedAmount ? 'var(--primary-color, #6366f1)' : 'var(--bg-card, #fff)'};
-                                        color: ${a === selectedAmount ? '#fff' : 'var(--text-primary)'};
+                                        border: 1px solid ${a === selectedAmount ? '#6366f1' : '#e2e8f0'};
+                                        border-radius: 999px;
+                                        background: ${a === selectedAmount ? '#6366f1' : '#fff'};
+                                        color: ${a === selectedAmount ? '#fff' : '#0f172a'};
                                         cursor: pointer;
                                         font-size: 13px;
                                         transition: all 0.15s ease;
@@ -589,11 +693,11 @@ const App = (function() {
                             <input id="dialogAmountInput" type="number" value="${selectedAmount}" min="1" step="1" style="
                                 width: 100%;
                                 padding: 10px 12px;
-                                border: 1px solid var(--border-color, #e2e8f0);
-                                border-radius: var(--radius-md, 10px);
+                                border: 1px solid #e2e8f0;
+                                border-radius: 10px;
                                 font-size: 14px;
-                                color: var(--text-primary, #0f172a);
-                                background: var(--bg-secondary, #f8fafc);
+                                color: #0f172a;
+                                background: #f8fafc;
                                 box-sizing: border-box;
                                 outline: none;
                             " />
@@ -603,22 +707,22 @@ const App = (function() {
                 footer: `
                     <button class="fwui-btn fwui-btn-default" data-action="cancel" style="
                         padding: 8px 20px;
-                        border-radius: var(--radius-md, 10px);
+                        border-radius: 10px;
                         font-size: 14px;
                         font-weight: 500;
                         cursor: pointer;
-                        border: 1px solid var(--border-color, #e2e8f0);
-                        background: var(--bg-card, #fff);
-                        color: var(--text-primary, #0f172a);
+                        border: 1px solid #e2e8f0;
+                        background: #fff;
+                        color: #0f172a;
                     ">取消</button>
                     <button class="fwui-btn fwui-btn-primary" data-action="confirm" style="
                         padding: 8px 20px;
-                        border-radius: var(--radius-md, 10px);
+                        border-radius: 10px;
                         font-size: 14px;
                         font-weight: 500;
                         cursor: pointer;
                         border: none;
-                        background: var(--primary-color, #6366f1);
+                        background: #6366f1;
                         color: #fff;
                     ">创建房间</button>
                 `
@@ -630,9 +734,9 @@ const App = (function() {
                     selectedToken = btn.dataset.token;
                     modal.element.querySelectorAll('.dialog-token-btn').forEach(b => {
                         const isActive = b.dataset.token === selectedToken;
-                        b.style.borderColor = isActive ? 'var(--primary-color, #6366f1)' : 'var(--border-color, #e2e8f0)';
-                        b.style.background = isActive ? 'var(--primary-color, #6366f1)' : 'var(--bg-card, #fff)';
-                        b.style.color = isActive ? '#fff' : 'var(--text-primary)';
+                        b.style.borderColor = isActive ? '#6366f1' : '#e2e8f0';
+                        b.style.background = isActive ? '#6366f1' : '#fff';
+                        b.style.color = isActive ? '#fff' : '#0f172a';
                     });
                 });
             });
@@ -643,9 +747,9 @@ const App = (function() {
                     selectedAmount = parseFloat(btn.dataset.amount);
                     modal.element.querySelectorAll('.dialog-amount-btn').forEach(b => {
                         const isActive = parseFloat(b.dataset.amount) === selectedAmount;
-                        b.style.borderColor = isActive ? 'var(--primary-color, #6366f1)' : 'var(--border-color, #e2e8f0)';
-                        b.style.background = isActive ? 'var(--primary-color, #6366f1)' : 'var(--bg-card, #fff)';
-                        b.style.color = isActive ? '#fff' : 'var(--text-primary)';
+                        b.style.borderColor = isActive ? '#6366f1' : '#e2e8f0';
+                        b.style.background = isActive ? '#6366f1' : '#fff';
+                        b.style.color = isActive ? '#fff' : '#0f172a';
                     });
                     const input = modal.element.querySelector('#dialogAmountInput');
                     if (input) input.value = selectedAmount;
@@ -719,6 +823,303 @@ const App = (function() {
         }
     }
 
+    function showJoinRoomDialog() {
+        let currentRooms = [];
+        let selectedRoomId = null;
+        let dropdownEl = null;
+
+        const inputId = 'join-room-input-' + Date.now();
+
+        const modal = FWUI.Modal.create({
+            title: '加入房间',
+            closable: false,
+            maskClosable: false,
+            content: () => `
+                <div style="font-size: 14px; color: #475569; margin-bottom: 12px;">请输入房间 ID 或从下方列表选择:</div>
+                <div style="position: relative;">
+                    <input id="${inputId}" type="text" placeholder="输入房间 ID，或点击查看可用房间" style="
+                        width: 100%;
+                        padding: 10px 12px;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 10px;
+                        font-size: 14px;
+                        color: #0f172a;
+                        background: #f8fafc;
+                        box-sizing: border-box;
+                        outline: none;
+                        transition: border-color 0.15s ease;
+                        cursor: pointer;
+                    " />
+                </div>
+            `,
+            footer: `
+                <button class="fwui-btn fwui-btn-default" data-action="cancel" style="
+                    padding: 8px 20px;
+                    border-radius: 10px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    border: 1px solid #e2e8f0;
+                    background: #fff;
+                    color: #0f172a;
+                ">取消</button>
+                <button class="fwui-btn fwui-btn-primary" data-action="ok" style="
+                    padding: 8px 20px;
+                    border-radius: 10px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    border: none;
+                    background: #6366f1;
+                    color: #fff;
+                ">加入</button>
+            `
+        });
+
+        const input = modal.element.querySelector('#' + inputId);
+
+        // 将下拉框放到 body 上，用 fixed 定位，避免被 modal 的 overflow 裁剪
+        function createDropdown() {
+            if (dropdownEl) return;
+            dropdownEl = document.createElement('div');
+            dropdownEl.style.cssText = `
+                position: fixed;
+                background: #fff;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+                z-index: 10001;
+                max-height: 240px;
+                overflow-y: auto;
+                display: none;
+            `;
+            document.body.appendChild(dropdownEl);
+
+            dropdownEl.querySelectorAll('.dropdown-room-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const roomId = item.dataset.roomId;
+                    input.value = roomId;
+                    selectedRoomId = roomId;
+                    hideDropdown();
+                });
+            });
+        }
+
+        function positionDropdown() {
+            if (!dropdownEl || !input) return;
+            const rect = input.getBoundingClientRect();
+            dropdownEl.style.left = rect.left + 'px';
+            dropdownEl.style.top = (rect.bottom + 6) + 'px';
+            dropdownEl.style.width = rect.width + 'px';
+        }
+
+        function showDropdown() {
+            createDropdown();
+            positionDropdown();
+            dropdownEl.style.display = 'block';
+            renderDropdownItems(input.value);
+        }
+
+        function hideDropdown() {
+            if (dropdownEl) {
+                dropdownEl.style.display = 'none';
+            }
+        }
+
+        function renderDropdownItems(keyword) {
+            if (!dropdownEl) return;
+            const kw = (keyword || '').trim().toLowerCase();
+            const filtered = currentRooms.filter(room =>
+                room.status === 'created' &&
+                (!kw || room.room_id.toLowerCase().includes(kw))
+            );
+
+            if (filtered.length === 0) {
+                dropdownEl.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: #94a3b8; font-size: 13px;">
+                        ${kw ? '没有匹配的房间' : '暂无可用房间'}
+                    </div>
+                `;
+            } else {
+                dropdownEl.innerHTML = filtered.map(room => `
+                    <div class="dropdown-room-item" data-room-id="${room.room_id}" style="
+                        padding: 10px 14px;
+                        cursor: pointer;
+                        transition: background 0.15s ease;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    " onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+                        <span style="font-size: 14px; color: #0f172a; font-weight: 500;">#${room.room_id}</span>
+                        <span style="font-size: 12px; color: #64748b;">${room.token} · ${room.bet_amount}</span>
+                    </div>
+                `).join('');
+
+                dropdownEl.querySelectorAll('.dropdown-room-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const roomId = item.dataset.roomId;
+                        input.value = roomId;
+                        selectedRoomId = roomId;
+                        hideDropdown();
+                    });
+                });
+            }
+        }
+
+        async function loadRoomsForDropdown() {
+            if (!CONFIG.backendUrl) return [];
+            try {
+                const response = await fetch(`${CONFIG.backendUrl}/api/game/room/list`);
+                const data = await response.json();
+                return data.rooms || [];
+            } catch (e) {
+                console.error('加载房间列表失败:', e);
+                return [];
+            }
+        }
+
+        // modal 打开后加载房间列表，加载完自动显示下拉
+        setTimeout(async () => {
+            input.focus();
+            const rooms = await loadRoomsForDropdown();
+            currentRooms = rooms;
+            if (document.activeElement === input) {
+                showDropdown();
+            }
+        }, 150);
+
+        // 窗口变化时重新定位
+        window.addEventListener('resize', positionDropdown);
+        window.addEventListener('scroll', positionDropdown, true);
+
+        input.addEventListener('input', () => {
+            if (dropdownEl && dropdownEl.style.display === 'block') {
+                renderDropdownItems(input.value);
+            } else {
+                showDropdown();
+            }
+        });
+
+        input.addEventListener('focus', () => {
+            showDropdown();
+        });
+
+        input.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showDropdown();
+        });
+
+        // 点击外部关闭
+        document.addEventListener('click', handleOutsideClick);
+        function handleOutsideClick(e) {
+            if (!dropdownEl) return;
+            if (!dropdownEl.contains(e.target) && e.target !== input) {
+                hideDropdown();
+            }
+        }
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (dropdownEl && dropdownEl.style.display === 'block') {
+                    hideDropdown();
+                    e.stopPropagation();
+                } else {
+                    modal.close();
+                }
+            }
+        });
+
+        const okBtn = modal.element.querySelector('[data-action="ok"]');
+        const cancelBtn = modal.element.querySelector('[data-action="cancel"]');
+
+        // 清理函数
+        const originalClose = modal.close;
+        modal.close = function() {
+            window.removeEventListener('resize', positionDropdown);
+            window.removeEventListener('scroll', positionDropdown, true);
+            document.removeEventListener('click', handleOutsideClick);
+            if (dropdownEl) {
+                dropdownEl.remove();
+                dropdownEl = null;
+            }
+            originalClose.call(modal);
+        };
+
+        okBtn.addEventListener('click', async () => {
+            const roomId = input.value.trim();
+            if (!roomId) {
+                FWUI.Toast.warning('请输入有效的房间 ID');
+                return;
+            }
+
+            const myAddress = Wallet.getAddress();
+            if (!myAddress) {
+                FWUI.Toast.warning('请先连接钱包');
+                return;
+            }
+
+            okBtn.disabled = true;
+            okBtn.textContent = '加入中...';
+
+            try {
+                const response = await fetch(`${CONFIG.backendUrl}/api/game/room/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        room_id: roomId,
+                        player_address: myAddress
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.room_id) {
+                    currentRoomId = roomId;
+                    currentRoom = data;
+                    modal.close();
+                    enterRoomWait();
+                } else {
+                    // 422 验证错误的 detail 是数组，需要提取字段信息
+                    let errorMsg = '加入房间失败';
+                    if (Array.isArray(data.detail) && data.detail.length > 0) {
+                        const firstErr = data.detail[0];
+                        errorMsg = `参数错误: ${firstErr.loc ? firstErr.loc.join('.') + ' ' : ''}${firstErr.msg || ''}`;
+                    } else if (typeof data.detail === 'string') {
+                        errorMsg = data.detail;
+                    } else if (data.message) {
+                        errorMsg = data.message;
+                    }
+
+                    if (errorMsg.includes('房间不存在')) {
+                        FWUI.Toast.warning(errorMsg);
+                    } else {
+                        FWUI.Toast.error(errorMsg);
+                    }
+                    okBtn.disabled = false;
+                    okBtn.textContent = '加入';
+                    input.focus();
+                }
+            } catch (e) {
+                FWUI.Toast.error(e.message || '加入房间失败');
+                okBtn.disabled = false;
+                okBtn.textContent = '加入';
+                input.focus();
+            }
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            modal.close();
+        });
+
+        setTimeout(() => {
+            input.focus();
+        }, 100);
+
+        loadRoomsForDropdown().then(rooms => {
+            currentRooms = rooms;
+        });
+    }
+
     async function joinRoom(roomId) {
         if (!Wallet.isConnected()) {
             FWUI.Toast.warning('请先连接钱包');
@@ -775,6 +1176,9 @@ const App = (function() {
     }
 
     function enterRoomWait() {
+        if (currentRoomId) {
+            navigateTo(`/room/${currentRoomId}`);
+        }
         UI.showStage('stageRoomWait');
         updateRoomUI();
         startRoomPolling();
@@ -811,6 +1215,24 @@ const App = (function() {
         GameSocket.on('chain_game_created', (data) => {
             if (currentRoomId === data.room_id) {
                 handleChainGameCreated(data);
+            }
+        });
+        // 房间被创建者解散（对手已离开）
+        GameSocket.on('room_dissolved', (data) => {
+            if (currentRoomId === data.room_id) {
+                FWUI.Toast.warning(data.message || '房间已被解散');
+                stopRoomPolling();
+                currentRoomId = null;
+                currentRoom = null;
+                UI.showStage('stageLobby');
+                loadRoomList();
+            }
+        });
+        // 对手（player2）离开房间
+        GameSocket.on('player_left', (data) => {
+            if (currentRoomId === data.room_id) {
+                FWUI.Toast.info(data.message || '对手已离开房间');
+                loadRoomStatus();
             }
         });
     }

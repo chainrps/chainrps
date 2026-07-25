@@ -151,9 +151,26 @@ def update_last_login(admin_id: int):
 
 
 def init_default_admin():
-    """首次启动时创建默认超级管理员（admin / ADMIN）"""
+    """
+    初始化默认超级管理员（admin / ADMIN）
+
+    - 账户不存在时自动创建
+    - 账户存在但 password_hash 为空时（忘记密码重置场景），自动恢复为默认密码
+    """
     existing = get_admin_by_username(DEFAULT_ADMIN_USERNAME)
     if existing:
+        # 忘记密码重置：SQL 将 password_hash 清空后重启后端，自动恢复默认密码
+        if not existing.get("password_hash"):
+            conn = get_connection()
+            try:
+                conn.execute(
+                    "UPDATE admins SET password_hash = ? WHERE id = ?",
+                    (hash_password(DEFAULT_ADMIN_PASSWORD), existing["id"]),
+                )
+                conn.commit()
+                print(f"✅ 管理员 {DEFAULT_ADMIN_USERNAME} 密码已重置为默认值")
+            finally:
+                conn.close()
         return
     create_admin(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, role="superadmin")
 

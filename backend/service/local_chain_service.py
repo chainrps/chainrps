@@ -7,6 +7,7 @@
 """
 import os
 import json
+import shutil
 import subprocess
 import threading
 import time
@@ -15,13 +16,36 @@ from typing import Optional, List, Dict, Any
 from web3 import Web3
 
 
+def _find_ganache_executable() -> Optional[str]:
+    """
+    在 Windows 上查找可执行的 ganache 命令路径。
+
+    Python subprocess.Popen 不使用 shell=True 时无法直接执行 .ps1/.cmd 脚本，
+    需要找到完整的 .cmd 或 .exe 路径。
+    """
+    # shutil.which 会按 PATHEXT 查找，优先返回 .cmd/.exe 而非 .ps1
+    for name in ("ganache.cmd", "ganache.exe", "ganache.bat", "ganache"):
+        path = shutil.which(name)
+        if path:
+            # 跳过 .ps1，因为 subprocess 无法直接执行
+            if not path.lower().endswith(".ps1"):
+                return path
+    # 回退：尝试 npm 全局目录
+    npm_prefix = os.path.expanduser("~\\AppData\\Roaming\\npm")
+    for ext in (".cmd", ".exe", ""):
+        candidate = os.path.join(npm_prefix, "ganache" + ext)
+        if os.path.exists(candidate) and not candidate.lower().endswith(".ps1"):
+            return candidate
+    return None
+
+
 class LocalChainService:
     _instance = None
     _process: Optional[subprocess.Popen] = None
     _accounts: List[str] = []
     _private_keys: List[str] = []
     _rpc_url: str = "http://127.0.0.1:8545"
-    _chain_id: int = 31337
+    _chain_id: int = 1337
     _w3: Optional[Web3] = None
     _tokens: Dict[str, Dict[str, Any]] = {}
 
@@ -35,6 +59,11 @@ class LocalChainService:
         try:
             self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
             if self._w3.is_connected():
+                # 动态读取节点真实的 chain_id，避免与配置默认值不一致
+                try:
+                    self._chain_id = self._w3.eth.chain_id
+                except Exception:
+                    pass
                 self._load_accounts()
                 self._load_tokens_from_db()
         except Exception:
@@ -87,28 +116,49 @@ class LocalChainService:
             return {"success": True, "message": "本地链已在运行", "rpc_url": self._rpc_url}
 
         try:
-            cmd = ["ganache"]
+            # Windows 上 ganache 是 .ps1/.cmd 脚本，subprocess.Popen 无法直接执行
+            # 需要找到完整的 .cmd 或 .exe 路径
+            ganache_path = _find_ganache_executable()
+            if not ganache_path:
+                return {
+                    "success": False,
+                    "message": "未找到 ganache 可执行文件。请先安装: npm install -g ganache",
+                }
+            print(f"🔍 找到 ganache 路径: {ganache_path}")
+
+            cmd = [ganache_path]
             cmd.extend(["--server.host", host])
             cmd.extend(["--server.port", str(port)])
             cmd.extend(["--chain.chainId", str(chain_id)])
-            cmd.extend(["--chain.nativeTokenSymbol", symbol])
+            # 注意：--chain.nativeTokenSymbol 在 Ganache v7.x 中不存在，不要添加
+            # 原生代币符号由 chain ID 决定（1337 默认为 ETH）
             if deterministic:
                 cmd.append("--wallet.deterministic")
             cmd.extend(["--wallet.totalAccounts", str(accounts_count)])
             cmd.extend(["--wallet.defaultBalance", str(default_balance)])
+
+            print(f"🚀 启动 ganache: {' '.join(cmd)}")
 
             self._process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                # Windows 上需要 CREATE_NO_WINDOW 避免弹出控制台窗口
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
             )
 
-            time.sleep(3)
+            # 等待节点启动（最多 5 秒）
+            time.sleep(5)
 
             if self._process.poll() is not None:
                 stderr = self._process.stderr.read() if self._process.stderr else ""
-                return {"success": False, "message": f"启动失败: {stderr}"}
+                stdout = self._process.stdout.read() if self._process.stdout else ""
+                error_detail = stderr or stdout or "未知错误"
+                # 截断过长的错误信息
+                if len(error_detail) > 500:
+                    error_detail = error_detail[:500] + "...[截断]"
+                return {"success": False, "message": f"ganache 进程已退出: {error_detail}"}
 
             # 更新实例配置（覆盖类属性默认值）
             self._rpc_url = f"http://{host}:{port}"
@@ -116,6 +166,12 @@ class LocalChainService:
             self._init_web3()
 
             if self._w3 and self._w3.is_connected():
+                # 读取节点实际的 chain_id（可能与传入参数不同）
+                try:
+                    actual_chain_id = self._w3.eth.chain_id
+                    self._chain_id = actual_chain_id
+                except Exception:
+                    pass
                 return {
                     "success": True,
                     "message": "本地链启动成功",
@@ -128,7 +184,17 @@ class LocalChainService:
                     "port": port,
                 }
             else:
-                return {"success": False, "message": "本地链启动但无法连接"}
+                # 读取 stderr 帮助诊断
+                stderr_preview = ""
+                try:
+                    if self._process and self._process.stderr:
+                        stderr_preview = self._process.stderr.read()[:300]
+                except Exception:
+                    pass
+                msg = "本地链进程已启动但 RPC 无法连接"
+                if stderr_preview:
+                    msg += f"。stderr: {stderr_preview}"
+                return {"success": False, "message": msg}
 
         except FileNotFoundError:
             return {"success": False, "message": "未找到 ganache 命令，请先安装: npm install -g ganache"}
@@ -230,6 +296,11 @@ class LocalChainService:
 
         if running and self._w3:
             try:
+                # 始终读取节点真实 chain_id，避免返回过期的缓存值
+                actual_chain_id = self._w3.eth.chain_id
+                self._chain_id = actual_chain_id
+                result["chain_id"] = actual_chain_id
+
                 block_number = self._w3.eth.block_number
                 gas_price = self._w3.eth.gas_price
                 result.update({

@@ -70,6 +70,9 @@ class RoomManager:
         self._rooms[room_id] = room
         redis_client.cache_room_state(room_id, room)
 
+        # 广播房间列表变更，让交易大厅实时刷新
+        self._broadcast_room_list_changed("room_created", room_id)
+
         return {
             "success": True,
             "room_id": room_id,
@@ -110,6 +113,9 @@ class RoomManager:
                 "player2": player_address,
             }
         )))
+
+        # 广播房间列表变更（房间被占用，从大厅消失）
+        self._broadcast_room_list_changed("room_joined", room_id)
 
         return {
             "success": True,
@@ -385,10 +391,117 @@ class RoomManager:
 
         return sorted(active_rooms, key=lambda r: r["created_at"], reverse=True)
 
+    def leave_room(self, room_id: str, player_address: str) -> dict:
+        """
+        玩家退出房间
+
+        规则：
+        - 房间不存在 → 返回错误
+        - 非房间玩家 → 返回错误
+        - 创建者退出：
+            * 无 player2 → 直接解散房间（从内存和缓存移除）
+            * 有 player2 → 通知 player2 房间已解散，移除房间
+        - player2 退出：
+            * 重置房间为 CREATED 状态，player2 置空
+            * 通知创建者 player2 已离开
+            * 双方准备状态重置
+        - 游戏已开始（GAME_STARTED）→ 不允许通过此接口退出，需走索赔流程
+
+        Args:
+            room_id: 房间ID
+            player_address: 退出者地址
+
+        Returns:
+            {"success": True, "action": "dissolved" | "left", "message": "..."}
+        """
+        room = self._rooms.get(room_id)
+        if not room:
+            return {"success": False, "message": "房间不存在"}
+
+        # 游戏已开始不允许通过此接口退出
+        if room["status"] == ROOM_STATUS["GAME_STARTED"]:
+            return {"success": False, "message": "游戏已开始，无法退出房间，请使用超时索赔"}
+
+        is_creator = room["creator"].lower() == player_address.lower()
+        is_player2 = room["player2"] and room["player2"].lower() == player_address.lower()
+
+        if not (is_creator or is_player2):
+            return {"success": False, "message": "你不在此房间中"}
+
+        if is_creator:
+            # 创建者退出 → 解散房间
+            player2 = room.get("player2")
+            self._rooms.pop(room_id, None)
+            redis_client.delete_cached_room_state(room_id)
+
+            # 通知 player2（如有）房间已解散
+            if player2:
+                asyncio.create_task(ws_manager.send_to_player(player2, WSMessage(
+                    type="room_dissolved",
+                    data={
+                        "room_id": room_id,
+                        "reason": "creator_left",
+                        "message": "创建者已离开，房间已解散",
+                    }
+                )))
+
+            # 广播房间列表变更（房间已从大厅消失）
+            self._broadcast_room_list_changed("room_dissolved", room_id)
+
+            return {"success": True, "action": "dissolved", "message": "房间已解散"}
+
+        # player2 退出 → 重置房间为 CREATED 状态，保留在交易大厅
+        room["player2"] = None
+        room["status"] = ROOM_STATUS["CREATED"]
+        room["creator_ready"] = False
+        room["player2_ready"] = False
+        room["countdown_start"] = None
+        self._rooms[room_id] = room
+        redis_client.cache_room_state(room_id, room)
+
+        # 通知创建者 player2 已离开
+        creator = room.get("creator")
+        if creator:
+            asyncio.create_task(ws_manager.send_to_player(creator, WSMessage(
+                type="player_left",
+                data={
+                    "room_id": room_id,
+                    "player2": player_address,
+                    "message": "对手已离开房间",
+                }
+            )))
+
+        # 广播房间列表变更（房间重新开放，回到大厅）
+        self._broadcast_room_list_changed("room_reopened", room_id)
+
+        return {"success": True, "action": "left", "message": "已离开房间"}
+
+    def _broadcast_room_list_changed(self, event: str, room_id: str):
+        """
+        广播房间列表变更事件给所有已连接客户端
+
+        交易大厅的客户端收到此事件后，应主动拉取一次房间列表，
+        以获取最新状态（新增/消失/状态变化的房间）。
+
+        Args:
+            event: 变更事件类型（room_created/room_joined/room_dissolved/room_reopened）
+            room_id: 相关房间ID
+        """
+        asyncio.create_task(ws_manager.broadcast(WSMessage(
+            type="room_list_changed",
+            data={
+                "event": event,
+                "room_id": room_id,
+                "timestamp": now_timestamp(),
+            }
+        )))
+
     def remove_room(self, room_id: str):
         """移除房间"""
         self._rooms.pop(room_id, None)
         redis_client.delete_cached_room_state(room_id)
+        # 广播房间列表变更
+        self._broadcast_room_list_changed("room_removed", room_id)
 
 
 room_manager = RoomManager()

@@ -108,6 +108,12 @@ class ToggleReadyRequest(BaseModel):
     player_address: str
 
 
+class LeaveRoomRequest(BaseModel):
+    """退出房间请求"""
+    room_id: str
+    player_address: str
+
+
 class ReportChainGameRequest(BaseModel):
     """上报链上对局 ID 请求"""
     chain_game_id: int
@@ -325,6 +331,7 @@ __all__ = [
     "CreateRoomRequest",
     "JoinRoomRequest",
     "ToggleReadyRequest",
+    "LeaveRoomRequest",
     "ReportChainGameRequest",
     "RoomResponse",
     "RoomListResponse",

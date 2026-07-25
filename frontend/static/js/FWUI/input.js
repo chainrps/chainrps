@@ -20,9 +20,9 @@
         wrapper.style.cssText = `
             display: flex;
             align-items: center;
-            border: 1px solid var(--border-color, #e2e8f0);
-            border-radius: var(--radius-md, 10px);
-            background: var(--bg-card, #fff);
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #fff;
             transition: all 0.15s ease;
             position: relative;
         `;
@@ -43,7 +43,7 @@
             border: none;
             outline: none;
             background: transparent;
-            color: var(--text-primary, #0f172a);
+            color: #0f172a;
             ${sizeStyles[size] || sizeStyles.medium}
             min-width: 0;
         `;
@@ -63,7 +63,7 @@
             prefixEl.className = 'fwui-input-prefix';
             prefixEl.style.cssText = `
                 padding-left: 14px;
-                color: var(--text-tertiary, #94a3b8);
+                color: #94a3b8;
                 display: flex;
                 align-items: center;
                 flex-shrink: 0;
@@ -79,7 +79,7 @@
             suffixEl.className = 'fwui-input-suffix';
             suffixEl.style.cssText = `
                 padding-right: 14px;
-                color: var(--text-tertiary, #94a3b8);
+                color: #94a3b8;
                 display: flex;
                 align-items: center;
                 flex-shrink: 0;
@@ -89,13 +89,13 @@
         }
 
         input.addEventListener('focus', () => {
-            wrapper.style.borderColor = 'var(--primary-color, #6366f1)';
-            wrapper.style.boxShadow = '0 0 0 3px var(--primary-light, #e0e7ff)';
+            wrapper.style.borderColor = '#6366f1';
+            wrapper.style.boxShadow = '0 0 0 3px #e0e7ff';
             if (onFocus) onFocus();
         });
 
         input.addEventListener('blur', () => {
-            wrapper.style.borderColor = 'var(--border-color, #e2e8f0)';
+            wrapper.style.borderColor = '#e2e8f0';
             wrapper.style.boxShadow = 'none';
             if (onBlur) onBlur();
         });

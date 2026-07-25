@@ -637,7 +637,7 @@ async def start_local_chain(request: Request):
     支持可选的自定义配置，全部参数均可省略使用默认值：
     - host: 监听地址，默认 127.0.0.1
     - port: 端口，默认 8545
-    - chain_id: 链 ID，默认 31337
+    - chain_id: 链 ID，默认 1337
     - accounts_count: 生成账户数，默认 10
     - default_balance: 每个账户默认余额，默认 1000
     - symbol: 原生代币符号，默认 ETH

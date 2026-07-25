@@ -24,7 +24,7 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rps.db")
 # ==================== 合约配置 ====================
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "")
 RPC_URL = os.getenv("RPC_URL", "http://127.0.0.1:8545")
-CHAIN_ID = int(os.getenv("CHAIN_ID", 31337))
+CHAIN_ID = int(os.getenv("CHAIN_ID", 1337))
 
 # ==================== 超时配置（秒） ====================
 COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))    # 提交哈希超时

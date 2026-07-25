@@ -7,6 +7,23 @@
     <link rel="stylesheet" href="../css/style.css">
     <link rel="stylesheet" href="../css/theme.css">
     <style>
+        /* CSS变量定义 */
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-card: #ffffff;
+            --card-bg: #ffffff;
+            --input-bg: #f8fafc;
+            
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            
+            --border-color: #e2e8f0;
+            --primary-color: #6366f1;
+            --accent: #3b82f6;
+        }
+        
         /* ==================== 侧边栏布局 ==================== */
         * { box-sizing: border-box; }
         body { margin: 0; }
@@ -258,6 +275,7 @@
         .deploy-status {
             margin-top: 16px; padding: 12px; border-radius: 8px;
             font-family: monospace; font-size: 12px; word-break: break-all;
+            white-space: pre-wrap; max-height: 200px; overflow-y: auto;
         }
         .deploy-status.success { background: #dcfce7; color: #166534; }
         .deploy-status.error { background: #fee2e2; color: #991b1b; }
@@ -296,6 +314,17 @@
         .login-submit { margin-top: 8px; padding: 12px; font-size: 15px; }
         .login-hint { font-size: 12px; color: var(--text-secondary); margin: 16px 0 0; opacity: 0.8; }
         .login-error { color: #dc2626; font-size: 13px; margin-top: 8px; min-height: 18px; }
+        .login-forgot { margin-top: 12px; text-align: left; }
+        .login-forgot summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+        .login-forgot summary:hover { color: var(--accent, #3b82f6); }
+        .login-forgot-body { margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
+        .login-forgot-body p { margin: 0 0 6px; }
+        .login-forgot-body code { background: var(--bg-secondary, #f3f4f6); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+        .login-forgot-body pre {
+            background: var(--bg-secondary, #1e293b); color: var(--text-primary, #e2e8f0);
+            padding: 10px; border-radius: 6px; font-size: 11px; overflow-x: auto;
+            white-space: pre-wrap; word-break: break-all; margin: 0;
+        }
     </style>
 </head>
 <body>
@@ -318,6 +347,51 @@
        <div class="login-error" id="loginError"></div>
      </form>
      <p class="login-hint">默认账号：admin / ADMIN（请及时修改密码）</p>
+     <details class="login-forgot">
+       <summary>忘记密码？</summary>
+       <div class="login-forgot-body">
+         <p>在服务器执行以下命令重置为默认密码 <code>ADMIN</code>：</p>
+         <pre># 方式一：一键重置脚本（推荐）
+.venv\Scripts\python.exe scripts\reset_admin_password.py
+
+# 方式二：直接 SQL
+sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
+# 然后重启后端，会自动用默认密码 ADMIN 重新初始化</pre>
+       </div>
+     </details>
+   </div>
+ </div>
+
+ <!-- 修改密码模态框 -->
+ <div id="changePasswordModal" class="modal-overlay">
+   <div class="modal-content" style="max-width: 380px;">
+     <div class="modal-header">
+       <h3 class="modal-title">🔑 修改密码</h3>
+       <button class="modal-close" onclick="AdminApp.closeChangePasswordModal()">&times;</button>
+     </div>
+     <div class="modal-body">
+       <form onsubmit="return AdminApp.handleChangePassword(event)">
+         <!-- 隐藏的 username 字段，消除浏览器 accessibility 警告 -->
+         <input type="text" name="username" autocomplete="username" style="display:none" tabindex="-1">
+         <div class="form-group" style="margin-bottom: 14px;">
+           <label>原密码</label>
+           <input type="password" id="oldPassword" placeholder="原密码" autocomplete="current-password" required>
+         </div>
+         <div class="form-group" style="margin-bottom: 14px;">
+           <label>新密码</label>
+           <input type="password" id="newPassword" placeholder="新密码" autocomplete="new-password" required minlength="1">
+         </div>
+         <div class="form-group" style="margin-bottom: 14px;">
+           <label>确认新密码</label>
+           <input type="password" id="confirmPassword" placeholder="重复新密码" autocomplete="new-password" required minlength="4">
+         </div>
+         <div class="login-error" id="changePwdError"></div>
+       </form>
+     </div>
+     <div class="modal-footer">
+       <button class="btn btn-secondary" onclick="AdminApp.closeChangePasswordModal()">取消</button>
+       <button class="btn btn-primary" id="changePwdBtn" onclick="AdminApp.handleChangePasswordClick()">确认修改</button>
+     </div>
    </div>
  </div>
 
@@ -359,6 +433,7 @@
     </nav>
     <div class="sidebar-footer">
       <a href="/" class="back-link">← 返回游戏</a>
+      <button class="btn btn-outline" onclick="AdminApp.openChangePasswordModal()" title="修改登录密码" style="width: 100%; margin-top: 8px; font-size: 13px;">🔑 修改密码</button>
       <button class="btn btn-outline" onclick="AdminApp.logout()" title="退出登录" style="width: 100%; margin-top: 8px; font-size: 13px;">🚪 退出登录</button>
     </div>
   </aside>

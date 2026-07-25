@@ -121,6 +121,76 @@ const AdminApp = {
         this._showLogin();
     },
 
+    // ==================== 修改密码 ====================
+
+    openChangePasswordModal() {
+        document.getElementById('changePasswordModal').classList.add('show');
+        document.getElementById('oldPassword').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        document.getElementById('changePwdError').textContent = '';
+    },
+
+    closeChangePasswordModal() {
+        document.getElementById('changePasswordModal').classList.remove('show');
+    },
+
+    handleChangePasswordClick() {
+        // 按钮点击触发，调用表单提交逻辑
+        this.handleChangePassword({ preventDefault: () => {} });
+    },
+
+    async handleChangePassword(event) {
+        if (event && event.preventDefault) event.preventDefault();
+        const oldPwd = document.getElementById('oldPassword').value;
+        const newPwd = document.getElementById('newPassword').value;
+        const confirmPwd = document.getElementById('confirmPassword').value;
+        const errEl = document.getElementById('changePwdError');
+        const btn = document.getElementById('changePwdBtn');
+        errEl.textContent = '';
+
+        if (!oldPwd || !newPwd || !confirmPwd) {
+            errEl.textContent = '请填写所有字段';
+            return false;
+        }
+        if (newPwd !== confirmPwd) {
+            errEl.textContent = '两次输入的新密码不一致';
+            return false;
+        }
+        if (newPwd.length < 1) {
+            errEl.textContent = '新密码至少 1 位';
+            return false;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '修改中...';
+        try {
+            const res = await fetch(CONFIG.backendUrl + '/api/auth/change-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + this.getToken(),
+                },
+                body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                FWUI.Toast.success('密码修改成功，请重新登录');
+                this.closeChangePasswordModal();
+                // 密码已改，旧 token 仍有效但建议重新登录
+                setTimeout(() => this.logout(), 1500);
+            } else {
+                errEl.textContent = data.detail || data.message || '修改失败';
+            }
+        } catch (e) {
+            errEl.textContent = '网络错误：' + e.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '确认修改';
+        }
+        return false;
+    },
+
     _initAfterAuth() {
         this.autoConnectWallet();
         // 根据初始 hash 决定加载哪个 tab，默认 dashboard
@@ -196,7 +266,7 @@ const AdminApp = {
 
                 // 更新 UI 显示已连接状态
                 document.getElementById('adminWallet').innerHTML = `
-                    <span style="font-family: monospace; font-size: 13px; color: var(--text-secondary);">
+                    <span style="font-family: monospace; font-size: 13px; color: #475569;">
                         ${this.adminAddress.slice(0, 8)}...${this.adminAddress.slice(-6)}
                     </span>
                 `;
@@ -235,7 +305,10 @@ const AdminApp = {
         if (tabName === 'contracts') this.loadContracts();
         if (tabName === 'config') this.loadConfig();
         if (tabName === 'audit') this.loadAuditLogs();
-        if (tabName === 'localChain') this.refreshNodeStatus();
+        if (tabName === 'localChain') {
+            this._applyNodeConfigToForm();
+            this.refreshNodeStatus();
+        }
         if (tabName === 'redis') this.refreshRedisStatus();
     },
 
@@ -290,7 +363,7 @@ const AdminApp = {
             const tbody = document.getElementById('contractsTableBody');
 
             if (contracts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">暂无合约记录</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: #475569;">暂无合约记录</td></tr>';
                 return;
             }
 
@@ -394,27 +467,192 @@ const AdminApp = {
         el.style.display = 'block';
         el.className = 'deploy-status ' + type;
 
-        // 对于错误类型，截断过长的消息
+        // 对于错误类型，截断过长的消息（保留更多内容用于调试）
         if (type === 'error') {
-            message = this.truncateLongString(message, 300);
+            message = this.truncateLongString(message, 2500);
         }
 
         el.textContent = message;
     },
 
-    // 将 ethers.js / RPC 错误翻译为中文提示
+    // 将 ethers.js / RPC 错误翻译为中文提示，并附带完整的原始错误信息
     translateDeployError(error) {
         const msg = (error && error.message) ? error.message : String(error);
         const lower = msg.toLowerCase();
 
-        // 按优先级匹配常见错误模式
+        // ===== 1. 递归提取 ethers.js v6 嵌套错误结构中的所有关键字段 =====
+        // ethers v6 错误结构通常为：error.error.info.error.data / error.error.data / error.reason
+        const extractFullErrorInfo = (err) => {
+            const found = [];
+            const seen = new Set();
+            const walk = (node, depth) => {
+                if (!node || typeof node !== 'object' || depth > 6) return;
+                if (seen.has(node)) return;
+                seen.add(node);
+                const entry = {};
+                if (node.code !== undefined) entry.code = node.code;
+                if (node.message && typeof node.message === 'string') entry.message = node.message.slice(0, 300);
+                if (node.data && typeof node.data === 'string') entry.data = node.data.slice(0, 200);
+                if (node.method) entry.method = node.method;
+                if (node.transaction && typeof node.transaction === 'object') entry.transactionHash = node.transaction.hash || '';
+                if (node.reason) entry.reason = node.reason;
+                if (Object.keys(entry).length > 0) found.push(entry);
+                // 向下钻取所有可能的嵌套错误字段
+                walk(node.error, depth + 1);
+                if (node.info) walk(node.info, depth + 1);
+                if (node.info && node.info.error) walk(node.info.error, depth + 1);
+                walk(node.reason, depth + 1);
+                walk(node.action, depth + 1);
+            };
+            walk(err, 0);
+            return found;
+        };
+
+        // ===== 2. 尝试解码 0x 开头的 revert data 为可读字符串 =====
+        // Solidity revert reason 通常为: 0x08c379a0... + ABI 编码的字符串
+        // 或自定义 error的 4-byte selector + data
+        const decodeRevertData = (hex) => {
+            if (!hex || typeof hex !== 'string' || !hex.startsWith('0x')) return null;
+            // 纯 0x 空数据
+            if (hex === '0x') return '空(0x)';
+            // 提取字符串片段（尝试将 hex 转 UTF-8）
+            try {
+                const cleanHex = hex.slice(2);
+                if (cleanHex.length >= 8) {
+                    // 标准 Error(string) selector: 0x08c379a0
+                    if (cleanHex.startsWith('08c379a0') && cleanHex.length >= 136) {
+                        // ABI 解码: 跳过 selector(4B)+offset(32B)+length(32B)，读取字符串
+                        const strHex = cleanHex.slice(136); // 8+64+64 chars
+                        const bytes = [];
+                        for (let i = 0; i + 2 <= strHex.length; i += 2) {
+                            const b = parseInt(strHex.substr(i, 2), 16);
+                            if (b !== 0) bytes.push(b);
+                        }
+                        const decoded = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+                        if (decoded) return 'revert: "' + decoded + '"';
+                    }
+                    // Panic(uint256) selector: 0x4e487b71
+                    if (cleanHex.startsWith('4e487b71') && cleanHex.length >= 72) {
+                        const codeHex = cleanHex.slice(8, 72).replace(/^0+/, '');
+                        const panicCode = parseInt(codeHex || '0', 16);
+                        const panicMap = {
+                            0x01: 'assert(false)',
+                            0x11: '算术溢出',
+                            0x12: '除以零',
+                            0x21: 'enum 越界',
+                            0x22: '存储编码错误',
+                            0x31: 'pop 空数组',
+                            0x32: '数组越界',
+                            0x41: '分配过多内存',
+                            0x51: '未初始化内部函数',
+                        };
+                        return 'panic(0x' + panicCode.toString(16) + '): ' + (panicMap[panicCode] || '未知');
+                    }
+                }
+                // 尝试直接解码为 UTF-8（可能是自定义错误数据）
+                const bytes = [];
+                for (let i = 0; i + 2 <= cleanHex.length; i += 2) {
+                    bytes.push(parseInt(cleanHex.substr(i, 2), 16));
+                }
+                // 只保留可打印 ASCII 字符
+                const printable = bytes.filter(b => b >= 32 && b <= 126);
+                if (printable.length >= 4 && printable.length >= bytes.length * 0.5) {
+                    const str = String.fromCharCode(...printable);
+                    if (str.length >= 4) return '可读片段: "' + str.slice(0, 100) + '"';
+                }
+            } catch (e) { /* ignore */ }
+            return null;
+        };
+
+        // ===== 3. 收集所有错误详情 =====
+        const allErrorInfo = extractFullErrorInfo(error);
+
+        // 查找所有 data 字段并尝试解码
+        const decodedReverts = [];
+        const allDataFields = [];
+        const collectData = (node, depth) => {
+            if (!node || typeof node !== 'object' || depth > 6) return;
+            if (node.data && typeof node.data === 'string' && node.data.startsWith('0x')) {
+                allDataFields.push(node.data);
+                const decoded = decodeRevertData(node.data);
+                if (decoded) decodedReverts.push(decoded);
+            }
+            collectData(node.error, depth + 1);
+            if (node.info) collectData(node.info, depth + 1);
+            if (node.info && node.info.error) collectData(node.info.error, depth + 1);
+        };
+        collectData(error, 0);
+
+        // 从错误消息中提取 0x 数据
+        const msgHexMatch = msg.match(/0x[0-9a-fA-F]{8,}/);
+        if (msgHexMatch) {
+            allDataFields.push(msgHexMatch[0]);
+            const decoded = decodeRevertData(msgHexMatch[0]);
+            if (decoded && !decodedReverts.includes(decoded)) decodedReverts.push(decoded);
+        }
+
+        // 提取所有 code 值
+        const allCodes = [];
+        allErrorInfo.forEach(e => {
+            if (e.code !== undefined && !allCodes.includes(e.code)) allCodes.push(e.code);
+        });
+        const msgCodeMatch = msg.match(/code[=:]\s*(-?\d+)/i);
+        if (msgCodeMatch) allCodes.push(Number(msgCodeMatch[1]));
+
+        // ===== 4. 构建详细的错误详情块 =====
+        const detailLines = [];
+        if (allCodes.length > 0) detailLines.push('RPC错误码: ' + allCodes.join(', '));
+        if (allDataFields.length > 0) detailLines.push('Revert数据: ' + [...new Set(allDataFields)].slice(0, 3).join(' | '));
+        if (decodedReverts.length > 0) detailLines.push('解码结果: ' + [...new Set(decodedReverts)].join(' | '));
+        // 添加最深层错误消息
+        const deepMsgs = allErrorInfo.map(e => e.message).filter(Boolean);
+        if (deepMsgs.length > 0) {
+            const uniqueMsgs = [...new Set(deepMsgs)].slice(0, 2);
+            detailLines.push('链端消息: ' + uniqueMsgs.join(' | '));
+        }
+        // 添加 method
+        const methods = allErrorInfo.map(e => e.method).filter(Boolean);
+        if (methods.length > 0) detailLines.push('RPC方法: ' + [...new Set(methods)].join(', '));
+
+        // 构建完整错误对象 JSON（用于调试，截断到合理长度）
+        const fullJson = (() => {
+            try {
+                const seen = new Set();
+                const safeObj = (node, depth) => {
+                    if (!node || typeof node !== 'object' || depth > 4) return null;
+                    if (seen.has(node)) return '[Circular]';
+                    seen.add(node);
+                    const result = {};
+                    ['code', 'message', 'data', 'method', 'reason', 'shortMessage'].forEach(k => {
+                        if (node[k] !== undefined) {
+                            result[k] = typeof node[k] === 'string' ? node[k].slice(0, 150) : node[k];
+                        }
+                    });
+                    if (node.error) result.error = safeObj(node.error, depth + 1);
+                    if (node.info) result.info = safeObj(node.info, depth + 1);
+                    return result;
+                };
+                const obj = safeObj(error, 0);
+                if (obj) return JSON.stringify(obj, null, 1).slice(0, 600);
+            } catch (e) { /* ignore */ }
+            return '';
+        })();
+
+        const detailBlock = detailLines.length > 0
+            ? '\n\n📋 错误详情:\n  ' + detailLines.join('\n  ')
+            : '';
+        const jsonBlock = fullJson
+            ? '\n\n🔧 完整错误对象(JSON):\n' + fullJson
+            : '';
+
+        // ===== 5. 按优先级匹配常见错误模式 =====
         const patterns = [
             { test: /user rejected|action_rejected|user denied/, zh: '您在钱包中拒绝了签名请求' },
             { test: /insufficient funds|gas required exceeds allowance/, zh: '账户余额不足，无法支付部署所需的 Gas 费用' },
-            { test: /could not coalesce error.*rpc.*0x7a69|rpc.*0x7a69.*custom error/, zh: '本地链(Ganache)返回了非标准错误，可能是 Ganache 版本与 ethers.js v6 不兼容，或合约构造函数执行失败' },
+            { test: /eth_maxpriorityfeepergas.*does not exist|method.*eth_maxpriorityfeepergas/, zh: '本地链不支持 EIP-1559 方法 eth_maxPriorityFeePerGas（Ganache 旧版本常见），已自动回退到 legacy gasPrice 模式，请重试' },
             { test: /invalid chain id.*for chain with id/, zh: 'Chain ID 不匹配：MetaMask 网络配置的 Chain ID 与本地节点不一致。请点击本地链页面的"🔗 切换到本地网络"按钮自动配置' },
-            { test: /could not coalesce error/, zh: '链端返回了无法解析的错误响应，请检查节点是否正常运行' },
-            { test: /execution reverted/, zh: '合约执行被回退(revert)，通常是构造函数参数校验失败或前置条件不满足' },
+            { test: /could not coalesce error/, zh: '本地链(Ganache)返回了非标准错误响应（ethers.js v6 无法解析）。最常见原因：1) MetaMask 与节点的 Chain ID 不一致 2) 合约构造函数 revert 3) Ganache 版本与 ethers.js v6 兼容性问题。请查看下方错误详情中的 RPC 错误码和 Revert 数据' },
+            { test: /execution reverted/, zh: '合约执行被回退(revert)，通常是构造函数参数校验失败或前置条件不满足。请查看下方解码结果中的 revert 原因' },
             { test: /nonce too low/, zh: 'Nonce 过低，请重置钱包账户的 Nonce（MetaMask → 设置 → 高级 → 清除活动数据）' },
             { test: /nonce too high/, zh: 'Nonce 过高，请等待之前的交易打包后再试' },
             { test: /gas price too low|underpriced/, zh: 'Gas 价格太低，被节点拒绝' },
@@ -427,25 +665,15 @@ const AdminApp = {
             { test: /connect.*failed|econnrefused|fetch failed/, zh: '无法连接到 RPC 节点，请确认本地链(8545)已启动' },
         ];
 
-        // 提取关键错误信息（错误码、RPC错误码等）
-        const errorCodeMatch = msg.match(/0x[0-9a-fA-F]+/);
-        const rpcCodeMatch = msg.match(/code:\s*(-?\d+)/);
-        const errorInfo = [];
-        if (errorCodeMatch) errorInfo.push(errorCodeMatch[0]);
-        if (rpcCodeMatch) errorInfo.push(`code:${rpcCodeMatch[1]}`);
-        
         for (const p of patterns) {
             if (p.test.test(lower)) {
-                // 返回中文翻译 + 关键错误代码
-                if (errorInfo.length > 0) {
-                    return p.zh + ' [' + errorInfo.join(', ') + ']';
-                }
-                return p.zh;
+                return p.zh + detailBlock + jsonBlock;
             }
         }
 
-        // 未知错误：返回简短提示 + 截断的原始信息
-        return '部署失败（未知错误类型），原始信息：' + this.truncateLongString(msg, 150);
+        // 未知错误：返回原始信息 + 错误详情
+        let result = '部署失败（未知错误类型）\n原始信息: ' + this.truncateLongString(msg, 300);
+        return result + detailBlock + jsonBlock;
     },
 
     async deployContract() {
@@ -505,14 +733,17 @@ const AdminApp = {
 
             const isLocalNet = chainId === 31337 || chainId === 1337;
 
-            try {
-                const feeData = await this.provider.getFeeData();
-
-                if (isLocalNet) {
-                    // Ganache 不支持 EIP-1559，必须使用 legacy gasPrice
-                    // 否则会出现 "RPC 0x7a69 Custom error" + maxPriorityFeePerGas 错误
-                    deployOptions.gasPrice = feeData.gasPrice || ethers.parseUnits('20', 'gwei');
-                } else {
+            // 本地链(Ganache)兼容性处理：
+            // Ganache 旧版本不支持 eth_maxPriorityFeePerGas，调用 getFeeData() 会报错
+            // 因此本地链直接跳过 getFeeData，使用固定 gasPrice
+            if (isLocalNet) {
+                // Ganache 不支持 EIP-1559，直接使用固定 legacy gasPrice
+                // 不调用 getFeeData() 避免触发 eth_maxPriorityFeePerGas 错误
+                deployOptions.gasPrice = ethers.parseUnits('20', 'gwei');
+                this.showDeployStatus('本地链模式: 使用固定 gasPrice (20 gwei)，跳过 EIP-1559 查询...', 'info');
+            } else {
+                try {
+                    const feeData = await this.provider.getFeeData();
                     if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
                         const minPriority = ethers.parseUnits('30', 'gwei');
                         const minMaxFee = ethers.parseUnits('50', 'gwei');
@@ -525,10 +756,25 @@ const AdminApp = {
                         const minGasPrice = ethers.parseUnits('30', 'gwei');
                         deployOptions.gasPrice = gasPrice < minGasPrice ? minGasPrice : gasPrice;
                     }
+                } catch (e) {
+                    console.warn('获取 gas 价格失败，回退到默认 gasPrice:', e.message);
+                    deployOptions.gasPrice = ethers.parseUnits('50', 'gwei');
                 }
-            } catch (e) {
-                console.warn('获取 gas 价格失败，回退到默认 gasPrice:', e.message);
-                deployOptions.gasPrice = ethers.parseUnits(isLocalNet ? '20' : '50', 'gwei');
+            }
+
+            // 部署前检查 Chain ID 是否与 MetaMask 一致
+            try {
+                const mmChainId = await window.ethereum.request({ method: 'eth_chainId' });
+                const mmChainIdDec = parseInt(mmChainId, 16);
+                if (mmChainIdDec !== chainId) {
+                    throw new Error(`Chain ID 不匹配：MetaMask 网络 Chain ID 为 ${mmChainIdDec}，但 RPC 节点返回 ${chainId}。请点击本地链页面的"🔗 切换到本地网络"按钮自动配置`);
+                }
+            } catch (cidError) {
+                if (cidError.message && cidError.message.includes('Chain ID 不匹配')) {
+                    throw cidError;
+                }
+                // 读取失败不阻塞，继续部署
+                console.warn('无法读取 MetaMask Chain ID:', cidError.message);
             }
 
             this.showDeployStatus('请在钱包中确认部署交易...', 'info');
@@ -776,10 +1022,10 @@ const AdminApp = {
                 return `
                     <div class="dropdown-item" onclick="AdminApp.selectContract('${addr}', '${name}')">
                         <span style="font-weight: 500;">${name}</span>
-                        <span style="font-family: monospace; font-size: 12px; color: var(--text-secondary); display: block;">
+                        <span style="font-family: monospace; font-size: 12px; color: #475569; display: block;">
                             ${addr.slice(0, 10)}...${addr.slice(-8)}
                         </span>
-                        <span style="font-size: 11px; color: var(--text-muted);">
+                        <span style="font-size: 11px; color: #cbd5e1;">
                             ${network} | ${status}
                         </span>
                     </div>
@@ -871,12 +1117,12 @@ const AdminApp = {
         const count = startId - endId + 1;
 
         if (total === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">暂无对局</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: #475569;">暂无对局</td></tr>';
             document.getElementById('chainGamesPagination').textContent = '共 0 局';
             return;
         }
 
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">加载中...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: #475569;">加载中...</td></tr>';
 
         const games = [];
         for (let id = startId; id >= endId; id--) {
@@ -1012,6 +1258,59 @@ const AdminApp = {
 
     _localTokens: [],
 
+    _NODE_CONFIG_KEY: 'rps_local_chain_config',
+
+    _saveNodeConfig(config) {
+        try {
+            localStorage.setItem(this._NODE_CONFIG_KEY, JSON.stringify(config));
+        } catch (e) {
+            console.warn('保存节点配置失败:', e);
+        }
+    },
+
+    _loadNodeConfig() {
+        try {
+            const raw = localStorage.getItem(this._NODE_CONFIG_KEY);
+            if (raw) return JSON.parse(raw);
+        } catch (e) {
+            console.warn('加载节点配置失败:', e);
+        }
+        return null;
+    },
+
+    _applyNodeConfigToForm() {
+        const cfg = this._loadNodeConfig();
+        if (!cfg) return;
+        if (cfg.host != null) {
+            const el = document.getElementById('nodeConfigHost');
+            if (el) el.value = cfg.host;
+        }
+        if (cfg.port != null) {
+            const el = document.getElementById('nodeConfigPort');
+            if (el) el.value = cfg.port;
+        }
+        if (cfg.chain_id != null) {
+            const el = document.getElementById('nodeConfigChainId');
+            if (el) el.value = cfg.chain_id;
+        }
+        if (cfg.accounts_count != null) {
+            const el = document.getElementById('nodeConfigAccounts');
+            if (el) el.value = cfg.accounts_count;
+        }
+        if (cfg.default_balance != null) {
+            const el = document.getElementById('nodeConfigBalance');
+            if (el) el.value = cfg.default_balance;
+        }
+        if (cfg.symbol != null) {
+            const el = document.getElementById('nodeConfigSymbol');
+            if (el) el.value = cfg.symbol;
+        }
+        if (cfg.deterministic != null) {
+            const el = document.getElementById('nodeConfigDeterministic');
+            if (el) el.checked = !!cfg.deterministic;
+        }
+    },
+
     async refreshNodeStatus() {
         try {
             const status = await this.apiRequest('/api/admin/local-chain/status');
@@ -1075,17 +1374,33 @@ const AdminApp = {
             } catch (switchError) {
                 // 4902 = 链未添加，需要先添加
                 if (switchError.code === 4902) {
-                    await window.ethereum.request({
-                        method: 'wallet_addEthereumChain',
-                        params: [{
-                            chainId: hexChainId,
-                            chainName: `Localhost ${port}`,
-                            nativeCurrency: { name: symbol, symbol: symbol, decimals: 18 },
-                            rpcUrls: [rpcUrl],
-                            blockExplorerUrls: null,
-                        }],
-                    });
-                    FWUI.Toast.success('已添加并切换到本地网络');
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: hexChainId,
+                                chainName: `Localhost ${port}`,
+                                nativeCurrency: { name: symbol, symbol: symbol, decimals: 18 },
+                                rpcUrls: [rpcUrl],
+                                blockExplorerUrls: null,
+                            }],
+                        });
+                        FWUI.Toast.success('已添加并切换到本地网络');
+                    } catch (addError) {
+                        const addMsg = (addError.message || '').toLowerCase();
+                        // MetaMask 已存在相同 RPC URL 的网络（但 chain ID 不同）
+                        if (addMsg.includes('same rpc endpoint') || addMsg.includes('existing network')) {
+                            // 提取已存在的 chain ID
+                            const existingMatch = (addError.message || '').match(/chain\s+0x[0-9a-fA-F]+/i);
+                            const existingChain = existingMatch ? existingMatch[0] : '(未知)';
+                            FWUI.Toast.error(
+                                'MetaMask 已有相同RPC的网络(' + existingChain +
+                                ')。请在MetaMask中手动修改"Localhost 8545"网络的Chain ID为 ' + chainId
+                            );
+                        } else {
+                            throw addError;
+                        }
+                    }
                 } else {
                     throw switchError;
                 }
@@ -1128,6 +1443,8 @@ const AdminApp = {
             FWUI.Toast.info('正在启动节点...');
             const result = await this.apiRequest('/api/admin/local-chain/start', 'POST', payload);
             FWUI.Toast.success(result.message || '节点启动成功');
+            // 保存启动参数到 localStorage
+            this._saveNodeConfig(payload);
             this.refreshNodeStatus();
         } catch (e) {
             FWUI.Toast.error('启动失败: ' + e.message);
@@ -1159,7 +1476,7 @@ const AdminApp = {
 
             // 更新账户表格
             if (accounts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">无账户</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #475569;">无账户</td></tr>';
                 fundSelect.innerHTML = '<option value="">-- 请选择账户 --</option>';
                 return;
             }
@@ -1241,7 +1558,7 @@ const AdminApp = {
         const tokens = this._localTokens;
 
         if (tokens.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">暂无代币</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #475569;">暂无代币</td></tr>';
             return;
         }
 
@@ -1436,7 +1753,7 @@ const AdminApp = {
             tbody.innerHTML = Object.entries(config).map(([k, v]) => `
                 <tr>
                     <td><code>${k}</code> ${friendlyNames[k] ? '(' + friendlyNames[k] + ')' : ''}</td>
-                    <td style="word-break: break-all;">${v || '<span style="color:var(--text-secondary)">空</span>'}</td>
+                    <td style="word-break: break-all;">${v || '<span style="color:#475569">空</span>'}</td>
                 </tr>
             `).join('');
 
@@ -1455,7 +1772,7 @@ const AdminApp = {
             const tbody = document.getElementById('redisKeysBody');
 
             if (keys.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 30px; color: var(--text-secondary);">无匹配键</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 30px; color: #475569;">无匹配键</td></tr>';
             } else {
                 tbody.innerHTML = keys.map(k => `
                     <tr>
@@ -1527,7 +1844,7 @@ const AdminApp = {
             const container = document.getElementById('configList');
 
             if (configs.length === 0) {
-                container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-secondary);">暂无配置项</div>';
+                container.innerHTML = '<div style="padding:40px; text-align:center; color:#475569;">暂无配置项</div>';
                 return;
             }
 
@@ -1565,47 +1882,47 @@ const AdminApp = {
             title: '批量更新配置',
             content: `
                 <div class="form-group" style="margin-bottom: 12px;">
-                    <label style="display:block; font-size:13px; margin-bottom:6px; color:var(--text-secondary);">
-                        JSON 格式配置
-                    </label>
-                    <textarea id="batchConfigInput" rows="4" style="
-                        width: 100%;
-                        padding: 10px 12px;
-                        border: 1px solid var(--border-color);
-                        border-radius: 8px;
-                        background: var(--input-bg);
-                        color: var(--text-primary);
-                        font-family: monospace;
-                        font-size: 13px;
-                    " placeholder='{"key1":"val1","key2":"val2"}'></textarea>
-                </div>
-                <div style="font-size: 12px; color: var(--text-secondary);">
-                    请输入 JSON 格式的批量配置，如: {"key1":"val1","key2":"val2"}
-                </div>
-            `,
-            width: '480px',
-            footer: `
-                <button class="fwui-btn fwui-btn-default" style="
-                    padding: 8px 20px;
-                    border-radius: var(--radius-md, 10px);
-                    font-size: 14px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    border: 1px solid var(--border-color, #e2e8f0);
-                    background: var(--bg-card, #fff);
-                    color: var(--text-primary, #0f172a);
-                " onclick="document.querySelector('.fwui-modal-mask').remove();">取消</button>
-                <button class="fwui-btn fwui-btn-primary" style="
-                    padding: 8px 20px;
-                    border-radius: var(--radius-md, 10px);
-                    font-size: 14px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    border: none;
-                    background: var(--primary-color, #6366f1);
-                    color: #fff;
-                " onclick="AdminApp.doBatchUpdate()">确认更新</button>
-            `
+                    <label style="display:block; font-size:13px; margin-bottom:6px; color:#475569;">
+                            JSON 格式配置
+                        </label>
+                        <textarea id="batchConfigInput" rows="4" style="
+                            width: 100%;
+                            padding: 10px 12px;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 8px;
+                            background: #f8fafc;
+                            color: #0f172a;
+                            font-family: monospace;
+                            font-size: 13px;
+                        " placeholder='{"key1":"val1","key2":"val2"}'></textarea>
+                    </div>
+                    <div style="font-size: 12px; color: #475569;">
+                        请输入 JSON 格式的批量配置，如: {"key1":"val1","key2":"val2"}
+                    </div>
+                `,
+                width: '480px',
+                footer: `
+                    <button class="fwui-btn fwui-btn-default" style="
+                        padding: 8px 20px;
+                        border-radius: 10px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        cursor: pointer;
+                        border: 1px solid #e2e8f0;
+                        background: #fff;
+                        color: #0f172a;
+                    " onclick="document.querySelector('.fwui-modal-mask').remove();">取消</button>
+                    <button class="fwui-btn fwui-btn-primary" style="
+                        padding: 8px 20px;
+                        border-radius: 10px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        cursor: pointer;
+                        border: none;
+                        background: #6366f1;
+                        color: #fff;
+                    " onclick="AdminApp.doBatchUpdate()">确认更新</button>
+                `
         });
     },
 
@@ -1635,7 +1952,7 @@ const AdminApp = {
             const tbody = document.getElementById('auditTableBody');
 
             if (data.logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--text-secondary);">暂无日志</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 40px; color: #475569;">暂无日志</td></tr>';
                 return;
             }
 
@@ -1711,8 +2028,7 @@ const AdminApp = {
     },
 
     async loadAbi() {
-        const res = await fetch(CONFIG.backendUrl + '/api/admin/contracts');
-        const contracts = await res.json();
+        const contracts = await this.apiRequest('/api/admin/contracts');
         if (contracts.length > 0 && contracts[0].abi) {
             return JSON.parse(contracts[0].abi);
         }
@@ -1731,7 +2047,7 @@ const AdminApp = {
             this.signer = await this.provider.getSigner();
 
             document.getElementById('adminWallet').innerHTML = `
-                <span style="font-family: monospace; font-size: 13px; color: var(--text-secondary);">
+                <span style="font-family: monospace; font-size: 13px; color: #475569;">
                     ${this.adminAddress.slice(0, 8)}...${this.adminAddress.slice(-6)}
                 </span>
             `;

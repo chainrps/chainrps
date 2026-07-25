@@ -19,6 +19,7 @@ from backend.models import (
     JoinMatchRequest,
     JoinPrivateMatchRequest,
     JoinRoomRequest,
+    LeaveRoomRequest,
     MatchJoinResponse,
     MatchStatusResponse,
     ReportChainGameRequest,
@@ -124,6 +125,30 @@ async def toggle_ready(request: ToggleReadyRequest):
         created_at=room["created_at"],
         game_id=room.get("game_id"),
     )
+
+
+@router.post("/room/leave")
+async def leave_room(request: LeaveRoomRequest):
+    """
+    退出房间
+
+    - 创建者退出 → 解散房间（从交易大厅移除）
+    - player2 退出 → 房间重置为 CREATED 状态，保留在交易大厅
+    - 游戏已开始 → 不允许退出，需走索赔流程
+    """
+    result = room_manager.leave_room(
+        request.room_id,
+        request.player_address,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "退出失败"))
+
+    return {
+        "success": True,
+        "action": result.get("action"),
+        "message": result.get("message"),
+    }
 
 
 @router.get("/room/list", response_model=RoomListResponse)

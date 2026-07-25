@@ -7,6 +7,7 @@ const UI = (function() {
         elements.walletInfo = document.getElementById('walletInfo');
         elements.walletBalance = document.getElementById('walletBalance');
         elements.walletAddress = document.getElementById('walletAddress');
+        elements.walletAvatar = document.getElementById('walletAvatar');
         elements.disconnectBtn = document.getElementById('disconnectBtn');
         
         elements.modeSwitcher = document.getElementById('modeSwitcher');
@@ -100,12 +101,27 @@ const UI = (function() {
             elements.walletInfo.classList.remove('hidden');
             elements.walletAddress.textContent = formatAddress(address);
             if (balance !== undefined) {
-                elements.walletBalance.textContent = `${parseFloat(balance).toFixed(2)} ${token || 'USDC'}`;
+                elements.walletBalance.textContent = `${parseFloat(balance).toFixed(4)} ${token || 'USDC'}`;
+            }
+            // 设置头像 - 根据地址生成独特的emoji头像
+            if (elements.walletAvatar) {
+                elements.walletAvatar.textContent = getAvatarForAddress(address);
             }
         } else {
             elements.connectWalletBtn.classList.remove('hidden');
             elements.walletInfo.classList.add('hidden');
         }
+    }
+
+    function getAvatarForAddress(address) {
+        if (!address) return '👤';
+        const avatars = ['😎', '🚀', '🦄', '🌟', '💎', '🔥', '⚡', '🎯', '🏆', '💪', '🎮', '🎲', '💫', '🎭', '🐲', '🦸'];
+        const hash = address.toLowerCase().replace('0x', '');
+        let sum = 0;
+        for (let i = 0; i < hash.length; i++) {
+            sum += hash.charCodeAt(i);
+        }
+        return avatars[sum % avatars.length];
     }
 
     function formatAddress(address, len = 6) {
@@ -314,16 +330,17 @@ const UI = (function() {
         buttons.forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
-        
+
+        // 旧界面元素已迁移至交易大厅，这里做 null 保护，避免初始化时报错
         if (mode === 'B') {
-            elements.modeBSection.classList.remove('hidden');
-            elements.modeBDesc.classList.remove('hidden');
-            elements.startGameBtnText.textContent = '创建/加入私密对局';
+            if (elements.modeBSection) elements.modeBSection.classList.remove('hidden');
+            if (elements.modeBDesc) elements.modeBDesc.classList.remove('hidden');
+            if (elements.startGameBtnText) elements.startGameBtnText.textContent = '创建/加入私密对局';
             if (elements.startBtnHint) elements.startBtnHint.classList.add('hidden');
         } else {
-            elements.modeBSection.classList.add('hidden');
-            elements.modeBDesc.classList.add('hidden');
-            elements.startGameBtnText.textContent = '🏠 进入交易大厅';
+            if (elements.modeBSection) elements.modeBSection.classList.add('hidden');
+            if (elements.modeBDesc) elements.modeBDesc.classList.add('hidden');
+            if (elements.startGameBtnText) elements.startGameBtnText.textContent = '🏠 进入交易大厅';
             if (elements.startBtnHint) elements.startBtnHint.classList.remove('hidden');
         }
     }
@@ -381,55 +398,107 @@ const UI = (function() {
         }
     }
 
+    let roomListView = 'list'; // 'list' | 'card'
+
+    function setRoomListView(view) {
+        roomListView = view;
+        if (elements.roomList) {
+            elements.roomList.classList.toggle('view-list', view === 'list');
+            elements.roomList.classList.toggle('view-card', view === 'card');
+        }
+        document.querySelectorAll('.view-switch-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === view);
+        });
+        localStorage.setItem('rps_room_view', view);
+    }
+
+    function getPreferredRoomListView() {
+        // 手机默认卡片，PC 默认列表
+        const stored = localStorage.getItem('rps_room_view');
+        if (stored === 'list' || stored === 'card') return stored;
+        const isMobile = window.matchMedia('(max-width: 768px)').matches;
+        return isMobile ? 'card' : 'list';
+    }
+
     function renderRoomList(rooms) {
         if (!elements.roomList) return;
+
+        // 应用视图类
+        elements.roomList.classList.toggle('view-list', roomListView === 'list');
+        elements.roomList.classList.toggle('view-card', roomListView === 'card');
+
+        // 更新统计
+        const total = rooms.length;
+        const available = rooms.filter(r => r.status === 'created').length;
+        const started = rooms.filter(r => r.status === 'game_started').length;
+        const statTotalEl = document.getElementById('statTotal');
+        const statAvailableEl = document.getElementById('statAvailable');
+        const statStartedEl = document.getElementById('statStarted');
+        if (statTotalEl) statTotalEl.textContent = total;
+        if (statAvailableEl) statAvailableEl.textContent = available;
+        if (statStartedEl) statStartedEl.textContent = started;
 
         if (!rooms || rooms.length === 0) {
             elements.roomList.innerHTML = `
                 <div class="empty-state">
                     <span class="empty-icon">🏠</span>
                     <p>暂无可用房间</p>
-                    <p class="empty-hint">点击上方按钮创建第一个房间</p>
+                    <p class="empty-hint">点击下方按钮创建第一个房间</p>
                 </div>
             `;
             return;
         }
 
-        elements.roomList.innerHTML = rooms.map(room => `
-            <div class="room-card">
-                <div class="room-card-header">
-                    <span class="room-id">#${room.room_id}</span>
-                    <span class="room-status ${room.status === 'created' ? 'status-waiting' : 'status-joined'}">
-                        ${room.status === 'created' ? '等待对手' : '已加入'}
-                    </span>
-                </div>
-                <div class="room-card-body">
-                    <div class="room-player-info">
-                        <span class="player-label">创建者</span>
-                        <span class="player-value">${formatAddress(room.creator)}</span>
+        const statusText = (status) => {
+            const map = {
+                'created': '等待对手',
+                'joined': '已加入',
+                'ready': '已准备',
+                'countdown': '倒计时',
+                'game_started': '已开始',
+                'finished': '已结束'
+            };
+            return map[status] || status;
+        };
+
+        elements.roomList.innerHTML = rooms.map(room => {
+            const isAvailable = room.status === 'created';
+            return `
+                <div class="room-card">
+                    <div class="room-card-header">
+                        <span class="room-id">#${room.room_id}</span>
+                        <span class="room-status ${isAvailable ? 'status-waiting' : 'status-joined'}">
+                            ${statusText(room.status)}
+                        </span>
                     </div>
-                    ${room.player2 ? `
+                    <div class="room-card-body">
                         <div class="room-player-info">
-                            <span class="player-label">对手</span>
-                            <span class="player-value">${formatAddress(room.player2)}</span>
+                            <span class="player-label">创建者</span>
+                            <span class="player-value">${formatAddress(room.creator)}</span>
                         </div>
-                    ` : ''}
-                    <div class="room-bet-info">
-                        <span class="bet-token">${room.token}</span>
-                        <span class="bet-amount">${room.bet_amount}</span>
+                        ${room.player2 ? `
+                            <div class="room-player-info">
+                                <span class="player-label">对手</span>
+                                <span class="player-value">${formatAddress(room.player2)}</span>
+                            </div>
+                        ` : ''}
+                        <div class="room-bet-info">
+                            <span class="bet-token">${room.token}</span>
+                            <span class="bet-amount">${room.bet_amount}</span>
+                        </div>
                     </div>
+                    ${isAvailable ? `
+                        <button class="btn btn-primary btn-block btn-join-room" data-room-id="${room.room_id}">
+                            加入房间
+                        </button>
+                    ` : `
+                        <button class="btn btn-default btn-block" disabled>
+                            ${room.status === 'game_started' ? '游戏中' : '不可加入'}
+                        </button>
+                    `}
                 </div>
-                ${room.status === 'created' ? `
-                    <button class="btn btn-primary btn-block btn-join-room" data-room-id="${room.room_id}">
-                        加入房间
-                    </button>
-                ` : `
-                    <button class="btn btn-default btn-block" disabled>
-                        房间已满
-                    </button>
-                `}
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
     function setRoomInfo(room) {
@@ -536,6 +605,8 @@ const UI = (function() {
         switchView,
         updateStats,
         renderRoomList,
+        setRoomListView,
+        getPreferredRoomListView,
         setRoomInfo,
         updateRoomReady,
         setReadyButtonText,

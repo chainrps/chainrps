@@ -30,14 +30,14 @@
         const modal = document.createElement('div');
         modal.className = 'fwui-modal';
         modal.style.cssText = `
-            background: var(--bg-card, #fff);
-            border-radius: var(--radius-lg, 16px);
+            background: #fff;
+            border-radius: 16px;
             width: ${width};
             max-width: 90vw;
             max-height: 85vh;
             display: flex;
             flex-direction: column;
-            box-shadow: var(--shadow-xl, 0 20px 25px -5px rgb(0 0 0 / 0.1));
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
             transform: scale(0.9);
             transition: transform 0.2s ease;
             overflow: hidden;
@@ -48,7 +48,7 @@
             headerHtml = `
                 <div class="fwui-modal-header" style="
                     padding: 20px 24px;
-                    border-bottom: 1px solid var(--border-color, #e2e8f0);
+                    border-bottom: 1px solid #e2e8f0;
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
@@ -57,7 +57,7 @@
                     <div class="fwui-modal-title" style="
                         font-size: 18px;
                         font-weight: 600;
-                        color: var(--text-primary, #0f172a);
+                        color: #0f172a;
                     ">${title}</div>
                     ${closable ? `
                         <button class="fwui-modal-close" style="
@@ -68,8 +68,8 @@
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            border-radius: var(--radius-sm, 6px);
-                            color: var(--text-tertiary, #94a3b8);
+                            border-radius: 6px;
+                            color: #94a3b8;
                             transition: all 0.15s ease;
                             font-size: 20px;
                             line-height: 1;
@@ -84,7 +84,7 @@
             footerHtml = `
                 <div class="fwui-modal-footer" style="
                     padding: 16px 24px;
-                    border-top: 1px solid var(--border-color, #e2e8f0);
+                    border-top: 1px solid #e2e8f0;
                     display: flex;
                     justify-content: flex-end;
                     gap: 12px;
@@ -99,7 +99,7 @@
                 padding: 24px;
                 overflow-y: auto;
                 flex: 1;
-                color: var(--text-secondary, #475569);
+                color: #475569;
             ">${typeof content === 'function' ? content() : content}</div>
             ${footerHtml}
         `;
@@ -181,23 +181,23 @@
             footer: `
                 <button class="fwui-btn fwui-btn-default" data-action="cancel" style="
                     padding: 8px 20px;
-                    border-radius: var(--radius-md, 10px);
+                    border-radius: 10px;
                     font-size: 14px;
                     font-weight: 500;
                     cursor: pointer;
-                    border: 1px solid var(--border-color, #e2e8f0);
-                    background: var(--bg-card, #fff);
-                    color: var(--text-primary, #0f172a);
+                    border: 1px solid #e2e8f0;
+                    background: #fff;
+                    color: #0f172a;
                     transition: all 0.15s ease;
                 ">${cancelText}</button>
                 <button class="fwui-btn fwui-btn-${okType}" data-action="ok" style="
                     padding: 8px 20px;
-                    border-radius: var(--radius-md, 10px);
+                    border-radius: 10px;
                     font-size: 14px;
                     font-weight: 500;
                     cursor: pointer;
                     border: none;
-                    background: var(--primary-color, #6366f1);
+                    background: #6366f1;
                     color: #fff;
                     transition: all 0.15s ease;
                 ">${okText}</button>
@@ -254,15 +254,15 @@
         const modal = createModal({
             title,
             content: `
-                ${message ? `<div style="margin-bottom: 12px; font-size: 14px; color: var(--text-secondary, #475569);">${message}</div>` : ''}
+                ${message ? `<div style="margin-bottom: 12px; font-size: 14px; color: #475569;">${message}</div>` : ''}
                 <input id="${inputId}" type="text" value="${value}" placeholder="${placeholder}" style="
                     width: 100%;
                     padding: 10px 12px;
-                    border: 1px solid var(--border-color, #e2e8f0);
-                    border-radius: var(--radius-md, 10px);
+                    border: 1px solid #e2e8f0;
+                    border-radius: 10px;
                     font-size: 14px;
-                    color: var(--text-primary, #0f172a);
-                    background: var(--bg-secondary, #f8fafc);
+                    color: #0f172a;
+                    background: #f8fafc;
                     box-sizing: border-box;
                     outline: none;
                     transition: border-color 0.15s ease;
@@ -273,23 +273,23 @@
             footer: `
                 <button class="fwui-btn fwui-btn-default" data-action="cancel" style="
                     padding: 8px 20px;
-                    border-radius: var(--radius-md, 10px);
+                    border-radius: 10px;
                     font-size: 14px;
                     font-weight: 500;
                     cursor: pointer;
-                    border: 1px solid var(--border-color, #e2e8f0);
-                    background: var(--bg-card, #fff);
-                    color: var(--text-primary, #0f172a);
+                    border: 1px solid #e2e8f0;
+                    background: #fff;
+                    color: #0f172a;
                     transition: all 0.15s ease;
                 ">${cancelText}</button>
                 <button class="fwui-btn fwui-btn-primary" data-action="ok" style="
                     padding: 8px 20px;
-                    border-radius: var(--radius-md, 10px);
+                    border-radius: 10px;
                     font-size: 14px;
                     font-weight: 500;
                     cursor: pointer;
                     border: none;
-                    background: var(--primary-color, #6366f1);
+                    background: #6366f1;
                     color: #fff;
                     transition: all 0.15s ease;
                 ">${confirmText}</button>

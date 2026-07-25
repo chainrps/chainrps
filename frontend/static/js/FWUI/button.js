@@ -1,6 +1,6 @@
 (function() {
     function createButton(options = {}) {
-        const {
+        let {
             text = '',
             type = 'default',
             size = 'medium',
@@ -17,33 +17,33 @@
 
         const typeStyles = {
             primary: `
-                background: var(--primary-color, #6366f1);
+                background: #6366f1;
                 color: #fff;
                 border: none;
             `,
             default: `
-                background: var(--bg-card, #fff);
-                color: var(--text-primary, #0f172a);
-                border: 1px solid var(--border-color, #e2e8f0);
+                background: #fff;
+                color: #0f172a;
+                border: 1px solid #e2e8f0;
             `,
             success: `
-                background: var(--success-color, #10b981);
+                background: #10b981;
                 color: #fff;
                 border: none;
             `,
             danger: `
-                background: var(--danger-color, #ef4444);
+                background: #ef4444;
                 color: #fff;
                 border: none;
             `,
             ghost: `
                 background: transparent;
-                color: var(--text-primary, #0f172a);
+                color: #0f172a;
                 border: none;
             `,
             link: `
                 background: transparent;
-                color: var(--primary-color, #6366f1);
+                color: #6366f1;
                 border: none;
                 padding: 0;
             `
@@ -58,7 +58,7 @@
         let style = `
             ${typeStyles[type] || typeStyles.default}
             ${sizeStyles[size] || sizeStyles.medium}
-            border-radius: var(--radius-md, 10px);
+            border-radius: 10px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.15s ease;
@@ -106,9 +106,9 @@
         btn.addEventListener('mouseenter', () => {
             if (!btn.disabled) {
                 if (type === 'primary') {
-                    btn.style.background = 'var(--primary-hover, #4f46e5)';
+                    btn.style.background = '#4f46e5';
                 } else if (type === 'default') {
-                    btn.style.background = 'var(--bg-hover, #f1f5f9)';
+                    btn.style.background = '#f1f5f9';
                 }
             }
         });
@@ -116,9 +116,9 @@
         btn.addEventListener('mouseleave', () => {
             if (!btn.disabled) {
                 if (type === 'primary') {
-                    btn.style.background = 'var(--primary-color, #6366f1)';
+                    btn.style.background = '#6366f1';
                 } else if (type === 'default') {
-                    btn.style.background = 'var(--bg-card, #fff)';
+                    btn.style.background = '#fff';
                 }
             }
         });

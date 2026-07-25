@@ -88,8 +88,8 @@ async def change_password(body: ChangePasswordRequest, request: Request):
     full = get_admin_by_username(admin["username"])
     if not full or not verify_password(body.old_password, full["password_hash"]):
         raise HTTPException(status_code=400, detail="原密码错误")
-    if len(body.new_password) < 4:
-        raise HTTPException(status_code=400, detail="新密码至少 4 位")
+    if len(body.new_password) < 1:
+        raise HTTPException(status_code=400, detail="新密码至少 1 位")
     update_admin_password(admin["id"], body.new_password)
     return {"success": True, "message": "密码修改成功"}
 

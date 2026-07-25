@@ -94,11 +94,20 @@ const History = (function() {
 
     async function syncFromChain(playerAddress) {
         if (!playerAddress || !Contract.getContract()) return [];
-        
+
         try {
-            const gameIds = await Contract.getPlayerGames(playerAddress);
+            let gameIds = [];
+            try {
+                gameIds = await Contract.getPlayerGames(playerAddress);
+            } catch (e) {
+                // 链上无对局记录时返回 0x，解码失败属正常情况
+                console.warn('getPlayerGames 返回空数据（可能无对局记录）:', e.message);
+                return [];
+            }
+            if (!gameIds || gameIds.length === 0) return [];
+
             const newGames = [];
-            
+
             for (const gameId of gameIds.slice(-20).reverse()) {
                 try {
                     const game = await Contract.getGame(gameId);

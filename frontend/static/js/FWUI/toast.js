@@ -26,10 +26,10 @@
         };
 
         const colors = {
-            success: { bg: 'var(--success-light, #d1fae5)', text: 'var(--success-color, #10b981)' },
-            error: { bg: 'var(--danger-light, #fee2e2)', text: 'var(--danger-color, #ef4444)' },
-            warning: { bg: 'var(--warning-light, #fef3c7)', text: 'var(--warning-color, #f59e0b)' },
-            info: { bg: 'var(--info-light, #dbeafe)', text: 'var(--info-color, #3b82f6)' }
+            success: { bg: '#d1fae5', text: '#10b981' },
+            error: { bg: '#fee2e2', text: '#ef4444' },
+            warning: { bg: '#fef3c7', text: '#f59e0b' },
+            info: { bg: '#dbeafe', text: '#3b82f6' }
         };
 
         const color = colors[type] || colors.info;
@@ -38,12 +38,12 @@
             background: ${color.bg};
             color: ${color.text};
             padding: 12px 20px;
-            border-radius: var(--radius-md, 10px);
+            border-radius: 10px;
             font-size: 14px;
             display: flex;
             align-items: center;
             gap: 10px;
-            box-shadow: var(--shadow-md, 0 4px 6px -1px rgb(0 0 0 / 0.1));
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
             opacity: 0;
             transform: translateY(-20px);
             transition: all 0.3s ease;
