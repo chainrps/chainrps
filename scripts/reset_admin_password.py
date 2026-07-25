@@ -18,12 +18,12 @@ ChainRPS 管理员密码重置脚本
 import sys
 import os
 
-# 将项目根目录加入 path，确保能导入 backend
+# 将项目根目录加入 path，确保能导入 rps_backend
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.repository.database import get_connection
-from backend.service.auth_service import hash_password
-from backend.config import DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD
+from rps_backend.repository.database import get_connection
+from rps_backend.service.auth_service import hash_password
+from rps_backend.config import DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD
 
 
 def reset_password(username: str, new_password: str):

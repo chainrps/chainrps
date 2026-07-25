@@ -128,7 +128,7 @@ def deploy_contract():
 
     try:
         sys.path.insert(0, str(PROJECT_ROOT))
-        from backend.repository import add_contract_record
+        from rps_backend.repository import add_contract_record
         add_contract_record({
             "name": "ChainRPS",
             "address": contract_address,

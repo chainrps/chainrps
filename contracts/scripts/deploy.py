@@ -213,7 +213,7 @@ def deploy_contract():
     # 自动添加到数据库
     try:
         sys.path.insert(0, str(PROJECT_ROOT))
-        from backend.repository import create_contract
+        from rps_backend.repository import create_contract
 
         create_contract({
             "name": CONTRACT_NAME,
