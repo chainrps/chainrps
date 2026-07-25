@@ -97,7 +97,7 @@
 
 | 模块 | 子任务 | 交付物 | 优先级 |
 |------|--------|--------|--------|
-| **核心合约** | RPSGame 主合约 | `contracts/src/RPSGame.sol` | P0 |
+| **核心合约** | chainrps 主合约 | `contracts/src/chainrps.sol` | P0 |
 | | MockERC20 测试代币 | `contracts/src/MockERC20.sol` | P1 |
 | **对局逻辑** | 创建/加入对局 | `createMatch()`, `joinMatch()` | P0 |
 | | 哈希承诺存储 | `submitCommit()` | P0 |
@@ -106,13 +106,15 @@
 | **资金管理** | 资金锁定/释放 | 合约内置逻辑 | P0 |
 | | 自动结算 | `settleGame()` | P0 |
 | | 手续费抽水（可配置） | Owner 可调整费率 | P0 |
-| **安全机制** | 超时判负 | `claimTimeout()` | P0 |
+| **安全机制** | 超时退款 | `claimTimeout()` | P0 |
+| | 玩家自主撤销 | `cancelMatch()` | P0 |
 | | 平局处理 | `handleDraw()` | P0 |
 | | 防作弊校验 | 哈希一致性检查 | P0 |
 | | 重入防护 | ReentrancyGuard | P0 |
 | | 溢出检查 | SafeMath / 0.8+ 内置检查 | P0 |
 | **Owner 权限** | 修改手续费率 | `setFeeRate()` | P0 |
-| | 取消对局 | `cancelMatch()` | P0 |
+| | 修改超时时间 | `setTimeouts()` | P1 |
+| | 紧急提款 | `emergencyWithdraw()` | P1 |
 | | 修改开发者地址 | `setDeveloperAddress()` | P1 |
 | | 暂停/恢复合约 | `pause()`, `unpause()` | P1 |
 | **标识与扩展** | 防仿标识 | 硬编码开发者地址/时间戳/版本号 | P0 |
@@ -129,13 +131,19 @@
 | `joinMatch(uint256 gameId)` | external | 加入对局 | 对局ID |
 | `submitCommit(uint256 gameId, bytes32 commit)` | external | 提交哈希承诺 | 对局ID、哈希密文 |
 | `revealChoice(uint256 gameId, uint8 choice, bytes32 salt)` | external | 揭晓出拳 | 对局ID、选择、盐值 |
-| `claimTimeout(uint256 gameId)` | external | 超时索赔 | 对局ID |
-| `handleDraw(uint256 gameId)` | external | 平局处理 | 对局ID |
+| `claimTimeout(uint256 gameId)` | external | 超时触发退款 | 对局ID |
+| `cancelMatch(uint256 gameId)` | external | 玩家自主撤销（仅平台锁定阶段） | 对局ID |
+| `handleDraw(uint256 gameId)` | external | 平局/超时退款领取 | 对局ID |
 | `getGame(uint256 gameId)` | view | 查询对局状态 | 对局ID |
 | `getCommit(uint256 gameId, address player)` | view | 查询承诺 | 对局ID、玩家地址 |
-| `setFeeRate(uint256 newRate)` | onlyOwner | 修改手续费率 | 新费率 |
-| `cancelMatch(uint256 gameId)` | onlyOwner | 取消对局 | 对局ID |
-| `setDeveloperAddress(address newAddr)` | onlyOwner | 修改开发者地址 | 新地址 |
+| `getContractBalance(address token)` | view | 查询合约余额 | 代币地址 |
+| `getAntiFakeInfo()` | view | 查询防仿标识 | - |
+| `setFeeRate(uint256 newRate)` | onlyOwner | 修改手续费率（上限 10%） | 新费率 |
+| `setTimeouts(uint256 commit, uint256 reveal)` | onlyOwner | 修改超时时间 | 提交超时、揭晓超时 |
+| `emergencyWithdraw(address token, address to, uint256 amount)` | onlyOwner | 紧急提取误转入资金 | 代币、地址、金额 |
+| `setDeveloperAddress(address newAddr)` | onlyOwner | 修改手续费接收地址 | 新地址 |
+| `updateOfficialInfo(string, string, string)` | onlyOwner | 更新官方信息 | 网站、Twitter、Discord |
+| `setTokenSupport(address token, bool supported)` | onlyOwner | 添加/移除支持代币 | 代币地址、是否支持 |
 | `pause()` | onlyOwner | 暂停合约 | - |
 | `unpause()` | onlyOwner | 恢复合约 | - |
 
@@ -209,23 +217,31 @@ enum GameStatus {
 - `address`：玩家钱包地址
 - **作用**：包含玩家地址可防止跨对局重放攻击
 
-### 3.6 超时与平局规则
+### 3.6 超时、平局与撤销规则（v1.1.0）
 
-**超时判负**：
+**超时处理（统一全额退款，不判超时方负）**：
 | 场景 | 处理方式 |
 |------|----------|
-| 提交阶段超时 | 未超时方获胜，拿回全部下注（超时方下注全给对方） |
-| 揭晓阶段超时 | 未超时方获胜，拿回全部下注（超时方下注全给对方） |
-| 超时方出拳方式 | 默认随机出拳，用户可设置固定出拳值 |
-| 触发方式 | 由未超时方主动调用 `claimTimeout()` |
+| 提交阶段超时（双方都未提交） | 全额退款给双方 |
+| 提交阶段超时（仅一方提交） | 全额退款给双方，不判超时方负 |
+| 揭晓阶段超时（双方都未揭晓） | 全额退款给双方 |
+| 揭晓阶段超时（仅一方揭晓） | 全额退款给双方，不判超时方负 |
+| 触发方式 | 由任一玩家主动调用 `claimTimeout()` |
+| 超时时间 | 提交 5 分钟 / 揭晓 5 分钟（Owner 可通过 `setTimeouts()` 调整） |
 
-**平局处理**：
+**平局处理（零手续费）**：
 | 项目 | 说明 |
 |------|------|
 | 触发条件 | 双方出拳相同 |
 | 资金处理 | 默认原路退回（双方各自拿回自己的下注） |
-| 手续费 | 收取非平局手续费的 50% |
-| 触发方式 | 由玩家调用 `handleDraw()` 触发 |
+| 手续费 | **零手续费**，全额退款 |
+| 触发方式 | 双方揭晓后合约自动判定 → 玩家分别调用 `handleDraw()` 领取退款 |
+
+**双层资金锁定机制**：
+| 锁定阶段 | 触发条件 | 撤销规则 |
+|----------|----------|----------|
+| 平台锁定（假锁定） | Waiting 状态 / CommitPhase（无 commit） | 用户可随时自主撤销退款 |
+| 真正锁定 | 任一方提交 commit 后 → RevealPhase | 任何人（含 Owner）都无权撤销或全额退款 |
 
 ### 3.7 防仿标识
 
@@ -410,7 +426,7 @@ const CONFIG = {
 
 ### 6.2 接口契约先行
 
-1. **链上开发**：先定义合约接口 ABI，输出 `RPSGame.json`
+1. **链上开发**：先定义合约接口 ABI，输出 `chainrps.json`
 2. **后端开发**：根据 ABI 封装合约事件监听服务
 3. **前端开发**：根据 ABI 和后端 API 文档进行开发
 

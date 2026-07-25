@@ -30,15 +30,18 @@ dependencies = [
     "web3>=6.20.0",
     "eth-account>=0.13.0",
     "pydantic>=2.8.0",
-    "python-dotenv>=1.0.1"
+    "python-dotenv>=1.0.1",
+    "PyJWT>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0.0,<4.1"
 ]
 
 [project.scripts]
-chainrps = "rps_core.main:main"
+chainrps = "backend.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rps_core*"]
+include = ["backend*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.py", "*.md", "*.json"]

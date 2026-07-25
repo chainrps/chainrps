@@ -1,72 +1,78 @@
 # ChainRPS
 
-链上公平猜拳游戏后端服务。
+基于 Polygon 公链的极简去中心化双人博弈 DApp —— 链上公平猜拳游戏平台。
+    
+    项目名称：链上猜拳平台（ChainRPS）
+    中文：剪刀石头布(剪石布)
+    英文：rock-paper-scissors(RPS)
 
-## 项目架构
 
-```
-chainrps/
-├── core/            # 后端核心功能模块
-│   ├── main.py      # FastAPI 应用入口
-│   ├── config.py    # 配置管理
-│   ├── models.py    # 数据模型
-│   ├── database.py  # 数据库操作
-│   ├── redis_client.py  # Redis 客户端
-│   ├── game_manager.py  # 游戏逻辑
-│   ├── matching.py  # 匹配队列
-│   ├── websocket.py # WebSocket 通信
-│   ├── api/         # API 路由
-│   └── README.md
-├── web/             # Web 前端模块
-│   ├── routers/     # Web 路由配置
-│   ├── static/      # 静态资源
-│   │   ├── js/      # JavaScript 文件
-│   │   ├── css/     # CSS 样式
-│   │   └── html/    # HTML 模板
-│   └── README.md
-├── docs/            # 项目文档
-├── .venv/           # Python 虚拟环境
-├── pyproject.toml   # 项目配置与依赖管理
-└── README.md
-```
+  --- sta 用户自定区 AI不允许修改
+   https://faucet.polygon.technology/
+  1、水龙头：https://faucet.polygon.technology/  X.COM 领取成功（GITHUB失败报404,）
+  2、私有RPC,https://www.alchemy.com/ 注册新建APP,如：https://polygon-amoy.g.alchemy.com/v2/alch_4fkjOaaIJDphdtHiVl9VS
 
-## 技术栈
 
-- Python 3.11+
-- FastAPI
-- Redis（匹配队列）
-- SQLite（持久化存储）
-- WebSocket（实时推送）
+  --- end 用户自定区 AI不允许修改
 
-## 功能特性
 
-- FIFO 匹配队列
-- 对局生命周期管理
-- 超时自动判负
-- WebSocket 实时通知
-- 对局历史记录
 
-## 开发环境
+
+## 🎮 核心功能
+
+- **公平可信**：采用 Commit-Reveal 哈希承诺机制，双方出拳前完全保密，链上自动校验，无法作弊
+- **双模式运行**：
+  - **模式 A（快速匹配）**：后端撮合匹配，适合陌生人随机对战
+  - **模式 B（私密纯净）**：纯链上交互，无后端依赖，适合好友切磋
+- **自动结算**：智能合约自动判定胜负，奖金即时到账
+- **手续费机制**：合约内置 2% 手续费，自动转入开发者地址
+
+## 🛠️ 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 前端 | HTML/CSS/JS + ethers.js + WalletConnect |
+| 后端 | Python + FastAPI + Redis + SQLite |
+| 合约 | Solidity 0.8.20+ |
+| 网络 | Polygon（测试网：Amoy） |
+
+## 🚀 快速开始
+
+### 环境准备
 
 ```bash
-# 创建虚拟环境
-python -m venv .venv
-
-# 激活虚拟环境
-# Windows
-.venv\Scripts\activate
-# macOS/Linux
-source .venv/bin/activate
-
 # 安装依赖
 pip install -e .
 
-# 启动服务
-python -m core.main
+# 启动 Redis
+redis-server
+
+# 启动后端服务
+python main.py
 ```
 
-## 访问地址
+### 访问服务
 
-- API: http://localhost:8000
-- 文档: http://localhost:8000/docs
-- WebSocket: ws://localhost:8000/ws/{player_address}
+- 前端页面：http://localhost:8000
+- API 文档：http://localhost:8000/docs
+- 健康检查：http://localhost:8000/health
+
+## 📁 项目结构
+
+```
+chainrps/
+├── contracts/     # 智能合约
+├── rps_core/      # 后端服务
+├── web/           # 前端页面
+└── docs/          # 项目文档
+```
+
+## 📝 文档
+
+- [上线测试操作指南](docs/上线测试操作指南.md)
+- [架构设计文档](docs/CHAINRPS构架设计文档.md)
+- [功能分解结构](docs/ChainRPS详细开发功能分解结构.md)
+
+## 📄 许可证
+
+MIT License

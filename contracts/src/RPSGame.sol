@@ -7,15 +7,27 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
- * @title RPSGame
+ * @title chainrps
  * @notice 链上公平猜拳游戏 - 基于哈希承诺的石头剪刀布
  * @dev 使用 keccak256 哈希承诺机制确保出拳公平性
  *      防仿标识：官方开发者地址、部署时间戳、版本号硬编码
+ *
+ *      锁定机制（v1.1.0 引入）：
+ *      - 平台锁定（假锁定）：Waiting 与 CommitPhase（双方都未提交 commit）状态，
+ *        用户可自主撤销退款；
+ *      - 真正锁定：任一方提交 commit 后进入 RevealPhase，资金真正锁定，
+ *        任何人（含 Owner）都无权撤销或全额退款。
+ *
+ *      超时机制（v1.1.0 调整）：
+ *      - 提交/揭晓阶段默认 5 分钟超时；
+ *      - 超时后无论双方都未操作或仅一方操作，统一全额退款，不判超时方负。
+ *
+ *      平局机制：零手续费，原路退回。
  */
-contract RPSGame is Ownable, ReentrancyGuard, Pausable {
+contract chainrps is Ownable, ReentrancyGuard, Pausable {
     // ==================== 常量与防仿标识 ====================
 
-    string public constant VERSION = "v1.0.0";
+    string public constant VERSION = "v1.1.0";
     uint256 public immutable deployTimestamp;
     address public immutable officialDeveloper;
 
@@ -28,11 +40,11 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
     enum Choice { None, Rock, Paper, Scissors }
 
     enum GameStatus {
-        Waiting,
-        CommitPhase,
-        RevealPhase,
-        Finished,
-        Cancelled
+        Waiting,        // 等待玩家加入（平台锁定，player1 可自主撤销）
+        CommitPhase,    // 双方已加入，提交承诺阶段（任一方未提交前可自主撤销）
+        RevealPhase,    // 揭晓阶段（资金真正锁定，不可撤销）
+        Finished,       // 已结束
+        Cancelled       // 已取消
     }
 
     // ==================== 数据结构 ====================
@@ -57,9 +69,12 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
 
     // ==================== 状态变量 ====================
 
-    uint256 public commitTimeout = 66;
-    uint256 public revealTimeout = 88;
-    uint256 public feeRate = 200;
+    uint256 public commitTimeout = 300;     // 5 分钟
+    uint256 public revealTimeout = 300;     // 5 分钟
+    uint256 public feeRate = 200;            // 2%（基点）
+    uint256 public constant MIN_BET = 1e15;  // 最小下注 0.001 单位
+    uint256 public constant MAX_FEE_RATE = 1000; // 最高 10%
+
     address public feeCollector;
 
     mapping(address => bool) public supportedTokens;
@@ -69,6 +84,14 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
 
     mapping(address => uint256[]) public playerGames;
 
+    // ==================== 扩展字段预留（v1.1.0 占位） ====================
+
+    // 二期扩展：赛事、NFT、房间类型
+    // 仅定义占位 mapping，便于后续平滑升级，当前不参与任何业务逻辑
+    mapping(uint256 => uint256) public extTournamentId;   // 赛事 ID（预留）
+    mapping(uint256 => uint256) public extRoomType;       // 房间类型（预留）
+    mapping(address => bool) public extNftHolder;         // NFT 权益（预留）
+
     // ==================== 事件定义 ====================
 
     event GameCreated(uint256 indexed gameId, address indexed creator, uint256 amount, address token);
@@ -76,13 +99,16 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
     event CommitSubmitted(uint256 indexed gameId, address indexed player, bytes32 commit);
     event ChoiceRevealed(uint256 indexed gameId, address indexed player, uint8 choice);
     event GameSettled(uint256 indexed gameId, address winner, uint256 amount, uint256 fee);
-    event TimeoutClaimed(uint256 indexed gameId, address indexed claimer);
+    event TimeoutClaimed(uint256 indexed gameId, address indexed claimer, bool refunded);
     event DrawHandled(uint256 indexed gameId);
+    event DrawRefunded(uint256 indexed gameId, address indexed player, uint256 amount);
     event FeeRateChanged(uint256 oldRate, uint256 newRate);
     event MatchCancelled(uint256 indexed gameId, address indexed canceller);
     event DeveloperAddressChanged(address oldAddr, address newAddr);
     event OfficialInfoUpdated(string website, string twitter, string discord);
     event TokenSupportUpdated(address indexed token, bool supported);
+    event TimeoutChanged(uint256 oldCommit, uint256 newCommit, uint256 oldReveal, uint256 newReveal);
+    event EmergencyWithdraw(address indexed token, uint256 amount, address indexed to);
 
     // ==================== 构造函数 ====================
 
@@ -97,26 +123,33 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
         officialWebsite = "https://chainrps.io";
         officialTwitter = "@ChainRPS";
         officialDiscord = "discord.gg/chainrps";
+
+        supportedTokens[address(0)] = true;
     }
 
     // ==================== 核心对局函数 ====================
 
     /**
-     * @notice 创建对局
+     * @notice 创建对局 - 资金进入"平台锁定"阶段，player1 可自主撤销
      * @param amount 下注金额
-     * @param token 代币地址
+     * @param token 代币地址（address(0) 表示 ETH）
      * @return gameId 对局ID
      */
     function createMatch(uint256 amount, address token)
         external
+        payable
         nonReentrant
         whenNotPaused
         returns (uint256)
     {
         require(supportedTokens[token], "Token not supported");
-        require(amount > 0, "Amount must be positive");
+        require(amount >= MIN_BET, "Bet below minimum");
 
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        if (token == address(0)) {
+            require(msg.value == amount, "ETH amount mismatch");
+        } else {
+            IERC20(token).transferFrom(msg.sender, address(this), amount);
+        }
 
         gameCount++;
         uint256 gameId = gameCount;
@@ -135,17 +168,21 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice 加入对局
+     * @notice 加入对局 - 进入提交承诺阶段（双方资金均已平台锁定）
      * @param gameId 对局ID
      */
-    function joinMatch(uint256 gameId) external nonReentrant whenNotPaused {
+    function joinMatch(uint256 gameId) external payable nonReentrant whenNotPaused {
         Game storage game = games[gameId];
 
         require(game.status == GameStatus.Waiting, "Game not waiting");
         require(msg.sender != game.player1, "Cannot join own game");
         require(game.player2 == address(0), "Game already full");
 
-        IERC20(game.token).transferFrom(msg.sender, address(this), game.amount);
+        if (game.token == address(0)) {
+            require(msg.value == game.amount, "ETH amount mismatch");
+        } else {
+            IERC20(game.token).transferFrom(msg.sender, address(this), game.amount);
+        }
 
         game.player2 = msg.sender;
         game.status = GameStatus.CommitPhase;
@@ -157,7 +194,7 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice 提交哈希承诺
+     * @notice 提交哈希承诺 - 一旦任一方提交，资金进入"真正锁定"状态
      * @param gameId 对局ID
      * @param commit 哈希承诺 keccak256(choice + salt + address)
      */
@@ -223,7 +260,8 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice 超时索赔
+     * @notice 超时处理 - 提交/揭晓阶段超时后，统一全额退款，不判超时方负
+     * @dev 无论是双方都未操作、还是仅一方操作，超时后都全额退款给双方
      * @param gameId 对局ID
      */
     function claimTimeout(uint256 gameId) external nonReentrant whenNotPaused {
@@ -237,38 +275,21 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
 
         if (game.status == GameStatus.CommitPhase) {
             require(block.timestamp > game.commitDeadline, "Commit phase not ended");
-
-            if (msg.sender == game.player1) {
-                require(game.commit1 != bytes32(0), "You did not commit");
-                require(game.commit2 == bytes32(0), "Opponent committed");
-                game.winner = game.player1;
-            } else {
-                require(game.commit2 != bytes32(0), "You did not commit");
-                require(game.commit1 == bytes32(0), "Opponent committed");
-                game.winner = game.player2;
-            }
         } else {
             require(block.timestamp > game.revealDeadline, "Reveal phase not ended");
-
-            if (msg.sender == game.player1) {
-                require(game.choice1 != 0, "You did not reveal");
-                require(game.choice2 == 0, "Opponent revealed");
-                game.winner = game.player1;
-            } else {
-                require(game.choice2 != 0, "You did not reveal");
-                require(game.choice1 == 0, "Opponent revealed");
-                game.winner = game.player2;
-            }
         }
 
+        // 统一标记为平局式退款，等待双方调用 handleDraw 领取
         game.status = GameStatus.Finished;
-        emit TimeoutClaimed(gameId, msg.sender);
+        game.isDraw = true;
 
-        _distributePrize(gameId);
+        emit TimeoutClaimed(gameId, msg.sender, true);
+        emit DrawHandled(gameId);
     }
 
     /**
-     * @notice 平局处理 - 双方全额退款，无手续费
+     * @notice 平局退款 - 双方分别领取退款（零手续费）
+     * @dev 触发场景：对局平局、超时退款
      * @param gameId 对局ID
      */
     function handleDraw(uint256 gameId) external nonReentrant whenNotPaused {
@@ -280,15 +301,42 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
 
         if (msg.sender == game.player1 && !game.player1Refunded) {
             game.player1Refunded = true;
-            IERC20(game.token).transfer(game.player1, game.amount);
+            _safeTransfer(game.token, game.player1, game.amount);
+            emit DrawRefunded(gameId, game.player1, game.amount);
         } else if (msg.sender == game.player2 && !game.player2Refunded) {
             game.player2Refunded = true;
-            IERC20(game.token).transfer(game.player2, game.amount);
+            _safeTransfer(game.token, game.player2, game.amount);
+            emit DrawRefunded(gameId, game.player2, game.amount);
+        }
+    }
+
+    /**
+     * @notice 玩家自主撤销对局 - 仅在"平台锁定"阶段可用
+     * @dev Waiting 状态：仅 player1 可撤销
+     *      CommitPhase 状态：双方都未提交 commit 时任一方可撤销
+     *      RevealPhase 及之后：资金已真正锁定，任何人（含 Owner）都无权撤销
+     * @param gameId 对局ID
+     */
+    function cancelMatch(uint256 gameId) external nonReentrant whenNotPaused {
+        Game storage game = games[gameId];
+        require(msg.sender == game.player1 || msg.sender == game.player2, "Not a player");
+
+        if (game.status == GameStatus.Waiting) {
+            require(msg.sender == game.player1, "Only creator can cancel");
+        } else if (game.status == GameStatus.CommitPhase) {
+            require(
+                game.commit1 == bytes32(0) && game.commit2 == bytes32(0),
+                "Commit submitted, cannot cancel"
+            );
+        } else {
+            revert("Cannot cancel after reveal phase");
         }
 
-        if (game.player1Refunded && game.player2Refunded) {
-            emit DrawHandled(gameId);
-        }
+        game.status = GameStatus.Cancelled;
+
+        emit MatchCancelled(gameId, msg.sender);
+
+        _refundBoth(gameId);
     }
 
     // ==================== 内部函数 ====================
@@ -297,6 +345,7 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
         Game storage game = games[gameId];
 
         if (game.choice1 == game.choice2) {
+            // 平局：零手续费，全额退款（等待玩家调用 handleDraw 领取）
             game.isDraw = true;
             game.status = GameStatus.Finished;
             emit DrawHandled(gameId);
@@ -322,10 +371,32 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
         uint256 fee = (totalPrize * feeRate) / 10000;
         uint256 winnerPrize = totalPrize - fee;
 
-        IERC20(game.token).transfer(game.winner, winnerPrize);
-        IERC20(game.token).transfer(feeCollector, fee);
+        _safeTransfer(game.token, game.winner, winnerPrize);
+        _safeTransfer(game.token, feeCollector, fee);
 
         emit GameSettled(gameId, game.winner, winnerPrize, fee);
+    }
+
+    function _refundBoth(uint256 gameId) internal {
+        Game storage game = games[gameId];
+
+        if (game.player1 != address(0)) {
+            _safeTransfer(game.token, game.player1, game.amount);
+        }
+        if (game.player2 != address(0)) {
+            _safeTransfer(game.token, game.player2, game.amount);
+        }
+    }
+
+    function _safeTransfer(address token, address to, uint256 amount) internal {
+        require(to != address(0), "Zero address");
+        if (token == address(0)) {
+            (bool ok, ) = payable(to).call{value: amount}("");
+            require(ok, "ETH transfer failed");
+        } else {
+            bool ok = IERC20(token).transfer(to, amount);
+            require(ok, "Token transfer failed");
+        }
     }
 
     // ==================== 查询函数 ====================
@@ -383,6 +454,17 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
+     * @notice 查询合约余额（仅审计/运维用，不影响用户资金）
+     * @param token 代币地址（address(0) 表示 ETH）
+     */
+    function getContractBalance(address token) external view returns (uint256) {
+        if (token == address(0)) {
+            return address(this).balance;
+        }
+        return IERC20(token).balanceOf(address(this));
+    }
+
+    /**
      * @notice 验证是否为官方合约
      * @dev 返回防仿标识信息供前端校验
      */
@@ -412,39 +494,13 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
 
     /**
      * @notice 修改手续费率
-     * @param newRate 新费率（基点，100=1%）
+     * @param newRate 新费率（基点，100=1%，上限 1000=10%）
      */
     function setFeeRate(uint256 newRate) external onlyOwner {
-        require(newRate <= 1000, "Fee rate too high");
+        require(newRate <= MAX_FEE_RATE, "Fee rate too high");
         uint256 oldRate = feeRate;
         feeRate = newRate;
         emit FeeRateChanged(oldRate, newRate);
-    }
-
-    /**
-     * @notice 取消对局 - 退回双方资金
-     * @param gameId 对局ID
-     */
-    function cancelMatch(uint256 gameId) external onlyOwner nonReentrant {
-        Game storage game = games[gameId];
-
-        require(
-            game.status == GameStatus.Waiting ||
-            game.status == GameStatus.CommitPhase ||
-            game.status == GameStatus.RevealPhase,
-            "Cannot cancel finished game"
-        );
-
-        if (game.player1 != address(0)) {
-            IERC20(game.token).transfer(game.player1, game.amount);
-        }
-        if (game.player2 != address(0)) {
-            IERC20(game.token).transfer(game.player2, game.amount);
-        }
-
-        game.status = GameStatus.Cancelled;
-
-        emit MatchCancelled(gameId, msg.sender);
     }
 
     /**
@@ -473,20 +529,26 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice 添加/移除支持的代币
+     * @notice 添加/移除支持的代币（禁止移除 ETH 支持）
      */
     function setTokenSupport(address token, bool supported) external onlyOwner {
+        require(token != address(0), "Cannot modify ETH support");
         supportedTokens[token] = supported;
         emit TokenSupportUpdated(token, supported);
     }
 
     /**
      * @notice 修改超时时间
+     * @param newCommitTimeout 提交阶段超时（秒）
+     * @param newRevealTimeout 揭晓阶段超时（秒）
      */
     function setTimeouts(uint256 newCommitTimeout, uint256 newRevealTimeout) external onlyOwner {
         require(newCommitTimeout > 0 && newRevealTimeout > 0, "Invalid timeout");
+        uint256 oldCommit = commitTimeout;
+        uint256 oldReveal = revealTimeout;
         commitTimeout = newCommitTimeout;
         revealTimeout = newRevealTimeout;
+        emit TimeoutChanged(oldCommit, newCommitTimeout, oldReveal, newRevealTimeout);
     }
 
     /**
@@ -503,9 +565,50 @@ contract RPSGame is Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
-    // ==================== 扩展预留 ====================
+    /**
+     * @notice 紧急提取误转入的非对局资金
+     * @dev 仅可提取合约余额中超过"用户对局锁定资金"的部分，绝不动用户下注资金
+     * @param token 代币地址（address(0) 表示 ETH）
+     * @param to 接收地址
+     * @param amount 提取金额
+     */
+    function emergencyWithdraw(address token, address to, uint256 amount) external onlyOwner nonReentrant {
+        require(to != address(0), "Invalid address");
 
-    // 预留：赛事模式
-    // 预留：NFT 权益
-    // 预留：房间类型
+        // 计算所有活跃对局锁定的资金总额
+        uint256 locked = 0;
+        for (uint256 i = 1; i <= gameCount; i++) {
+            Game storage g = games[i];
+            if (
+                g.status == GameStatus.Waiting ||
+                g.status == GameStatus.CommitPhase ||
+                g.status == GameStatus.RevealPhase
+            ) {
+                // Waiting 状态只有 player1 锁定；其他状态双方都已锁定
+                locked += g.amount;
+                if (g.player2 != address(0)) {
+                    locked += g.amount;
+                }
+            } else if (g.status == GameStatus.Finished && g.isDraw) {
+                // 平局状态：未领取的退款仍属于玩家
+                if (!g.player1Refunded && g.player1 != address(0)) locked += g.amount;
+                if (!g.player2Refunded && g.player2 != address(0)) locked += g.amount;
+            }
+        }
+
+        uint256 balance = token == address(0)
+            ? address(this).balance
+            : IERC20(token).balanceOf(address(this));
+
+        require(balance >= locked + amount, "Insufficient withdrawable balance");
+
+        _safeTransfer(token, to, amount);
+        emit EmergencyWithdraw(token, amount, to);
+    }
+
+    // ==================== 扩展预留（二期占位） ====================
+
+    // 赛事模式：extTournamentId / extRoomType 已在状态变量区定义
+    // NFT 权益：extNftHolder 已在状态变量区定义
+    // 当前仅占位，不参与任何业务逻辑，二期可通过新合约或代理扩展
 }

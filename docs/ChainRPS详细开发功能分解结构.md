@@ -89,8 +89,8 @@
 - 胜者实际到账约 9.5–9.6 USDC（扣除 Polygon 极低 Gas）
 
 **平局手续费：**
-- 平局时手续费为非平局的 50%
-- 从资金池或双方下注中扣除
+- 平局零手续费，全额原路退回
+- 双方各自拿回下注金额
 
 **资金安全：**
 - 所有用户筹码由智能合约托管
@@ -152,7 +152,7 @@ Solidity 链上合约结算 & 抽水 → Polygon 公链
 chainrps/
 ├── contracts/          # 智能合约（链上逻辑）
 │   ├── src/
-│   │   ├── RPSGame.sol     # 主合约
+│   │   ├── chainrps.sol     # 主合约
 │   │   └── MockERC20.sol   # 测试代币
 │   ├── scripts/
 │   │   └── deploy.py       # 部署脚本
@@ -218,7 +218,7 @@ chainrps/
 |------|--------|------|
 | Redis 玩家匹配队列 | P0 | 同金额自动匹配 |
 | 对局生命周期管理 | P0 | 创建、加入、进行中、结束 |
-| 超时判负机制 | P0 | 提交超时 66s、揭晓超时 88s（仅提醒，判负由玩家触发） |
+| 超时处理机制 | P0 | 提交超时 5 分钟、揭晓超时 5 分钟（统一全额退款，由玩家触发） |
 | WebSocket 实时推送 | P0 | 匹配成功、对方提交、开奖结果 |
 | 对局日志存储 | P1 | SQLite 持久化 |
 | 历史记录查询接口 | P1 | 优先后端，降级链上 |
@@ -230,17 +230,18 @@ chainrps/
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| 创建/加入对局 | P0 | 锁定双方下注资金 |
-| 存储哈希承诺 | P0 | 双方密文上链存储 |
+| 创建/加入对局 | P0 | 双层锁定：平台锁定 + 真正锁定 |
+| 玩家自主撤销 | P0 | `cancelMatch()`，仅平台锁定阶段可用 |
+| 存储哈希承诺 | P0 | 双方密文上链存储，任一方提交后进入真正锁定 |
 | 揭晓阶段校验 | P0 | 哈希不一致判负 |
 | 胜负判定 | P0 | 标准石头剪刀布规则 |
 | 自动结算 | P0 | 奖金分配 + 手续费自动划转 |
-| 超时判负 | P0 | `claimTimeout()`，玩家主动触发 |
-| 平局处理 | P0 | `handleDraw()`，原路退回，手续费 50% |
-| Owner 权限 | P0 | 改手续费率、取消对局 |
+| 超时退款 | P0 | `claimTimeout()`，超时统一全额退款 |
+| 平局处理 | P0 | `handleDraw()`，零手续费原路退回 |
+| Owner 权限 | P0 | 改手续费率、暂停合约、紧急提款（不可撤销对局） |
 | 防仿标识 | P0 | 硬编码开发者地址、上线时间戳、版本号 |
-| 安全机制 | P0 | 重入防护、溢出检查、权限控制 |
-| 扩展字段预留 | P1 | 赛事、NFT、房间类型（仅定义） |
+| 安全机制 | P0 | 重入防护、溢出检查、权限控制、`call` 转账 |
+| 扩展字段预留 | P1 | 赛事、NFT、房间类型（mapping 占位） |
 
 ### 6.4 运维开源内容
 
@@ -395,9 +396,9 @@ redis-cli ping
 #### 9.2.2 使用 Remix IDE 部署（推荐）
 
 1. 打开 Remix IDE: https://remix.ethereum.org
-2. 创建新文件 `RPSGame.sol`，复制合约代码
+2. 创建新文件 `chainrps.sol`，复制合约代码
 3. 在 **Solidity Compiler** 插件中选择版本 `0.8.20+`
-4. 点击 **Compile RPSGame.sol**
+4. 点击 **Compile chainrps.sol**
 5. 在 **Deploy & Run Transactions** 插件中：
    - **Environment**: 选择 `Injected Provider - MetaMask`
    - 确保钱包已切换到 Polygon Amoy 网络
@@ -416,7 +417,7 @@ python deploy.py --network amoy --private-key YOUR_PRIVATE_KEY --token-name "Tes
 #### 9.2.4 部署验证
 
 部署成功后，记录以下信息：
-- **合约地址**: RPSGame 部署地址
+- **合约地址**: chainrps 部署地址
 - **交易哈希**: 可在区块浏览器验证部署
 
 ### 9.3 后端配置与启动
@@ -456,22 +457,22 @@ WS_HEARTBEAT_INTERVAL=30
 # 方式一：根目录启动（推荐）
 python main.py
 
-# 方式二：rps_core 目录启动
-cd rps_core
+# 方式二：backend 目录启动
+cd backend
 python main.py
 
 # 方式三：uvicorn 直接启动
-uvicorn rps_core.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **生产模式：**
 
 ```bash
 # 使用 uvicorn 生产模式
-uvicorn rps_core.main:app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4
 
 # 或使用 Gunicorn（推荐）
-gunicorn rps_core.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+gunicorn backend.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
 
 #### 9.3.3 服务验证
@@ -618,7 +619,7 @@ server {
 
 - **获胜者**：收到奖金（扣除手续费）
 - **手续费**：自动转入开发者地址
-- **平局**：双方可调用 `handleDraw()` 退款（手续费 50%）
+- **平局**：双方可调用 `handleDraw()` 退款（零手续费，全额退回）
 
 ### 10.3 模式 B 完整对局测试
 
@@ -639,37 +640,52 @@ server {
 
 ### 10.4 超时场景测试
 
-#### 提交阶段超时
-1. 玩家 A 提交承诺
-2. 玩家 B 不提交
-3. 等待 66 秒超时
-4. 玩家 A 调用 `claimTimeout(gameId)` → 玩家 A 获胜
+#### 提交阶段超时（双方都未提交）
+1. 双方都不提交承诺
+2. 等待 5 分钟超时
+3. 任一玩家调用 `claimTimeout(gameId)` → 双方全额退款
 
-#### 揭晓阶段超时
+#### 提交阶段超时（仅一方提交）
+1. 玩家 A 提交承诺，玩家 B 不提交
+2. 等待 5 分钟超时
+3. 任一玩家调用 `claimTimeout(gameId)` → **双方全额退款**（不判超时方负）
+
+#### 揭晓阶段超时（仅一方揭晓）
 1. 双方都提交承诺
 2. 玩家 A 揭晓，玩家 B 不揭晓
-3. 等待 88 秒超时
-4. 玩家 A 调用 `claimTimeout(gameId)` → 玩家 A 获胜
+3. 等待 5 分钟超时
+4. 任一玩家调用 `claimTimeout(gameId)` → **双方全额退款**（不判超时方负）
 
 ### 10.5 平局场景测试
 
 1. 双方都提交承诺
 2. 双方都揭晓，选择相同出拳
-3. 调用 `handleDraw(gameId)`
-4. 验证：双方资金原路退回，扣除 50% 手续费
+3. 双方分别调用 `handleDraw(gameId)`
+4. 验证：双方资金原路退回，**零手续费**
 
-### 10.6 测试用例矩阵
+### 10.6 玩家自主撤销测试
+
+1. 玩家 A 创建对局（平台锁定阶段）
+2. 玩家 A 调用 `cancelMatch(gameId)` → 全额退款
+3. 玩家 B 加入后双方都未提交 commit
+4. 任一方调用 `cancelMatch(gameId)` → 双方全额退款
+5. 任一方提交 commit 后调用 `cancelMatch(gameId)` → 应 revert（真正锁定不可撤销）
+
+### 10.7 测试用例矩阵
 
 | 测试场景 | 预期结果 | 验证方式 |
 |----------|----------|----------|
 | 钱包连接 | 成功读取余额 | 前端显示正确金额 |
-| 创建对局 | 资金锁定到合约 | 链上查询合约余额 |
+| 创建对局 | 资金进入平台锁定 | 链上查询合约余额 |
 | 匹配对手 | 双方进入同一对局 | WebSocket 收到匹配通知 |
-| 哈希提交 | 承诺存储到合约 | 调用 `getCommit()` 验证 |
+| 哈希提交 | 承诺存储到合约，资金真正锁定 | 调用 `getCommit()` 验证 |
 | 揭晓验证 | 哈希不一致判负 | 合约事件日志 |
 | 正常结算 | 胜者收到奖金-手续费 | 钱包余额变化 |
-| 超时判负 | 超时方自动弃权 | 合约事件日志 |
-| 平局处理 | 双方可退款（手续费50%） | 调用 `handleDraw()` |
+| 超时退款（双方都未操作） | 全额退款给双方 | 合约事件日志 |
+| 超时退款（仅一方操作） | 全额退款给双方 | 合约事件日志 |
+| 平局处理 | 双方可零手续费退款 | 调用 `handleDraw()` |
+| 平台锁定撤销 | 全额退款 | 调用 `cancelMatch()` |
+| 真正锁定撤销 | 应 revert | 调用 `cancelMatch()` 失败 |
 | 模式 B 切换 | 所有后端请求被禁用 | 浏览器 Network 面板 |
 | 主题切换 | 亮色/暗色正常切换 | 视觉验证 |
 | 响应式布局 | PC/移动端正常显示 | 不同设备验证 |

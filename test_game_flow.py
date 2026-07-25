@@ -1,0 +1,205 @@
+import json
+import time
+import hashlib
+import requests
+
+BASE_URL = "http://127.0.0.1:8000"
+
+PASS = 0
+FAIL = 0
+ERRORS = []
+
+
+def test(name, fn):
+    global PASS, FAIL
+    try:
+        fn()
+        PASS += 1
+        print(f"  ✅ {name}")
+    except Exception as e:
+        FAIL += 1
+        err = f"❌ {name}: {e}"
+        print(f"  {err}")
+        ERRORS.append(err)
+
+
+player1 = "0x7F72A2777539913086a5f2d5914F35a742F827FD"
+player2 = "0xdE227eDB80A7c81C6bc3336F43247968AAbd1223"
+
+
+def compute_commit(choice, salt, address):
+    raw = f"{choice}{salt}{address}"
+    return "0x" + hashlib.sha3_256(raw.encode()).hexdigest()
+
+
+def test_full_game_flow():
+    print("\n🎮 完整游戏流程测试")
+
+    game_id = None
+
+    def step1_join_match():
+        nonlocal game_id
+        r = requests.post(BASE_URL + "/api/game/join", json={
+            "player_address": player1,
+            "token": "USDC",
+            "bet_amount": 10
+        })
+        assert r.status_code == 200, f"玩家1加入失败: {r.status_code}"
+
+        r2 = requests.post(BASE_URL + "/api/game/join", json={
+            "player_address": player2,
+            "token": "USDC",
+            "bet_amount": 10
+        })
+        assert r2.status_code == 200, f"玩家2加入失败: {r2.status_code}"
+        data = r2.json()
+        assert data.get("matched") is True, "未配对成功"
+        game_id = data.get("game_id")
+        assert game_id, "未返回 game_id"
+
+    test("1. 双方加入匹配并配对成功", step1_join_match)
+
+    def step2_get_game_info():
+        r = requests.get(BASE_URL + f"/api/game/{game_id}")
+        assert r.status_code == 200, f"获取对局失败: {r.status_code}"
+        data = r.json()
+        assert data["game_id"] == game_id
+        assert data["state"] == "commit"
+
+    test("2. 获取对局信息", step2_get_game_info)
+
+    salt1 = "salt_player_1_test"
+    salt2 = "salt_player_2_test"
+    choice1 = "rock"
+    choice2 = "scissors"
+    commit1 = compute_commit(choice1, salt1, player1)
+    commit2 = compute_commit(choice2, salt2, player2)
+
+    def step3_submit_commits():
+        r1 = requests.post(BASE_URL + "/api/game/commit", json={
+            "game_id": game_id,
+            "player_address": player1,
+            "commit_hash": commit1
+        })
+        assert r1.status_code == 200, f"玩家1提交失败: {r1.status_code}"
+
+        r2 = requests.post(BASE_URL + "/api/game/commit", json={
+            "game_id": game_id,
+            "player_address": player2,
+            "commit_hash": commit2
+        })
+        assert r2.status_code == 200, f"玩家2提交失败: {r2.status_code}"
+
+    test("3. 双方提交哈希承诺", step3_submit_commits)
+
+    def step4_reveal_choices():
+        r1 = requests.post(BASE_URL + "/api/game/reveal", json={
+            "game_id": game_id,
+            "player_address": player1,
+            "choice": choice1,
+            "salt": salt1
+        })
+        assert r1.status_code == 200, f"玩家1揭晓失败: {r1.status_code}"
+
+        r2 = requests.post(BASE_URL + "/api/game/reveal", json={
+            "game_id": game_id,
+            "player_address": player2,
+            "choice": choice2,
+            "salt": salt2
+        })
+        assert r2.status_code == 200, f"玩家2揭晓失败: {r2.status_code}"
+
+    test("4. 双方揭晓出拳", step4_reveal_choices)
+
+    def step5_verify_result():
+        r = requests.get(BASE_URL + f"/api/game/{game_id}")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["state"] == "finished", f"游戏状态错误: {data['state']}"
+        assert data["winner"] and data["winner"].lower() == player1.lower(), f"胜者错误: {data['winner']}"
+        assert data["is_draw"] is False
+
+    test("5. 验证游戏结果(玩家1获胜)", step5_verify_result)
+
+    def step6_check_history():
+        r = requests.get(BASE_URL + f"/api/history?address={player1}")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total_games"] >= 1
+
+    test("6. 验证历史记录", step6_check_history)
+
+    def step7_check_stats():
+        r = requests.get(BASE_URL + f"/api/player/{player1}/stats")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["wins"] >= 1
+
+    test("7. 验证玩家统计", step7_check_stats)
+
+
+def test_draw_flow():
+    print("\n🤝 平局流程测试")
+
+    game_id = None
+
+    def step1_join():
+        nonlocal game_id
+        requests.post(BASE_URL + "/api/game/join", json={
+            "player_address": player1, "token": "USDC", "bet_amount": 20
+        })
+        r = requests.post(BASE_URL + "/api/game/join", json={
+            "player_address": player2, "token": "USDC", "bet_amount": 20
+        })
+        game_id = r.json()["game_id"]
+
+    test("1. 加入匹配", step1_join)
+
+    def step2_commit():
+        commit = compute_commit("rock", "salt1", player1)
+        requests.post(BASE_URL + "/api/game/commit", json={
+            "game_id": game_id, "player_address": player1, "commit_hash": commit
+        })
+        commit2 = compute_commit("rock", "salt2", player2)
+        requests.post(BASE_URL + "/api/game/commit", json={
+            "game_id": game_id, "player_address": player2, "commit_hash": commit2
+        })
+
+    test("2. 提交相同出拳承诺", step2_commit)
+
+    def step3_reveal():
+        requests.post(BASE_URL + "/api/game/reveal", json={
+            "game_id": game_id, "player_address": player1,
+            "choice": "rock", "salt": "salt1"
+        })
+        requests.post(BASE_URL + "/api/game/reveal", json={
+            "game_id": game_id, "player_address": player2,
+            "choice": "rock", "salt": "salt2"
+        })
+
+    test("3. 揭晓相同出拳", step3_reveal)
+
+    def step4_check_draw():
+        r = requests.get(BASE_URL + f"/api/game/{game_id}")
+        data = r.json()
+        assert data["is_draw"] is True, f"应该是平局: {data}"
+        assert data["state"] == "draw", f"状态应该是draw: {data['state']}"
+
+    test("4. 验证平局状态", step4_check_draw)
+
+
+print("=" * 60)
+print("ChainRPS 游戏流程测试")
+print("=" * 60)
+
+test_full_game_flow()
+test_draw_flow()
+
+print("\n" + "=" * 60)
+print(f"测试结果: ✅ 通过 {PASS}, ❌ 失败 {FAIL}")
+print("=" * 60)
+
+if FAIL > 0:
+    print("\n失败详情:")
+    for e in ERRORS:
+        print(f"  {e}")
