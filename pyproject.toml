@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chainrps"
+version = "1.0.0"
+description = "链上公平猜拳游戏后端服务"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+  { name = "ChainRPS Team", email = "dev@chainrps.com" }
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Games/Entertainment",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers"
+]
+keywords = ["blockchain", "rps", "game", "web3", "fastapi"]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    'uvicorn[standard]>=0.30.0',
+    "redis>=5.0.8",
+    "web3>=6.20.0",
+    "eth-account>=0.13.0",
+    "pydantic>=2.8.0",
+    "python-dotenv>=1.0.1"
+]
+
+[project.scripts]
+chainrps = "rps_core.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rps_core*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.py", "*.md", "*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]

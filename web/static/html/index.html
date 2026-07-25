@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChainRPS - 链上公平石头剪刀布游戏">
+    <title>ChainRPS - 链上公平猜拳</title>
+    
+    <link rel="stylesheet" href="../css/theme.css">
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <div id="app">
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo">
+                    <span class="logo-icon">🪨📄✂️</span>
+                    <span class="logo-text">ChainRPS</span>
+                </div>
+            </div>
+            
+            <div class="header-center">
+                <div class="mode-switcher" id="modeSwitcher">
+                    <button class="mode-btn active" data-mode="A">
+                        <span class="mode-icon">⚡</span>
+                        <span class="mode-text">快速匹配</span>
+                    </button>
+                    <button class="mode-btn" data-mode="B">
+                        <span class="mode-icon">🔒</span>
+                        <span class="mode-text">私密纯净</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="header-right">
+                <button class="theme-toggle" id="themeToggle" title="切换主题">
+                    <span class="theme-icon">🌙</span>
+                </button>
+                
+                <div class="wallet-section" id="walletSection">
+                    <button class="btn btn-primary btn-connect-wallet" id="connectWalletBtn">
+                        <span>连接钱包</span>
+                    </button>
+                    <div class="wallet-info hidden" id="walletInfo">
+                        <span class="wallet-balance" id="walletBalance">-</span>
+                        <span class="wallet-address" id="walletAddress">-</span>
+                        <button class="btn btn-ghost btn-disconnect" id="disconnectBtn" title="断开连接">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <section class="game-container">
+                <div class="game-stage" id="gameStage">
+                    <div class="stage-home" id="stageHome">
+                        <div class="home-content">
+                            <h1 class="home-title">链上公平猜拳</h1>
+                            <p class="home-subtitle">密码学保证公平 · 链上自动结算 · 完全透明可验证</p>
+                            
+                            <div class="game-setup-card">
+                                <div class="setup-section">
+                                    <label class="setup-label">选择代币</label>
+                                    <div class="token-selector">
+                                        <button class="token-btn active" data-token="USDC">
+                                            <span class="token-icon">💎</span>
+                                            <span class="token-name">USDC</span>
+                                        </button>
+                                        <button class="token-btn" data-token="USDT">
+                                            <span class="token-icon">💰</span>
+                                            <span class="token-name">USDT</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="setup-section">
+                                    <label class="setup-label">下注金额</label>
+                                    <div class="amount-quick">
+                                        <button class="amount-btn" data-amount="10">10</button>
+                                        <button class="amount-btn" data-amount="50">50</button>
+                                        <button class="amount-btn active" data-amount="100">100</button>
+                                        <button class="amount-btn" data-amount="500">500</button>
+                                    </div>
+                                    <div class="amount-input-wrapper">
+                                        <input type="number" class="amount-input" id="amountInput" value="100" min="1" step="1">
+                                        <span class="amount-unit">USDC</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="setup-section mode-b-section hidden" id="modeBSection">
+                                    <label class="setup-label">对局 ID</label>
+                                    <input type="text" class="match-id-input" id="matchIdInput" placeholder="输入对局 ID 加入私密对局">
+                                </div>
+                                
+                                <button class="btn btn-primary btn-large btn-block btn-start-game" id="startGameBtn">
+                                    <span id="startGameBtnText">寻找对手</span>
+                                </button>
+                                
+                                <div class="mode-b-description hidden" id="modeBDesc">
+                                    <p class="mode-b-notice">
+                                        ✅ 私密纯净模式：不向 ChainRPS 后端传输任何对局信息<br>
+                                        ⚠️ 仍需要网络连接 Polygon 区块链执行链上交易
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stage-matching hidden" id="stageMatching">
+                        <div class="matching-content">
+                            <div class="matching-spinner">
+                                <div class="spinner"></div>
+                            </div>
+                            <h2 class="matching-title">正在寻找对手...</h2>
+                            <p class="matching-text">请稍候，系统正在为你匹配同金额的玩家</p>
+                            <div class="matching-info">
+                                <div class="info-item">
+                                    <span class="info-label">下注金额</span>
+                                    <span class="info-value" id="matchingAmount">100 USDC</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">等待时间</span>
+                                    <span class="info-value" id="matchingTime">0s</span>
+                                </div>
+                            </div>
+                            <button class="btn btn-default btn-cancel-match" id="cancelMatchBtn">
+                                取消匹配
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="stage-game hidden" id="stageGame">
+                        <div class="game-header">
+                            <div class="game-status-badge" id="gameStatusBadge">准备中</div>
+                            <div class="game-timer" id="gameTimer">--:--</div>
+                            <div class="game-id" id="gameIdDisplay">对局 #--</div>
+                        </div>
+                        
+                        <div class="game-board">
+                            <div class="player-side player-opponent">
+                                <div class="player-avatar">👤</div>
+                                <div class="player-info">
+                                    <div class="player-name" id="opponentAddress">等待对手...</div>
+                                    <div class="player-status" id="opponentStatus">未连接</div>
+                                </div>
+                                <div class="player-choice" id="opponentChoice">
+                                    <span class="choice-hidden">❓</span>
+                                </div>
+                            </div>
+                            
+                            <div class="game-vs">VS</div>
+                            
+                            <div class="player-side player-me">
+                                <div class="player-avatar">😎</div>
+                                <div class="player-info">
+                                    <div class="player-name" id="myAddress">我的地址</div>
+                                    <div class="player-status" id="myStatus">等待出拳</div>
+                                </div>
+                                <div class="player-choice" id="myChoice">
+                                    <span class="choice-hidden">❓</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="game-actions" id="gameActions">
+                            <div class="choice-buttons">
+                                <button class="choice-btn choice-rock" data-choice="1">
+                                    <span class="choice-emoji">✊</span>
+                                    <span class="choice-name">石头</span>
+                                </button>
+                                <button class="choice-btn choice-paper" data-choice="2">
+                                    <span class="choice-emoji">✋</span>
+                                    <span class="choice-name">布</span>
+                                </button>
+                                <button class="choice-btn choice-scissors" data-choice="3">
+                                    <span class="choice-emoji">✌️</span>
+                                    <span class="choice-name">剪刀</span>
+                                </button>
+                            </div>
+                            
+                            <div class="action-buttons hidden" id="revealSection">
+                                <button class="btn btn-success btn-large btn-block btn-reveal" id="revealBtn">
+                                    揭晓出拳
+                                </button>
+                            </div>
+                            
+                            <div class="action-buttons hidden" id="timeoutSection">
+                                <button class="btn btn-danger btn-large btn-block btn-claim-timeout" id="claimTimeoutBtn">
+                                    索赔超时胜利
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stage-result hidden" id="stageResult">
+                        <div class="result-content">
+                            <div class="result-icon" id="resultIcon">🏆</div>
+                            <h2 class="result-title" id="resultTitle">你赢了！</h2>
+                            <p class="result-desc" id="resultDesc">恭喜获得胜利</p>
+                            
+                            <div class="result-detail">
+                                <div class="result-row">
+                                    <span class="result-label">你的出拳</span>
+                                    <span class="result-value" id="resultMyChoice">✊ 石头</span>
+                                </div>
+                                <div class="result-row">
+                                    <span class="result-label">对手出拳</span>
+                                    <span class="result-value" id="resultOpponentChoice">✌️ 剪刀</span>
+                                </div>
+                                <div class="result-row">
+                                    <span class="result-label">下注金额</span>
+                                    <span class="result-value" id="resultAmount">100 USDC</span>
+                                </div>
+                                <div class="result-row result-win">
+                                    <span class="result-label">获得奖金</span>
+                                    <span class="result-value" id="resultPrize">+98 USDC</span>
+                                </div>
+                                <div class="result-row">
+                                    <span class="result-label">手续费 (2%)</span>
+                                    <span class="result-value" id="resultFee">-2 USDC</span>
+                                </div>
+                            </div>
+                            
+                            <div class="result-actions">
+                                <button class="btn btn-primary btn-large btn-block btn-play-again" id="playAgainBtn">
+                                    再来一局
+                                </button>
+                                <button class="btn btn-default btn-block btn-back-home" id="backHomeBtn">
+                                    返回首页
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="side-panel">
+                <div class="panel-tabs">
+                    <button class="panel-tab active" data-tab="history">历史记录</button>
+                    <button class="panel-tab" data-tab="stats">我的统计</button>
+                </div>
+                
+                <div class="panel-content">
+                    <div class="tab-content tab-history active" id="tabHistory">
+                        <div class="view-toggle">
+                            <button class="view-btn active" data-view="list">📋 列表</button>
+                            <button class="view-btn" data-view="card">🃏 卡片</button>
+                        </div>
+                        <div class="history-list" id="historyList">
+                            <div class="empty-state">
+                                <span class="empty-icon">📭</span>
+                                <p>暂无对局记录</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content tab-stats hidden" id="tabStats">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="statTotal">0</div>
+                                <div class="stat-label">总对局</div>
+                            </div>
+                            <div class="stat-card stat-win">
+                                <div class="stat-value" id="statWins">0</div>
+                                <div class="stat-label">胜利</div>
+                            </div>
+                            <div class="stat-card stat-lose">
+                                <div class="stat-value" id="statLosses">0</div>
+                                <div class="stat-label">失败</div>
+                            </div>
+                            <div class="stat-card stat-draw">
+                                <div class="stat-value" id="statDraws">0</div>
+                                <div class="stat-label">平局</div>
+                            </div>
+                        </div>
+                        <div class="win-rate-section">
+                            <div class="win-rate-header">
+                                <span>胜率</span>
+                                <span id="winRateValue">0%</span>
+                            </div>
+                            <div class="win-rate-bar">
+                                <div class="win-rate-fill" id="winRateFill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <footer class="app-footer">
+            <div class="footer-links">
+                <a href="#" class="footer-link">合约验证</a>
+                <a href="#" class="footer-link">使用文档</a>
+                <a href="#" class="footer-link">Twitter</a>
+                <a href="#" class="footer-link">Discord</a>
+            </div>
+            <div class="footer-copyright">
+                <span>ChainRPS v1.0.0 · 公平 · 透明 · 可验证</span>
+            </div>
+        </footer>
+    </div>
+
+    <div id="walletModal"></div>
+    <div id="toastContainer"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
+    
+    <script src="../js/FWUI/modal.js"></script>
+    <script src="../js/FWUI/toast.js"></script>
+    <script src="../js/FWUI/button.js"></script>
+    <script src="../js/FWUI/input.js"></script>
+    
+    <script src="../js/config.js"></script>
+    <script src="../js/wallet.js"></script>
+    <script src="../js/crypto.js"></script>
+    <script src="../js/contract.js"></script>
+    <script src="../js/websocket.js"></script>
+    <script src="../js/ui.js"></script>
+    <script src="../js/history.js"></script>
+    <script src="../js/app.js"></script>
+</body>
+</html>
