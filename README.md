@@ -8,8 +8,11 @@
 
 
   --- sta 用户自定区 AI不允许修改
+
    https://faucet.polygon.technology/
+
   1、水龙头：https://faucet.polygon.technology/  X.COM 领取成功（GITHUB失败报404,）
+
   2、私有RPC,https://www.alchemy.com/ 注册新建APP,如：https://polygon-amoy.g.alchemy.com/v2/alch_4fkjOaaIJDphdtHiVl9VS
 
 
