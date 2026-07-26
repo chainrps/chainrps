@@ -12,6 +12,10 @@ const Wallet = (function() {
     let accountChangedHandler = null;
     let chainChangedHandler = null;
     let disconnectHandler = null;
+    // 网络切换相关状态
+    let isChainChanging = false;
+    let pendingChainChange = null;
+    const CHAIN_CHANGE_DELAY = 500;
 
     const listeners = {
         accountChanged: [],
@@ -257,23 +261,82 @@ const Wallet = (function() {
                 }
             };
 
-            // 链变更事件处理器
+            // 链变更事件处理器（带防重入和延迟处理）
             chainChangedHandler = async (chainId) => {
-                currentChainId = parseInt(chainId, 16);
-                if (rawProvider) {
-                    try {
-                        if (provider && typeof provider.destroy === 'function') {
+                const newChainId = parseInt(chainId, 16);
+                const oldChainId = currentChainId;
+                
+                // 如果正在切换中，保存最新的 chainId 待处理
+                if (isChainChanging) {
+                    pendingChainChange = newChainId;
+                    return;
+                }
+                
+                isChainChanging = true;
+                currentChainId = newChainId;
+                
+                try {
+                    // 延迟一小段时间让钱包完成内部切换
+                    await new Promise(resolve => setTimeout(resolve, CHAIN_CHANGE_DELAY));
+                    
+                    // 销毁旧 provider
+                    if (provider && typeof provider.destroy === 'function') {
+                        try {
                             provider.destroy();
+                        } catch (e) {
+                            console.warn('销毁旧 provider 失败:', e.message);
                         }
-                    } catch (e) {}
-                    try {
-                        provider = new ethers.BrowserProvider(rawProvider);
-                        signer = await provider.getSigner();
-                    } catch (e) {
-                        console.warn('chainChanged 后重新创建 provider 失败:', e);
+                    }
+                    provider = null;
+                    signer = null;
+                    
+                    // 重新创建 provider 和 signer
+                    if (rawProvider) {
+                        let retryCount = 0;
+                        const maxRetries = 3;
+                        
+                        while (retryCount < maxRetries) {
+                            try {
+                                provider = new ethers.BrowserProvider(rawProvider);
+                                signer = await provider.getSigner();
+                                
+                                // 验证新 provider 能正常连接
+                                const network = await provider.getNetwork();
+                                const verifiedChainId = Number(network.chainId);
+                                
+                                if (verifiedChainId === newChainId) {
+                                    break; // 成功
+                                } else {
+                                    console.warn(`Provider 链ID不匹配: 期望 ${newChainId}, 实际 ${verifiedChainId}, 重试 ${retryCount + 1}/${maxRetries}`);
+                                }
+                            } catch (e) {
+                                retryCount++;
+                                console.warn(`chainChanged 后重新创建 provider 失败 (${retryCount}/${maxRetries}):`, e.message);
+                                if (retryCount >= maxRetries) {
+                                    throw e;
+                                }
+                                await new Promise(resolve => setTimeout(resolve, 200 * retryCount));
+                            }
+                        }
+                    }
+                    
+                    emit('chainChanged', currentChainId);
+                    
+                    // 如果有待处理的 chain change，处理它
+                    if (pendingChainChange !== null) {
+                        const nextChainId = pendingChainChange;
+                        pendingChainChange = null;
+                        isChainChanging = false;
+                        chainChangedHandler(nextChainId); // 递归处理
+                    }
+                } catch (e) {
+                    console.error('chainChanged 处理失败:', e);
+                    emit('chainChanged', currentChainId);
+                } finally {
+                    if (pendingChainChange === null) {
+                        isChainChanging = false;
                     }
                 }
-                emit('chainChanged', currentChainId);
             };
 
             // 断开连接事件处理器

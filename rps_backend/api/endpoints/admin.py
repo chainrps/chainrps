@@ -707,6 +707,54 @@ async def stop_local_chain():
     return result
 
 
+# 获取保活状态
+@router.get("/local-chain/keep-alive")
+async def get_keep_alive_status():
+    """获取本地链保活功能状态"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    return {"success": True, **service.get_keep_alive_status()}
+
+
+# 设置保活开关
+@router.post("/local-chain/keep-alive")
+async def set_keep_alive(request: Request):
+    """
+    设置本地链保活功能开关。
+
+    开启保活后，如果节点意外退出，后台巡检会自动重启。
+    请求体：
+    - enabled: bool 是否开启保活
+    - 其余参数同 start_node（host, port, chain_id 等，可选，用于首次启动或重启时使用）
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    enabled = bool(body.get("enabled", False))
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    kwargs = {}
+    for key in ["host", "port", "chain_id", "accounts_count", "default_balance", "symbol", "deterministic"]:
+        if key in body and body[key] is not None:
+            if key in ("port", "chain_id", "accounts_count"):
+                kwargs[key] = int(body[key])
+            elif key == "default_balance":
+                kwargs[key] = float(body[key])
+            elif key == "deterministic":
+                kwargs[key] = bool(body[key])
+            else:
+                kwargs[key] = str(body[key])
+
+    result = service.set_keep_alive(enabled, **kwargs)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "操作失败"))
+    return result
+
+
 # 获取本地链账户列表
 @router.get("/local-chain/accounts")
 async def get_local_chain_accounts():

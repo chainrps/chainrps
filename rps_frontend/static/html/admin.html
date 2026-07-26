@@ -659,9 +659,15 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     <div class="value" id="nodeAccountsCount">-</div>
                 </div>
             </div>
-            <div style="margin-bottom: 24px; display: flex; gap: 10px; flex-wrap: wrap;">
-                <button id="startNodeBtn" class="btn btn-primary" onclick="AdminApp.startLocalNode()" title="启动本地 Ganache 测试节点，提供测试 ETH 和部署环境">▶️ 启动节点</button>
-                <button id="stopNodeBtn" class="btn btn-danger" onclick="AdminApp.stopLocalNode()" title="停止本地 Ganache 节点">⏹️ 停止节点</button>
+            <div style="margin-bottom: 24px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                <label class="node-keepalive-toggle" title="开启后节点将持续运行，意外退出时自动重启">
+                    <input type="checkbox" id="nodeKeepAliveToggle">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">
+                        <span class="toggle-title">节点保活</span>
+                        <span class="toggle-sub" id="nodeKeepAliveSub">未开启</span>
+                    </span>
+                </label>
                 <button class="btn btn-outline" onclick="AdminApp.refreshNodeStatus()" title="刷新本地节点状态信息">🔄 刷新状态</button>
                 <button class="btn btn-outline" onclick="AdminApp.switchToLocalNetwork()" title="自动在 MetaMask 中添加/切换到本地网络">🔗 切换到本地网络</button>
             </div>

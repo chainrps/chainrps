@@ -9,16 +9,17 @@ import os
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from contextlib import asynccontextmanager
 
-from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL
+from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL, CHAIN_ID
 from rps_backend.api.routes import router
 from rps_backend.websocket import ws_manager, websocket_endpoint, heartbeat_loop
 from rps_backend.websocket.heartbeat import check_connections
 from rps_backend.repository import init_database
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.service import contract_service
+from rps_backend.service.local_chain_service import get_local_chain_service
 
 
 # 应用生命周期管理
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI):
     """
     应用生命周期管理
 
-    启动时初始化数据库、检查 Redis、启动心跳和合约事件监听。
+    启动时初始化数据库、检查 Redis、启动心跳、合约事件监听和本地链保活。
     """
     # 初始化数据库
     init_database()
@@ -52,6 +53,23 @@ async def lifespan(app: FastAPI):
     # 启动 WebSocket Pub/Sub 监听器（用于跨进程广播）
     await ws_manager._start_pubsub_listener()
 
+    # 初始化本地链服务并启用保活
+    try:
+        print("🔄 初始化本地链服务...")
+        chain_svc = get_local_chain_service()
+        chain_svc.set_keep_alive(
+            True,
+            deterministic=True,
+            chain_id=CHAIN_ID,
+        )
+        status = chain_svc.get_node_status()
+        if status.get("running"):
+            print(f"✅ 本地链服务已就绪 (Chain ID: {status.get('chain_id')})")
+        else:
+            print("⚠️  本地链节点未运行，保活机制已启动（将自动尝试连接）")
+    except Exception as e:
+        print(f"⚠️  本地链服务初始化失败: {e}")
+
     print(f"🚀 ChainRPS 后端服务启动")
     print(f"📡 API: http://{HOST}:{PORT}")
     print(f"📡 API 文档: http://{HOST}:{PORT}/docs")
@@ -64,6 +82,15 @@ async def lifespan(app: FastAPI):
     cleanup_task.cancel()
     contract_task.cancel()
     await contract_service.stop_listening()
+    
+    # 停止本地链保活
+    try:
+        chain_svc = get_local_chain_service()
+        chain_svc.set_keep_alive(False)
+        print("🛑 本地链保活已停止")
+    except Exception:
+        pass
+    
     print("👋 ChainRPS 后端服务关闭")
 
 
@@ -98,7 +125,10 @@ app.add_middleware(
 async def http_exception_handler(request, exc):
     if exc.status_code == 404:
         return RedirectResponse(url="/")
-    raise exc
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+    )
 
 
 # 注册 API 路由

@@ -340,6 +340,7 @@ const AdminApp = {
         if (tabName === 'audit') this.loadAuditLogs();
         if (tabName === 'localChain') {
             this._applyNodeConfigToForm();
+            this._initKeepAliveToggle();
             this.refreshNodeStatus();
         }
         if (tabName === 'redis') this.refreshRedisStatus();
@@ -503,6 +504,27 @@ const AdminApp = {
         const prefixLen = Math.floor(maxLength * 0.3);
         const suffixLen = Math.floor(maxLength * 0.3);
         return str.slice(0, prefixLen) + '...[省略' + (str.length - prefixLen - suffixLen) + '个字符]...' + str.slice(-suffixLen);
+    },
+
+    // 根据 Chain ID 获取网络名称
+    getNetworkNameByChainId(chainId) {
+        const knownNetworks = {
+            1: 'Ethereum Mainnet',
+            137: 'Polygon Mainnet',
+            80002: 'Polygon Amoy',
+            31337: 'Hardhat Network',
+            1337: 'Localhost 8545',
+            56: 'BNB Chain',
+            42161: 'Arbitrum One',
+            10: 'Optimism',
+            8453: 'Base',
+            43114: 'Avalanche',
+            100: 'Gnosis',
+            250: 'Fantom',
+            42161: 'Arbitrum One',
+            169: 'Pulsechain',
+        };
+        return knownNetworks[chainId] || `Chain #${chainId}`;
     },
 
     // 显示部署状态消息
@@ -706,7 +728,18 @@ const AdminApp = {
             { test: /nonce too high/, zh: 'Nonce 过高，请等待之前的交易打包后再试' },
             { test: /gas price too low|underpriced/, zh: 'Gas 价格太低，被节点拒绝' },
             { test: /intrinsic gas too low|gas limit/, zh: 'Gas Limit 太低，无法完成合约部署' },
-            { test: /network changed|chain id mismatch/, zh: '网络已切换或 Chain ID 不匹配，请确认钱包连接的是正确网络' },
+            { test: /network changed/i, zh: (() => {
+                // 尝试提取 chain ID 信息
+                const match = msg.match(/network changed:\s*(\d+)\s*=>\s*(\d+)/i) || msg.match(/network changed.*?(\d+).*?(\d+)/i);
+                if (match) {
+                    const fromChain = match[1];
+                    const toChain = match[2];
+                    const fromName = this.getNetworkNameByChainId(parseInt(fromChain));
+                    const toName = this.getNetworkNameByChainId(parseInt(toChain));
+                    return `⚠️ 网络切换失败\n当前钱包网络: ${fromName} (Chain ID: ${fromChain})\n期望的网络: ${toName} (Chain ID: ${toChain})\n\n请确认钱包已切换到正确网络后重试`;
+                }
+                return '网络已切换或 Chain ID 不匹配，请确认钱包连接的是正确网络';
+            })() },
             { test: /already known/, zh: '相同的交易已存在，请勿重复提交' },
             { test: /replacement transaction underpriced/, zh: '替换交易的价格太低' },
             { test: /contract factory.*not defined|bytecode.*not/, zh: '未找到合约编译产物(Bytecode)，请检查后端编译是否成功' },
@@ -1334,6 +1367,28 @@ const AdminApp = {
         }
     },
 
+    // 从表单读取配置并保存到本地存储
+    _saveNodeConfigFromForm() {
+        const config = {};
+        const host = document.getElementById('nodeConfigHost')?.value?.trim();
+        const port = document.getElementById('nodeConfigPort')?.value?.trim();
+        const chain_id = document.getElementById('nodeConfigChainId')?.value?.trim();
+        const accounts_count = document.getElementById('nodeConfigAccounts')?.value?.trim();
+        const default_balance = document.getElementById('nodeConfigBalance')?.value?.trim();
+        const symbol = document.getElementById('nodeConfigSymbol')?.value?.trim();
+        const deterministic = document.getElementById('nodeConfigDeterministic')?.checked;
+
+        if (host != null) config.host = host;
+        if (port != null) config.port = port;
+        if (chain_id != null) config.chain_id = chain_id;
+        if (accounts_count != null) config.accounts_count = accounts_count;
+        if (default_balance != null) config.default_balance = default_balance;
+        if (symbol != null) config.symbol = symbol;
+        if (deterministic != null) config.deterministic = deterministic;
+
+        this._saveNodeConfig(config);
+    },
+
     // 从本地存储加载节点配置
     _loadNodeConfig() {
         try {
@@ -1401,6 +1456,21 @@ const AdminApp = {
         }
     },
 
+    // 启动/停止本地链状态自动刷新
+    _startNodeStatusAutoRefresh(enabled) {
+        if (this._nodeStatusTimer) {
+            clearInterval(this._nodeStatusTimer);
+            this._nodeStatusTimer = null;
+        }
+        if (enabled) {
+            this._nodeStatusTimer = setInterval(() => {
+                if (this.currentTab === 'localChain') {
+                    this.refreshNodeStatus();
+                }
+            }, 5000);
+        }
+    },
+
     // 渲染节点状态
     _renderNodeStatus(status) {
         const statusEl = document.getElementById('nodeStatusText');
@@ -1416,12 +1486,97 @@ const AdminApp = {
         document.getElementById('nodeBlockNumber').textContent = status.block_number != null ? status.block_number.toLocaleString() : '-';
         document.getElementById('nodeGasPrice').textContent = status.gas_price != null ? status.gas_price + ' Gwei' : '-';
         document.getElementById('nodeAccountsCount').textContent = status.accounts_count != null ? status.accounts_count : '-';
-        
-        // 更新按钮状态
-        const startBtn = document.getElementById('startNodeBtn');
-        const stopBtn = document.getElementById('stopNodeBtn');
-        if (startBtn) startBtn.disabled = status.running;
-        if (stopBtn) stopBtn.disabled = !status.running;
+
+        const keepAliveToggle = document.getElementById('nodeKeepAliveToggle');
+        const keepAliveCheckbox = document.getElementById('nodeKeepAliveCheckbox') ||
+            document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
+        const keepAliveSub = document.getElementById('nodeKeepAliveSub');
+
+        if (keepAliveToggle && keepAliveCheckbox) {
+            const keepAlive = !!status.keep_alive;
+            if (keepAliveCheckbox.checked !== keepAlive) {
+                keepAliveCheckbox.checked = keepAlive;
+            }
+
+            if (keepAliveToggle.classList) {
+                keepAliveToggle.classList.remove('keep-alive-active', 'keep-alive-error');
+                if (keepAlive) {
+                    if (status.running) {
+                        keepAliveToggle.classList.add('keep-alive-active');
+                        if (keepAliveSub) {
+                            const count = status.keep_alive_restart_count || 0;
+                            keepAliveSub.textContent = count > 0 ? `运行中 · 已重启 ${count} 次` : '运行中 · 保活正常';
+                        }
+                    } else {
+                        keepAliveToggle.classList.add('keep-alive-error');
+                        if (keepAliveSub) keepAliveSub.textContent = '启动中...';
+                    }
+                } else {
+                    if (keepAliveSub) keepAliveSub.textContent = '未开启';
+                }
+            }
+
+            this._startNodeStatusAutoRefresh(!!status.keep_alive);
+        }
+    },
+
+    // 初始化保活开关事件
+    _initKeepAliveToggle() {
+        const checkbox = document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
+        if (!checkbox) return;
+        if (checkbox._keepAliveBound) return;
+        checkbox._keepAliveBound = true;
+        checkbox.addEventListener('change', (e) => this._onKeepAliveToggle(e.target.checked));
+    },
+
+    // 保活开关切换处理
+    async _onKeepAliveToggle(enabled) {
+        try {
+            const payload = { enabled };
+            if (enabled) {
+                const host = document.getElementById('nodeConfigHost')?.value?.trim();
+                const port = document.getElementById('nodeConfigPort')?.value?.trim();
+                const chain_id = document.getElementById('nodeConfigChainId')?.value?.trim();
+                const accounts_count = document.getElementById('nodeConfigAccounts')?.value?.trim();
+                const default_balance = document.getElementById('nodeConfigBalance')?.value?.trim();
+                const symbol = document.getElementById('nodeConfigSymbol')?.value?.trim();
+                const deterministic = document.getElementById('nodeConfigDeterministic')?.checked;
+
+                if (host) payload.host = host;
+                if (port) payload.port = port;
+                if (chain_id) payload.chain_id = chain_id;
+                if (accounts_count) payload.accounts_count = accounts_count;
+                if (default_balance) payload.default_balance = default_balance;
+                if (symbol) payload.symbol = symbol;
+                if (deterministic != null) payload.deterministic = deterministic;
+            }
+
+            if (enabled) {
+                FWUI.Toast.info('正在启动节点并开启保活...');
+            } else {
+                FWUI.Toast.info('正在关闭保活...');
+            }
+
+            const result = await this.apiRequest('/api/admin/local-chain/keep-alive', 'POST', payload);
+
+            if (result.success) {
+                if (enabled) {
+                    FWUI.Toast.success('节点保活已开启');
+                } else {
+                    FWUI.Toast.success('节点保活已关闭');
+                }
+                this._saveNodeConfigFromForm();
+                this.refreshNodeStatus();
+            } else {
+                FWUI.Toast.error(result.message || '操作失败');
+                const checkbox = document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
+                if (checkbox) checkbox.checked = !enabled;
+            }
+        } catch (e) {
+            FWUI.Toast.error('保活操作失败: ' + (e.message || e));
+            const checkbox = document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
+            if (checkbox) checkbox.checked = !enabled;
+        }
     },
 
     // 切换到本地网络

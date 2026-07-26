@@ -2393,3 +2393,82 @@ input:checked + .slider:before {
     background: var(--bg-hover);
     color: var(--text-primary);
 }
+
+/* 本地链保活开关 */
+.node-keepalive-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    user-select: none;
+    transition: all var(--transition-fast);
+}
+
+.node-keepalive-toggle:hover {
+    border-color: var(--primary-color);
+    background: var(--bg-hover);
+}
+
+.node-keepalive-toggle input[type="checkbox"] {
+    display: none;
+}
+
+.node-keepalive-toggle .toggle-slider {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: var(--border-color);
+    border-radius: var(--radius-full);
+    transition: background var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.node-keepalive-toggle .toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: transform var(--transition-fast);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.node-keepalive-toggle input:checked + .toggle-slider {
+    background: #22c55e;
+}
+
+.node-keepalive-toggle input:checked + .toggle-slider::before {
+    transform: translateX(20px);
+}
+
+.node-keepalive-toggle .toggle-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.node-keepalive-toggle .toggle-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.node-keepalive-toggle .toggle-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.node-keepalive-toggle.keep-alive-active .toggle-sub {
+    color: #16a34a;
+}
+
+.node-keepalive-toggle.keep-alive-error .toggle-sub {
+    color: var(--danger-color);
+}

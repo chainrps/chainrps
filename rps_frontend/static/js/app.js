@@ -795,7 +795,7 @@ const App = (function() {
             }
         });
 
-        Wallet.on('chainChanged', (chainId) => {
+        Wallet.on('chainChanged', async (chainId) => {
             const networkName = getNetworkNameByChainId(chainId);
             UI.updateNetworkInfo(chainId, networkName);
 
@@ -810,10 +810,24 @@ const App = (function() {
             }
 
             if (Wallet.getAddress()) {
-                setTimeout(() => {
-                    initContract();
-                    updateBalanceDisplay();
-                }, 300);
+                // 使用更长的延迟等待网络完全切换，并添加重试机制
+                const initWithRetry = async (retries = 3) => {
+                    for (let i = 0; i < retries; i++) {
+                        try {
+                            await new Promise(resolve => setTimeout(resolve, 500 + i * 300));
+                            initContract();
+                            updateBalanceDisplay();
+                            return;
+                        } catch (e) {
+                            console.warn(`chainChanged 后初始化失败 (${i + 1}/${retries}):`, e.message);
+                            if (i >= retries - 1) {
+                                console.error('chainChanged 后初始化最终失败:', e);
+                                FWUI.Toast.warning('网络切换完成，但初始化失败，请刷新页面');
+                            }
+                        }
+                    }
+                };
+                initWithRetry();
             }
         });
 

@@ -88,6 +88,14 @@ class LocalChainService:
     _w3: Optional[Web3] = None
     _tokens: Dict[str, Dict[str, Any]] = {}
 
+    _keep_alive_enabled: bool = False
+    _keep_alive_config: Dict[str, Any] = {}
+    _keep_alive_thread: Optional[threading.Thread] = None
+    _keep_alive_stop_event: Optional[threading.Event] = None
+    _keep_alive_restart_count: int = 0
+    _keep_alive_last_restart_at: Optional[float] = None
+    _keep_alive_lock: threading.Lock = threading.Lock()
+
     # 单例模式实例化
     def __new__(cls):
             if cls._instance is None:
@@ -95,9 +103,35 @@ class LocalChainService:
                 cls._instance._init_web3()
             return cls._instance
 
+    # 独立 HTTP 健康检测（不依赖 web3.py 会话，防止僵尸连接干扰）
+    def _check_http_health(self, timeout: int = 2) -> bool:
+        """
+        使用独立的 HTTP 请求检测 RPC 节点是否真正存活。
+        
+        不使用 self._w3，因为 web3.py 的 Session 可能持有僵尸连接，
+        导致进程存活但 HTTP 假死的误判。
+        """
+        try:
+            import requests
+            r = requests.post(
+                self._rpc_url,
+                json={"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1},
+                timeout=timeout,
+            )
+            return r.status_code == 200 and "result" in r.json()
+        except Exception:
+            return False
+
     # 初始化 Web3 连接
     def _init_web3(self):
         try:
+            if self._w3 is not None:
+                try:
+                    old_provider = self._w3.provider
+                    if hasattr(old_provider, 'session') and old_provider.session:
+                        old_provider.session.close()
+                except Exception:
+                    pass
             self._w3 = Web3(_create_http_provider(self._rpc_url))
             if self._w3.is_connected():
                 try:
@@ -106,6 +140,8 @@ class LocalChainService:
                     pass
                 self._load_accounts()
                 self._load_tokens_from_db()
+            else:
+                self._w3 = None
         except Exception:
             self._w3 = None
     
@@ -115,7 +151,6 @@ class LocalChainService:
         if not self._w3:
             return False
         try:
-            # 执行多个基础调用验证连接稳定性
             self._w3.eth.chain_id
             self._w3.eth.block_number
             return True
@@ -147,18 +182,36 @@ class LocalChainService:
         except Exception:
             pass #别删除，用于人工代码审核 便利
 
-    # 检查本地链是否运行
+    # 检查本地链是否运行（快速 HTTP 检测优先，防止假死误判）
     def is_running(self) -> bool:
-        if self._process and self._process.poll() is None:
+        http_ok = self._check_http_health(timeout=2)
+        if http_ok:
+            if not self._w3:
+                try:
+                    self._init_web3()
+                except Exception:
+                    pass
+            if self._w3:
+                try:
+                    self._chain_id = self._w3.eth.chain_id
+                except Exception:
+                    pass
             return True
+        
+        if self._process and self._process.poll() is None:
+            print("⚠️  进程存活但 HTTP 无响应（疑似假死），清理连接...")
+            self._w3 = None
+            self._accounts = []
+            return False
+        
         try:
-            if not self._w3 or not self._w3.is_connected():
+            if not self._w3:
                 self._init_web3()
             if self._w3 and self._w3.is_connected():
                 return self._test_rpc_connection()
-            return False
         except Exception:
-            return False
+            pass
+        return False
 
     # 启动本地链节点
     def start_node(
@@ -244,6 +297,18 @@ class LocalChainService:
                     self._chain_id = actual_chain_id
                 except Exception:
                     pass #别删除，用于人工代码审核 便利
+
+                # 保存启动配置，供保活重启时使用
+                self._keep_alive_config = {
+                    "deterministic": deterministic,
+                    "host": host,
+                    "port": port,
+                    "chain_id": self._chain_id,
+                    "accounts_count": accounts_count,
+                    "default_balance": default_balance,
+                    "symbol": symbol,
+                }
+
                 return {
                     "success": True,
                     "message": "本地链启动成功",
@@ -277,8 +342,11 @@ class LocalChainService:
             return {"success": False, "message": f"启动失败: {str(e)}"}
 
     # 停止本地链节点
-    def stop_node(self) -> Dict[str, Any]:
+    def stop_node(self, keep_alive: bool = None) -> Dict[str, Any]:
         try:
+            # 停止时如果未指定保活状态，则自动关闭保活（用户主动停止不需要保活）
+            if keep_alive is None:
+                self._keep_alive_enabled = False
             # 1. 如果是通过本服务启动的子进程，直接终止
             if self._process and self._process.poll() is None:
                 self._process.terminate()
@@ -366,6 +434,9 @@ class LocalChainService:
             "running": running,
             "rpc_url": self._rpc_url,
             "chain_id": self._chain_id,
+            "keep_alive": self._keep_alive_enabled,
+            "keep_alive_restart_count": self._keep_alive_restart_count,
+            "keep_alive_last_restart_at": self._keep_alive_last_restart_at,
         }
 
         if running and self._w3:
@@ -655,6 +726,159 @@ class LocalChainService:
             "decimals": decimals,
         }
         return {"success": True, "message": f"代币 {symbol} 已添加"}
+
+    # 设置保活开关
+    def set_keep_alive(self, enabled: bool, **start_kwargs) -> Dict[str, Any]:
+        """
+        设置本地链保活模式。
+
+        enabled=True 时：
+          - 如果节点未运行，先按配置启动
+          - 启动后台巡检线程，节点意外退出时自动重启
+        enabled=False 时：
+          - 停止保活巡检
+          - 不主动停止节点（如需停止请单独调用 stop_node）
+        """
+        with self._keep_alive_lock:
+            if enabled:
+                self._keep_alive_enabled = True
+                if start_kwargs:
+                    self._keep_alive_config.update(start_kwargs)
+
+                # 节点未运行则先启动
+                if not self.is_running():
+                    cfg = self._keep_alive_config or {}
+                    result = self.start_node(**cfg)
+                    if not result.get("success"):
+                        self._keep_alive_enabled = False
+                        return result
+
+                # 启动巡检线程
+                self._ensure_keep_alive_thread()
+                return {
+                    "success": True,
+                    "message": "保活已启用，节点将持续运行",
+                    "keep_alive": True,
+                }
+            else:
+                self._keep_alive_enabled = False
+                return {
+                    "success": True,
+                    "message": "保活已关闭",
+                    "keep_alive": False,
+                }
+
+    # 获取保活状态
+    def get_keep_alive_status(self) -> Dict[str, Any]:
+        return {
+            "enabled": self._keep_alive_enabled,
+            "config": self._keep_alive_config,
+            "restart_count": self._keep_alive_restart_count,
+            "last_restart_at": self._keep_alive_last_restart_at,
+            "thread_running": (
+                self._keep_alive_thread is not None
+                and self._keep_alive_thread.is_alive()
+            ),
+        }
+
+    # 确保保活巡检线程在运行
+    def _ensure_keep_alive_thread(self):
+        if self._keep_alive_thread and self._keep_alive_thread.is_alive():
+            return
+        self._keep_alive_stop_event = threading.Event()
+        self._keep_alive_thread = threading.Thread(
+            target=self._keep_alive_loop,
+            daemon=True,
+            name="local-chain-keep-alive",
+        )
+        self._keep_alive_thread.start()
+        print("🔁 本地链保活巡检线程已启动")
+
+    # 保活巡检主循环（使用独立 HTTP 检测，主动处理假死）
+    def _keep_alive_loop(self):
+        check_interval = 10
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        while not self._keep_alive_stop_event.is_set():
+            try:
+                if not self._keep_alive_enabled:
+                    self._keep_alive_stop_event.wait(check_interval)
+                    continue
+
+                http_ok = self._check_http_health(timeout=3)
+                if http_ok:
+                    if consecutive_failures > 0:
+                        consecutive_failures = 0
+                        print("✅ 保活：RPC 连接恢复正常")
+                else:
+                    consecutive_failures += 1
+                    print(f"⚠️  保活检测：RPC 无响应（连续 {consecutive_failures} 次）")
+
+                    if consecutive_failures >= max_consecutive_failures:
+                        print(f"🔴 保活：连续 {max_consecutive_failures} 次检测失败，执行强制恢复...")
+                        self._force_recover()
+                        cfg = self._keep_alive_config or {}
+                        try:
+                            result = self.start_node(**cfg)
+                            if result.get("success"):
+                                self._keep_alive_restart_count += 1
+                                self._keep_alive_last_restart_at = time.time()
+                                consecutive_failures = 0
+                                print(f"✅ 保活：本地链已强制重启（第 {self._keep_alive_restart_count} 次）")
+                            else:
+                                print(f"❌ 保活重启失败：{result.get('message', '未知错误')}")
+                        except Exception as e:
+                            print(f"❌ 保活重启异常：{e}")
+
+            except Exception as e:
+                print(f"🔴 保活巡检异常：{e}")
+
+            self._keep_alive_stop_event.wait(check_interval)
+
+        print("🔁 本地链保活巡检线程已退出")
+
+    # 强制恢复：处理假死进程并清理端口占用
+    def _force_recover(self):
+        """强制杀掉假死进程和清理端口，确保能重新启动"""
+        if self._process:
+            try:
+                self._process.kill()
+                self._process.wait(timeout=3)
+            except Exception:
+                pass
+            self._process = None
+            print("  已终止旧的 ganache 进程")
+
+        if os.name == "nt":
+            try:
+                netstat = subprocess.run(
+                    ["netstat", "-ano", "-p", "TCP"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                pids = set()
+                for line in netstat.stdout.splitlines():
+                    if ":8545" in line and "LISTENING" in line:
+                        parts = line.split()
+                        if parts:
+                            pid = parts[-1]
+                            if pid.isdigit() and int(pid) > 0:
+                                pids.add(pid)
+                for pid in pids:
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/PID", pid, "/F"],
+                            capture_output=True, timeout=5,
+                        )
+                        print(f"  已清理端口 8545 占用进程 PID={pid}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        self._w3 = None
+        self._accounts = []
+        time.sleep(1)
 
 
 # 获取本地链服务实例
