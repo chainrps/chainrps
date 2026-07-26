@@ -23,7 +23,6 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rps.db")
 
 # ==================== 合约配置 ====================
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "")
-RPC_PORT=int(os.getenv("RPC_PORT", 8545))
 RPC_URL = os.getenv("RPC_URL", "http://127.0.0.1:8545")
 CHAIN_ID = int(os.getenv("CHAIN_ID", 31337))
 

@@ -13,7 +13,7 @@ BUILD_FILE = BUILD_DIR / "chainrps.json"
 
 LOCAL_PRIVATE_KEY = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
 
-
+# 确保合约已编译，未编译则自动编译
 def ensure_compiled():
     if BUILD_FILE.exists():
         return
@@ -31,13 +31,13 @@ def ensure_compiled():
         print("❌ 编译脚本未找到，请先手动编译")
         sys.exit(1)
 
-
+# 加载合约编译产物
 def load_contract_artifacts():
     with open(BUILD_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("abi"), data.get("bytecode")
 
-
+# 部署合约
 def deploy_contract():
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
     

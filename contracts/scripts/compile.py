@@ -1,7 +1,7 @@
 """
 ChainRPS 合约自动编译脚本
 
-使用 py-solc-x 编译 RPSGame.sol 合约，生成 ABI 和 Bytecode。
+使用 py-solc-x 编译 ChainRPS.sol 合约，生成 ABI 和 Bytecode。
 编译产物保存到 contracts/build/chainrps.json，供后端 API 和前端部署使用。
 
 使用方式：
@@ -26,12 +26,12 @@ BUILD_DIR = CONTRACTS_DIR / "build"
 LIB_DIR = CONTRACTS_DIR / "lib"
 
 # 需要编译的合约文件
-TARGET_CONTRACTS = ["RPSGame.sol", "MockERC20.sol"]
+TARGET_CONTRACTS = ["ChainRPS.sol", "MockERC20.sol"]
 
 # Solidity 编译器版本
 SOLC_VERSION = "0.8.20"
 
-
+# 确保 solc 编译器已安装，未安装则自动下载
 def ensure_solc():
     """确保 solc 编译器已安装，未安装则自动下载"""
     try:
@@ -48,7 +48,7 @@ def ensure_solc():
     else:
         print(f"✅ solc {SOLC_VERSION} 已安装")
 
-
+# 编译所有目标合约
 def compile_contracts():
     """编译所有目标合约，返回 {contract_name: {abi, bytecode}} 字典"""
     from solcx import compile_standard, set_solc_version
@@ -125,7 +125,7 @@ def compile_contracts():
         sys.exit(1)
 
     # 整理编译结果
-    # compile_standard 返回格式：{"contracts": {"src/RPSGame.sol": {"chainrps": {"abi": [...], "evm": {"bytecode": {"object": "0x..."}}}}}}
+    # compile_standard 返回格式：{"contracts": {"src/ChainRPS.sol": {"chainrps": {"abi": [...], "evm": {"bytecode": {"object": "0x..."}}}}}}
     results = {}
     for source_path, contracts in compiled.get("contracts", {}).items():
         for contract_name, data in contracts.items():
@@ -143,7 +143,7 @@ def compile_contracts():
 
     return results
 
-
+# 保存编译产物到 contracts/build/ 目录
 def save_build_artifacts(artifacts):
     """将编译产物保存到 contracts/build/ 目录"""
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
@@ -173,7 +173,7 @@ def save_build_artifacts(artifacts):
         json.dump(main_contract["abi"], f, indent=2, ensure_ascii=False)
     print(f"💾 ABI 文件已更新: {abi_path}")
 
-
+# 主函数，编译合约并保存产物
 def main():
     print("=" * 60)
     print("ChainRPS 合约自动编译")
@@ -197,6 +197,6 @@ def main():
     print("   现在可以在管理面板使用「部署新合约」功能")
     print("=" * 60)
 
-
+# 主函数入口
 if __name__ == "__main__":
     main()

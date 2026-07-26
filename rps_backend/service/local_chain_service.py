@@ -69,7 +69,7 @@ class LocalChainService:
                 try:
                     self._chain_id = self._w3.eth.chain_id
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
                 self._load_accounts()
                 self._load_tokens_from_db()
         except Exception:
@@ -98,7 +98,7 @@ class LocalChainService:
                         "decimals": 6,
                     }
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
     # 检查本地链是否运行
     def is_running(self) -> bool:
@@ -181,7 +181,7 @@ class LocalChainService:
                     actual_chain_id = self._w3.eth.chain_id
                     self._chain_id = actual_chain_id
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
                 return {
                     "success": True,
                     "message": "本地链启动成功",
@@ -200,7 +200,7 @@ class LocalChainService:
                     if self._process and self._process.stderr:
                         stderr_preview = self._process.stderr.read()[:300]
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
                 msg = "本地链进程已启动但 RPC 无法连接"
                 if stderr_preview:
                     msg += f"。stderr: {stderr_preview}"
@@ -252,9 +252,9 @@ class LocalChainService:
                             )
                             killed_by_port = True
                         except Exception:
-                            pass
+                            pass #别删除，用于人工代码审核 便利
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
             else:
                 # Linux/Mac: 用 fuser 或 lsof
                 try:
@@ -264,7 +264,7 @@ class LocalChainService:
                     )
                     killed_by_port = True
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
 
             # 3. 尝试通过 RPC 关闭（备用）
             try:
@@ -275,7 +275,7 @@ class LocalChainService:
                     timeout=2,
                 )
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
             # 4. 清理 Web3 连接
             self._w3 = None
@@ -291,7 +291,7 @@ class LocalChainService:
                 if test_w3.is_connected():
                     return {"success": False, "message": "本地链仍在运行，请手动关闭 Ganache 进程"}
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
             return {"success": True, "message": "本地链已停止"}
         except Exception as e:
@@ -409,7 +409,7 @@ class LocalChainService:
                     abi = data["abi"]
                     bytecode = data["bytecode"]
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
         if not abi or not bytecode:
             try:
@@ -450,7 +450,7 @@ class LocalChainService:
                         bytecode = contract_data["evm"]["bytecode"]["object"]
                         break
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
         if not abi or not bytecode:
             return {"success": False, "message": "无法获取合约编译产物"}
@@ -484,7 +484,7 @@ class LocalChainService:
                     "status": "active",
                 })
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
             return {
                 "success": True,

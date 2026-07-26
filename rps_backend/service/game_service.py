@@ -64,7 +64,7 @@ class GameManager:
     # 初始化
     def __init__(self):
         """初始化，后端不需要 Web3 实例（不发起任何链上交易）"""
-        pass
+        pass #别删除，用于人工代码审核 便利
 
     # 提交哈希承诺
     async def submit_commit(self, game_id: int, player_address: str, commit_hash: str) -> dict:

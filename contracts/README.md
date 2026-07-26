@@ -11,7 +11,7 @@
 ```
 contracts/
 ├── src/              # 合约源码
-│   ├── RPSGame.sol   # 主游戏合约
+│   ├── ChainRPS.sol  # 主游戏合约
 │   └── MockERC20.sol # 测试用 ERC20 代币
 ├── scripts/          # 部署脚本
 │   ├── compile.py
@@ -54,7 +54,7 @@ contracts/
 
 ---
 
-## 核心合约：RPSGame.sol
+## 核心合约：ChainRPS.sol
 
 链上石头剪刀布游戏主合约，基于哈希承诺（Commit-Reveal）机制确保公平性。
 
@@ -168,7 +168,7 @@ contracts/
 
 1. 打开 https://remix.ethereum.org
 2. 导入 `@openzeppelin/contracts` 依赖
-3. 将 `RPSGame.sol` 和 `MockERC20.sol` 复制到 Remix
+3. 将 `ChainRPS.sol` 和 `MockERC20.sol` 复制到 Remix
 4. 选择 Solidity 编译器 0.8.20+
 5. 编译合约
 6. 切换到 Injected Provider（MetaMask）

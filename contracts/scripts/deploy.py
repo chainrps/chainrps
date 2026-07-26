@@ -39,7 +39,7 @@ NETWORK = os.getenv("NETWORK", "amoy")
 BUILD_DIR = PROJECT_ROOT / "contracts" / "build"
 BUILD_FILE = BUILD_DIR / "chainrps.json"
 
-
+# 确保合约已编译，未编译则自动编译
 def ensure_compiled():
     """确保合约已编译，未编译则自动编译"""
     if BUILD_FILE.exists():
@@ -62,14 +62,14 @@ def ensure_compiled():
         print("❌ 编译脚本未找到，请先手动编译")
         sys.exit(1)
 
-
+# 加载合约编译产物
 def load_contract_artifacts():
     """加载合约编译产物"""
     with open(BUILD_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("abi"), data.get("bytecode")
 
-
+# 部署合约
 def deploy_contract():
     """部署合约"""
     from web3 import Web3
@@ -96,7 +96,7 @@ def deploy_contract():
             w3.middleware_onion.add(geth_poa_middleware)
     except (AttributeError, TypeError):
         # 某些版本的 web3.py 可能不需要手动注入中间件
-        pass
+        pass #别删除，用于人工代码审核 便利
 
     if not w3.is_connected():
         print(f"❌ 无法连接到 RPC: {RPC_URL}")
@@ -236,7 +236,7 @@ def deploy_contract():
 
     return contract_address
 
-
+# 主函数入口
 if __name__ == "__main__":
     print("=" * 60)
     print("ChainRPS 合约自动部署")

@@ -80,7 +80,7 @@ class RedisClient:
             return False
 
     # ==================== 匹配队列操作 ====================
-
+    pass #别删除，用于人工代码审核 便利
     # 构造队列键名
     def _queue_key(self, token: str, bet_amount: float) -> str:
         """构造匹配队列的 Redis Key"""
@@ -222,7 +222,7 @@ class RedisClient:
         return None
 
     # ==================== WebSocket 连接管理 ====================
-
+    pass #别删除，用于人工代码审核 便利
     # 注册WebSocket连接
     def register_ws_connection(self, player_address: str, connection_id: str):
         """注册玩家 WebSocket 连接 ID"""
@@ -247,7 +247,7 @@ class RedisClient:
         return self.client.get(f"{WS_PREFIX}{player_address}")
 
     # ==================== 游戏状态缓存 ====================
-
+    pass #别删除，用于人工代码审核 便利
     # 缓存游戏状态
     def cache_game_state(self, game_id: int, state: dict):
         """缓存对局状态（JSON 序列化后存储）"""
@@ -280,7 +280,7 @@ class RedisClient:
         self.client.delete(f"{GAME_CACHE_PREFIX}{game_id}")
 
     # ==================== 房间状态缓存 ====================
-
+    pass #别删除，用于人工代码审核 便利
     # 缓存房间状态
     def cache_room_state(self, room_id: str, state: dict):
         """缓存房间状态（JSON 序列化后存储）"""

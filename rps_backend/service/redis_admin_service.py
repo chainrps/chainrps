@@ -37,7 +37,7 @@ class RedisAdminService:
                 if result.returncode == 0 and "SERVICE_NAME" in result.stdout:
                     return svc
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
         return None
 
     # 查找 redis-server 可执行文件
@@ -72,7 +72,7 @@ class RedisAdminService:
                         if os.path.exists(candidate):
                             return candidate
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
         return None
 
     # 查找 redis-cli 可执行文件
@@ -107,7 +107,7 @@ class RedisAdminService:
                         if os.path.exists(candidate):
                             return candidate
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
         return None
 
     # 获取 Redis 状态
@@ -180,7 +180,7 @@ class RedisAdminService:
             if redis_client.is_connected():
                 return {"success": True, "message": "Redis 已在运行"}
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
         import time
         import redis as redis_lib
@@ -200,11 +200,11 @@ class RedisAdminService:
                     # sc start 成功返回 0，服务已运行返回 1056
                     if result.returncode != 0 and "1056" not in result.stderr:
                         # 服务启动失败，尝试进程方式
-                        pass
+                        pass #别删除，用于人工代码审核 便利
                     else:
                         service_already_running = True
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
 
             # 模式2：进程方式启动
             if not service_already_running:
@@ -258,12 +258,12 @@ class RedisAdminService:
                         redis_client._init_memory_store()
                         redis_client.client = None
                     except Exception:
-                        pass
+                        pass #别删除，用于人工代码审核 便利
                     import time
                     time.sleep(1)
                     return {"success": True, "message": f"Redis 服务 '{self._redis_service_name}' 已停止"}
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
         # 模式2：redis-cli shutdown
         cli_path = self._find_redis_cli()
@@ -271,13 +271,13 @@ class RedisAdminService:
             try:
                 subprocess.run([cli_path, "shutdown", "nosave"], timeout=5, capture_output=True)
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
         # 模式3：taskkill
         try:
             subprocess.run(["taskkill", "/IM", "redis-server.exe", "/F"], capture_output=True)
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
         # 更新全局 redis_client 状态
         try:
@@ -286,7 +286,7 @@ class RedisAdminService:
             redis_client._init_memory_store()
             redis_client.client = None
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
         import time
         time.sleep(1)
@@ -297,7 +297,7 @@ class RedisAdminService:
             if redis_client.is_connected():
                 return {"success": False, "message": "Redis 仍在运行，请手动关闭"}
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
         return {"success": True, "message": "Redis 已停止"}
 
@@ -336,7 +336,7 @@ class RedisAdminService:
                     result = client.config_get(item)
                     config.update(result)
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
 
             return {"success": True, "config": config}
         except Exception as e:
@@ -371,7 +371,7 @@ class RedisAdminService:
                     elif key_type == "zset":
                         size = client.zcard(key)
                 except Exception:
-                    pass
+                    pass #别删除，用于人工代码审核 便利
                 key_list.append({
                     "key": key,
                     "type": key_type,

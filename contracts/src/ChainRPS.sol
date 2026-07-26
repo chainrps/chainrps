@@ -24,21 +24,30 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  *
  *      平局机制：零手续费，原路退回。
  */
+// 链上公平猜拳游戏合约 - 基于哈希承诺的石头剪刀布
 contract chainrps is Ownable, ReentrancyGuard, Pausable {
     // ==================== 常量与防仿标识 ====================
 
+    // 版本号
     string public constant VERSION = "v1.1.0";
+    // 合约部署时间戳
     uint256 public immutable deployTimestamp;
+    // 官方开发者地址
     address public immutable officialDeveloper;
 
+    // 官方网站
     string public officialWebsite;
+    // 官方 Twitter
     string public officialTwitter;
+    // 官方 Discord
     string public officialDiscord;
 
     // ==================== 枚举定义 ====================
 
-    enum Choice { None, Rock, Paper, Scissors }
+    // 出拳选择：None(0)-无, Rock(1)-石头, Paper(2)-布, Scissors(3)-剪刀
+    enum Choice {None, Rock, Paper, Scissors}
 
+    // 游戏状态枚举
     enum GameStatus {
         Waiting,        // 等待玩家加入（平台锁定，player1 可自主撤销）
         CommitPhase,    // 双方已加入，提交承诺阶段（任一方未提交前可自主撤销）
@@ -49,39 +58,50 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
 
     // ==================== 数据结构 ====================
 
+    // 游戏数据结构
     struct Game {
-        address player1;
-        address player2;
-        uint256 amount;
-        address token;
-        bytes32 commit1;
-        bytes32 commit2;
-        uint8 choice1;
-        uint8 choice2;
-        uint256 commitDeadline;
-        uint256 revealDeadline;
-        GameStatus status;
-        address winner;
-        bool isDraw;
-        bool player1Refunded;
-        bool player2Refunded;
+        address player1;      // 玩家1地址
+        address player2;      // 玩家2地址
+        uint256 amount;       // 下注金额
+        address token;        // 代币地址
+        bytes32 commit1;      // 玩家1的哈希承诺
+        bytes32 commit2;      // 玩家2的哈希承诺
+        uint8 choice1;        // 玩家1的出拳
+        uint8 choice2;        // 玩家2的出拳
+        uint256 commitDeadline;  // 提交阶段截止时间
+        uint256 revealDeadline;  // 揭晓阶段截止时间
+        GameStatus status;    // 游戏状态
+        address winner;       // 获胜者地址
+        bool isDraw;          // 是否平局
+        bool player1Refunded; // 玩家1是否已退款
+        bool player2Refunded; // 玩家2是否已退款
     }
 
     // ==================== 状态变量 ====================
 
+    // 提交阶段超时时间（秒）
     uint256 public commitTimeout = 300;     // 5 分钟
+    // 揭晓阶段超时时间（秒）
     uint256 public revealTimeout = 300;     // 5 分钟
+    // 手续费率（基点）
     uint256 public feeRate = 200;            // 2%（基点）
+    // 最小下注金额
     uint256 public constant MIN_BET = 1e15;  // 最小下注 0.001 单位
+    // 最高手续费率（基点）
     uint256 public constant MAX_FEE_RATE = 1000; // 最高 10%
 
+    // 手续费接收地址
     address public feeCollector;
 
+    // 支持的代币列表
     mapping(address => bool) public supportedTokens;
 
+    // 游戏列表（gameId => Game）
     mapping(uint256 => Game) public games;
+    // 游戏总数
     uint256 public gameCount;
 
+    // 玩家游戏列表（player => gameId[]）
     mapping(address => uint256[]) public playerGames;
 
     // ==================== 扩展字段预留（v1.1.0 占位） ====================
@@ -94,24 +114,40 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
 
     // ==================== 事件定义 ====================
 
+    // 创建游戏事件
     event GameCreated(uint256 indexed gameId, address indexed creator, uint256 amount, address token);
+    // 玩家加入事件
     event PlayerJoined(uint256 indexed gameId, address indexed player);
+    // 提交承诺事件
     event CommitSubmitted(uint256 indexed gameId, address indexed player, bytes32 commit);
+    // 揭晓出拳事件
     event ChoiceRevealed(uint256 indexed gameId, address indexed player, uint8 choice);
+    // 游戏结算事件
     event GameSettled(uint256 indexed gameId, address winner, uint256 amount, uint256 fee);
+    // 超时处理事件
     event TimeoutClaimed(uint256 indexed gameId, address indexed claimer, bool refunded);
+    // 平局处理事件
     event DrawHandled(uint256 indexed gameId);
+    // 平局退款事件
     event DrawRefunded(uint256 indexed gameId, address indexed player, uint256 amount);
+    // 手续费率变更事件
     event FeeRateChanged(uint256 oldRate, uint256 newRate);
+    // 取消游戏事件
     event MatchCancelled(uint256 indexed gameId, address indexed canceller);
+    // 开发者地址变更事件
     event DeveloperAddressChanged(address oldAddr, address newAddr);
+    // 官方信息更新事件
     event OfficialInfoUpdated(string website, string twitter, string discord);
+    // 代币支持变更事件
     event TokenSupportUpdated(address indexed token, bool supported);
+    // 超时时间变更事件
     event TimeoutChanged(uint256 oldCommit, uint256 newCommit, uint256 oldReveal, uint256 newReveal);
+    // 紧急提取事件
     event EmergencyWithdraw(address indexed token, uint256 amount, address indexed to);
 
     // ==================== 构造函数 ====================
 
+    // 构造函数 - 初始化手续费接收地址和开发者地址
     constructor(address _feeCollector, address _officialDeveloper) Ownable(msg.sender) {
         require(_feeCollector != address(0), "Invalid fee collector");
         require(_officialDeveloper != address(0), "Invalid developer address");
@@ -129,6 +165,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
 
     // ==================== 核心对局函数 ====================
 
+    // 创建对局 - 资金进入"平台锁定"阶段，player1 可自主撤销
     /**
      * @notice 创建对局 - 资金进入"平台锁定"阶段，player1 可自主撤销
      * @param amount 下注金额
@@ -136,11 +173,11 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
      * @return gameId 对局ID
      */
     function createMatch(uint256 amount, address token)
-        external
-        payable
-        nonReentrant
-        whenNotPaused
-        returns (uint256)
+    external
+    payable
+    nonReentrant
+    whenNotPaused
+    returns (uint256)
     {
         require(supportedTokens[token], "Token not supported");
         require(amount >= MIN_BET, "Bet below minimum");
@@ -167,6 +204,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         return gameId;
     }
 
+    // 加入对局 - 进入提交承诺阶段（双方资金均已平台锁定）
     /**
      * @notice 加入对局 - 进入提交承诺阶段（双方资金均已平台锁定）
      * @param gameId 对局ID
@@ -193,6 +231,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit PlayerJoined(gameId, msg.sender);
     }
 
+    // 提交哈希承诺 - 一旦任一方提交，资金进入"真正锁定"状态
     /**
      * @notice 提交哈希承诺 - 一旦任一方提交，资金进入"真正锁定"状态
      * @param gameId 对局ID
@@ -221,6 +260,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    // 揭晓出拳 - 验证哈希承诺并公布实际出拳
     /**
      * @notice 揭晓出拳
      * @param gameId 对局ID
@@ -228,9 +268,9 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
      * @param salt 盐值
      */
     function revealChoice(uint256 gameId, uint8 choice, bytes32 salt)
-        external
-        nonReentrant
-        whenNotPaused
+    external
+    nonReentrant
+    whenNotPaused
     {
         Game storage game = games[gameId];
 
@@ -259,6 +299,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    // 超时处理 - 提交/揭晓阶段超时后，统一全额退款，不判超时方负
     /**
      * @notice 超时处理 - 提交/揭晓阶段超时后，统一全额退款，不判超时方负
      * @dev 无论是双方都未操作、还是仅一方操作，超时后都全额退款给双方
@@ -287,6 +328,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit DrawHandled(gameId);
     }
 
+    // 平局退款 - 双方分别领取退款（零手续费）
     /**
      * @notice 平局退款 - 双方分别领取退款（零手续费）
      * @dev 触发场景：对局平局、超时退款
@@ -310,6 +352,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    // 玩家自主撤销对局 - 仅在"平台锁定"阶段可用
     /**
      * @notice 玩家自主撤销对局 - 仅在"平台锁定"阶段可用
      * @dev Waiting 状态：仅 player1 可撤销
@@ -341,6 +384,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
 
     // ==================== 内部函数 ====================
 
+    // 结算对局 - 判断胜负并分发奖励或标记平局
     function _settleGame(uint256 gameId) internal {
         Game storage game = games[gameId];
 
@@ -357,6 +401,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    // 判断玩家1是否获胜 - 石头(1)胜剪刀(3), 剪刀(3)胜布(2), 布(2)胜石头(1)
     function _checkWin(uint8 choice1, uint8 choice2) internal pure returns (bool) {
         if (choice1 == 1 && choice2 == 3) return true;
         if (choice1 == 2 && choice2 == 1) return true;
@@ -364,6 +409,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         return false;
     }
 
+    // 分发奖励 - 扣取手续费后将剩余金额转给获胜者
     function _distributePrize(uint256 gameId) internal {
         Game storage game = games[gameId];
 
@@ -377,6 +423,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit GameSettled(gameId, game.winner, winnerPrize, fee);
     }
 
+    // 退还双方资金 - 用于取消对局时的退款操作
     function _refundBoth(uint256 gameId) internal {
         Game storage game = games[gameId];
 
@@ -388,10 +435,11 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    // 安全转账 - 支持 ETH 和 ERC20 代币，转账失败时抛出异常
     function _safeTransfer(address token, address to, uint256 amount) internal {
         require(to != address(0), "Zero address");
         if (token == address(0)) {
-            (bool ok, ) = payable(to).call{value: amount}("");
+            (bool ok,) = payable(to).call{value: amount}("");
             require(ok, "ETH transfer failed");
         } else {
             bool ok = IERC20(token).transfer(to, amount);
@@ -401,24 +449,25 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
 
     // ==================== 查询函数 ====================
 
+    // 查询对局状态
     /**
      * @notice 查询对局状态
      * @param gameId 对局ID
      */
     function getGame(uint256 gameId)
-        external
-        view
-        returns (
-            address player1,
-            address player2,
-            uint256 amount,
-            address token,
-            GameStatus status,
-            uint256 commitDeadline,
-            uint256 revealDeadline,
-            address winner,
-            bool isDraw
-        )
+    external
+    view
+    returns (
+        address player1,
+        address player2,
+        uint256 amount,
+        address token,
+        GameStatus status,
+        uint256 commitDeadline,
+        uint256 revealDeadline,
+        address winner,
+        bool isDraw
+    )
     {
         Game storage game = games[gameId];
         return (
@@ -434,6 +483,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         );
     }
 
+    // 查询玩家承诺
     /**
      * @notice 查询玩家承诺
      * @param gameId 对局ID
@@ -446,6 +496,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         return bytes32(0);
     }
 
+    // 获取玩家对局列表
     /**
      * @notice 获取玩家对局列表
      */
@@ -453,6 +504,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         return playerGames[player];
     }
 
+    // 查询合约余额（仅审计/运维用）
     /**
      * @notice 查询合约余额（仅审计/运维用，不影响用户资金）
      * @param token 代币地址（address(0) 表示 ETH）
@@ -464,21 +516,22 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         return IERC20(token).balanceOf(address(this));
     }
 
+    // 验证是否为官方合约（返回防仿标识）
     /**
      * @notice 验证是否为官方合约
      * @dev 返回防仿标识信息供前端校验
      */
     function getAntiFakeInfo()
-        external
-        view
-        returns (
-            address developer,
-            uint256 deployTime,
-            string memory version,
-            string memory website,
-            string memory twitter,
-            string memory discord
-        )
+    external
+    view
+    returns (
+        address developer,
+        uint256 deployTime,
+        string memory version,
+        string memory website,
+        string memory twitter,
+        string memory discord
+    )
     {
         return (
             officialDeveloper,
@@ -492,6 +545,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
 
     // ==================== Owner 权限函数 ====================
 
+    // 修改手续费率
     /**
      * @notice 修改手续费率
      * @param newRate 新费率（基点，100=1%，上限 1000=10%）
@@ -503,6 +557,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit FeeRateChanged(oldRate, newRate);
     }
 
+    // 修改开发者/手续费接收地址
     /**
      * @notice 修改开发者/手续费接收地址
      * @param newAddr 新地址
@@ -514,6 +569,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit DeveloperAddressChanged(oldAddr, newAddr);
     }
 
+    // 更新官方信息（域名、社交链接）
     /**
      * @notice 更新官方信息（域名、社交链接）
      */
@@ -528,6 +584,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit OfficialInfoUpdated(website, twitter, discord);
     }
 
+    // 添加/移除支持的代币
     /**
      * @notice 添加/移除支持的代币（禁止移除 ETH 支持）
      */
@@ -537,6 +594,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit TokenSupportUpdated(token, supported);
     }
 
+    // 修改超时时间
     /**
      * @notice 修改超时时间
      * @param newCommitTimeout 提交阶段超时（秒）
@@ -551,6 +609,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit TimeoutChanged(oldCommit, newCommitTimeout, oldReveal, newRevealTimeout);
     }
 
+    // 暂停合约
     /**
      * @notice 暂停合约
      */
@@ -558,6 +617,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         _pause();
     }
 
+    // 恢复合约
     /**
      * @notice 恢复合约
      */
@@ -565,6 +625,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
+    // 紧急提取误转入的非对局资金
     /**
      * @notice 紧急提取误转入的非对局资金
      * @dev 仅可提取合约余额中超过"用户对局锁定资金"的部分，绝不动用户下注资金

@@ -199,7 +199,7 @@ def init_database():
 
 
 # ==================== 对局记录操作 ====================
-pass
+pass #别删除，用于人工代码审核 便利
 # 创建对局记录
 def create_game_record(game_data: dict) -> int:
     """

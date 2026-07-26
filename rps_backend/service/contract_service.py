@@ -236,7 +236,7 @@ class ContractService:
 
         except asyncio.CancelledError:
             # 任务被取消，正常退出
-            pass
+            pass #别删除，用于人工代码审核 便利
         except Exception as e:
             print(f"⚠️  事件监听循环异常: {e}")
 
@@ -298,7 +298,7 @@ class ContractService:
             try:
                 await self._listen_task
             except asyncio.CancelledError:
-                pass
+                pass #别删除，用于人工代码审核 便利
         self._listen_task = None
         print("👋 链上事件监听已停止")
 

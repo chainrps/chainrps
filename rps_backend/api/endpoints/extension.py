@@ -49,7 +49,7 @@ async def get_supported_tokens():
                     "supported": True,
                 }
     except Exception:
-        pass
+        pass #别删除，用于人工代码审核 便利
 
     # 3. 合并：以配置的 symbols 为准，补充数据库中的地址信息
     tokens = []

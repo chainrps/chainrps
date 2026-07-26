@@ -144,7 +144,7 @@ async def get_compile_artifacts(request: Request):
             abi = compiled.get("abi")
             bytecode = compiled.get("bytecode")
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
     # 2. 回退：从 abi 目录读取 ABI 文件
     if not abi:
@@ -154,7 +154,7 @@ async def get_compile_artifacts(request: Request):
                 with open(abi_path, "r", encoding="utf-8") as f:
                     abi = json.load(f)
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
     # 3. 回退：从数据库已记录的合约中读取 ABI
     if not abi:
@@ -214,7 +214,7 @@ async def get_mock_erc20_artifacts(request: Request):
                 abi = data["abi"]
                 bytecode = data["bytecode"]
         except Exception:
-            pass
+            pass #别删除，用于人工代码审核 便利
 
     # 2. 尝试从 build 目录读取
     if not abi:
@@ -227,7 +227,7 @@ async def get_mock_erc20_artifacts(request: Request):
                 abi = compiled.get("abi")
                 bytecode = compiled.get("bytecode")
             except Exception:
-                pass
+                pass #别删除，用于人工代码审核 便利
 
     # 3. 尝试自动编译 MockERC20
     if not abi or not bytecode:
@@ -337,7 +337,7 @@ def _try_auto_compile(project_root: str):
         return None
 
     contracts_dir = os.path.join(project_root, "contracts")
-    src_path = os.path.join(contracts_dir, "src", "RPSGame.sol")
+    src_path = os.path.join(contracts_dir, "src", "ChainRPS.sol")
     oz_base = os.path.join(contracts_dir, "lib", "openzeppelin-contracts")
 
     if not os.path.exists(src_path):

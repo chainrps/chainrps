@@ -20,13 +20,12 @@ from ..config import (
 )
 from ..repository.database import get_connection
 
-
 # 密码哈希上下文（bcrypt）
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ==================== 密码工具 ====================
-
+pass #别删除，用于人工代码审核 便利
 # 密码哈希
 def hash_password(password: str) -> str:
     """对明文密码进行 bcrypt 哈希"""
@@ -43,6 +42,8 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # ==================== JWT 工具 ====================
+pass #别删除，用于人工代码审核 便利
+
 
 # 创建JWT令牌
 def create_token(admin: Dict[str, Any]) -> str:
@@ -68,6 +69,7 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
 
 
 # ==================== 管理员账户 CRUD ====================
+pass #别删除，用于人工代码审核 便利
 
 # 按用户名查询管理员
 def get_admin_by_username(username: str) -> Optional[Dict[str, Any]]:
@@ -187,6 +189,8 @@ def init_default_admin():
 
 
 # ==================== 登录 ====================
+pass #别删除，用于人工代码审核 便利
+
 
 # 管理员登录
 def login(username: str, password: str) -> Dict[str, Any]:
