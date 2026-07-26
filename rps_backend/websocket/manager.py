@@ -20,9 +20,11 @@ from rps_backend.utils.redis_client import redis_client
 from rps_backend.config import WS_PREFIX, REDIS_BROADCAST_CHANNEL
 
 
+# WebSocket连接管理器
 class WebSocketManager:
     """WebSocket 连接管理器，维护玩家连接与对局订阅关系"""
 
+    # 初始化
     def __init__(self):
         # 玩家地址（小写） -> WebSocket 连接
         self.active_connections: Dict[str, WebSocket] = {}
@@ -33,6 +35,7 @@ class WebSocketManager:
         # 是否已启动 Redis Pub/Sub 订阅
         self._pubsub_running = False
 
+    # 建立连接
     async def connect(self, websocket: WebSocket, player_address: str):
         """建立 WebSocket 连接，注册并发送欢迎消息"""
         # 统一使用小写地址作为 key
@@ -54,6 +57,7 @@ class WebSocketManager:
             data={"address": player_address}
         ))
 
+    # 断开连接
     async def disconnect(self, player_address: str):
         """断开连接，移除连接记录并清理所有订阅"""
         addr_lower = player_address.lower()
@@ -72,6 +76,7 @@ class WebSocketManager:
         # 注销 Redis 中的连接记录
         redis_client.unregister_ws_connection(addr_lower)
 
+    # 发送消息给指定玩家
     async def send_to_player(self, player_address: str, message: WSMessage):
         """发送消息给指定玩家，失败时断开连接"""
         addr_lower = player_address.lower()
@@ -84,6 +89,7 @@ class WebSocketManager:
             # 连接已断开，清理资源
             await self.disconnect(player_address)
 
+    # 发送消息给对局订阅者
     async def send_to_game(self, game_id: int, message: WSMessage):
         """发送消息给订阅了指定对局的所有玩家"""
         subscribers = self.game_subscriptions.get(game_id, set())
@@ -92,6 +98,7 @@ class WebSocketManager:
             original_addr = self._original_addresses.get(addr_lower, addr_lower)
             await self.send_to_player(original_addr, message)
 
+    # 启动Redis订阅监听
     async def _start_pubsub_listener(self):
         """启动 Redis Pub/Sub 订阅监听器，处理跨进程广播消息"""
         if self._pubsub_running or redis_client._memory_mode:
@@ -134,6 +141,7 @@ class WebSocketManager:
         
         asyncio.create_task(listener())
 
+    # 广播消息给所有玩家
     async def broadcast(self, message: WSMessage):
         """广播消息给所有已连接的玩家（通过 Redis Pub/Sub 实现跨进程）"""
         print(f"[WS Broadcast] 发送消息类型: {message.type}, 连接数: {len(self.active_connections)}")
@@ -152,6 +160,7 @@ class WebSocketManager:
             original_addr = self._original_addresses.get(addr_lower, addr_lower)
             await self.send_to_player(original_addr, message)
 
+    # 订阅对局
     async def subscribe_game(self, player_address: str, game_id: int):
         """订阅指定对局的更新消息"""
         addr_lower = player_address.lower()
@@ -159,6 +168,7 @@ class WebSocketManager:
             self.game_subscriptions[game_id] = set()
         self.game_subscriptions[game_id].add(addr_lower)
 
+    # 取消订阅对局
     async def unsubscribe_game(self, player_address: str, game_id: int):
         """取消订阅指定对局"""
         addr_lower = player_address.lower()
@@ -168,6 +178,7 @@ class WebSocketManager:
             if not self.game_subscriptions[game_id]:
                 del self.game_subscriptions[game_id]
 
+    # 处理客户端消息
     async def handle_message(self, player_address: str, message: dict):
         """处理客户端发来的消息，支持 ping 与对局订阅"""
         msg_type = message.get("type")

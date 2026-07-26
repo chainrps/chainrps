@@ -21,6 +21,7 @@ from rps_backend.utils.redis_client import redis_client
 from rps_backend.service import contract_service
 
 
+# 应用生命周期管理
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI):
     print("👋 ChainRPS 后端服务关闭")
 
 
+# 定期清理断开的连接
 async def cleanup_loop():
     """定期清理断开的 WebSocket 连接"""
     while True:
@@ -91,6 +93,7 @@ app.add_middleware(
 )
 
 
+# HTTP 异常处理
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     if exc.status_code == 404:
@@ -121,6 +124,7 @@ async def ws_endpoint(websocket: WebSocket, player_address: str):
     await websocket_endpoint(websocket, player_address)
 
 
+# 健康检查
 @app.get("/health")
 async def health_check():
     """
@@ -136,6 +140,7 @@ async def health_check():
     }
 
 
+# 根路径
 @app.get("/")
 async def root():
     """根路径，返回前端页面"""
@@ -143,6 +148,7 @@ async def root():
     return FileResponse(index_path)
 
 
+# 管理员面板
 @app.get("/admin")
 async def admin_page():
     """管理员面板页面"""
@@ -150,6 +156,7 @@ async def admin_page():
     return FileResponse(admin_path)
 
 
+# 静态 HTML 页面
 @app.get("/html/{filename}")
 async def html_pages(filename: str):
     """静态 HTML 页面路由"""
@@ -160,12 +167,14 @@ async def html_pages(filename: str):
     return RedirectResponse(url="/")
 
 
+# 捕获所有未匹配的路由
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
     """捕获所有未匹配的路由，重定向到首页"""
     return RedirectResponse(url="/")
 
 
+# 启动服务
 def main():
     """启动服务"""
     import uvicorn

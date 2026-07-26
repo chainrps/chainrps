@@ -43,6 +43,7 @@ router = APIRouter(
 )
 
 
+# 验证管理员权限
 def _verify_admin(address: Optional[str], request: Request) -> str:
     """
     验证管理员权限
@@ -68,6 +69,7 @@ def _verify_admin(address: Optional[str], request: Request) -> str:
 
 # ==================== 合约管理 ====================
 
+# 获取合约列表
 @router.get("/contracts", response_model=List[ContractRecord])
 async def list_admin_contracts(
     network: Optional[str] = None,
@@ -78,6 +80,7 @@ async def list_admin_contracts(
     return [ContractRecord(**c) for c in contracts]
 
 
+# 添加合约记录
 @router.post("/contracts")
 async def add_contract(contract: ContractRecord, request: Request):
     """添加合约记录"""
@@ -105,6 +108,7 @@ async def add_contract(contract: ContractRecord, request: Request):
     return {"success": True, "id": contract_id, "address": contract.address}
 
 
+# 获取合约编译产物
 @router.get("/contracts/compile-artifacts")
 async def get_compile_artifacts(request: Request):
     """
@@ -182,6 +186,7 @@ async def get_compile_artifacts(request: Request):
     }
 
 
+# 获取 MockERC20 编译产物
 @router.get("/contracts/mock-erc20-artifacts")
 async def get_mock_erc20_artifacts(request: Request):
     """
@@ -245,6 +250,7 @@ async def get_mock_erc20_artifacts(request: Request):
     }
 
 
+# 尝试自动编译 MockERC20
 def _try_auto_compile_mock_erc20(project_root: str):
     """尝试自动编译 MockERC20 合约"""
     import sys
@@ -309,6 +315,7 @@ def _try_auto_compile_mock_erc20(project_root: str):
     return None
 
 
+# 尝试自动编译合约
 def _try_auto_compile(project_root: str):
     """
     尝试自动编译合约，返回 (bytecode, abi) 元组。
@@ -402,6 +409,7 @@ def _try_auto_compile(project_root: str):
     return bytecode, abi
 
 
+# 获取合约详情
 @router.get("/contracts/{contract_id}", response_model=ContractRecord)
 async def get_contract(contract_id: int):
     """获取合约详情"""
@@ -411,6 +419,7 @@ async def get_contract(contract_id: int):
     return ContractRecord(**contract)
 
 
+# 更新合约 ABI
 @router.put("/contracts/{contract_id}/abi")
 async def update_abi(contract_id: int, body: ContractAbiUpdate, request: Request):
     """更新合约 ABI"""
@@ -426,6 +435,7 @@ async def update_abi(contract_id: int, body: ContractAbiUpdate, request: Request
     return {"success": True}
 
 
+# 验证合约源代码
 @router.post("/contracts/{contract_id}/verify")
 async def verify_contract(contract_id: int, request: Request):
     """验证合约源代码（占位，实际需调用区块浏览器 API）"""
@@ -444,6 +454,7 @@ async def verify_contract(contract_id: int, request: Request):
     }
 
 
+# 更新合约记录
 @router.patch("/contracts/{contract_id}")
 async def update_contract(contract_id: int, body: dict, request: Request):
     """更新合约记录"""
@@ -463,6 +474,7 @@ async def update_contract(contract_id: int, body: dict, request: Request):
 
 # ==================== 系统配置管理 ====================
 
+# 获取系统配置列表
 @router.get("/config", response_model=List[SystemConfigItem])
 async def get_config_list(category: Optional[str] = None):
     """获取系统配置列表"""
@@ -470,6 +482,7 @@ async def get_config_list(category: Optional[str] = None):
     return [SystemConfigItem(**c) for c in configs]
 
 
+# 获取单个配置项
 @router.get("/config/{key}")
 async def get_config(key: str):
     """获取单个配置项"""
@@ -479,6 +492,7 @@ async def get_config(key: str):
     return {"key": key, "value": value}
 
 
+# 更新单个配置项
 @router.put("/config/{key}")
 async def update_config(key: str, body: SystemConfigUpdate, request: Request):
     """更新单个配置项"""
@@ -495,6 +509,7 @@ async def update_config(key: str, body: SystemConfigUpdate, request: Request):
     return {"success": True, "key": key, "value": body.value}
 
 
+# 批量更新配置
 @router.post("/config/batch")
 async def batch_update_config(body: SystemConfigBatchUpdate, request: Request):
     """批量更新配置"""
@@ -506,6 +521,7 @@ async def batch_update_config(body: SystemConfigBatchUpdate, request: Request):
     return {"success": True, "updated": len(body.items)}
 
 
+# 重置系统配置
 @router.post("/config/reset")
 async def reset_config(body: dict, request: Request):
     """
@@ -551,6 +567,7 @@ async def reset_config(body: dict, request: Request):
     return {"success": True, "message": message, "reset_count": reset_count}
 
 
+# 查看配置变更历史
 @router.get("/config/history")
 async def config_history(
     page: int = Query(1, ge=1),
@@ -567,6 +584,7 @@ async def config_history(
 
 # ==================== 审计日志 ====================
 
+# 获取操作审计日志
 @router.get("/audit-logs")
 async def get_audit_logs(
     admin_address: Optional[str] = None,
@@ -585,6 +603,7 @@ async def get_audit_logs(
 
 # ==================== 仪表盘统计 ====================
 
+# 管理员仪表盘
 @router.get("/dashboard")
 async def admin_dashboard():
     """管理员仪表盘概览数据"""
@@ -622,6 +641,7 @@ async def admin_dashboard():
 
 # ==================== 本地链管理 ====================
 
+# 获取本地链状态
 @router.get("/local-chain/status")
 async def get_local_chain_status():
     """获取本地链状态（公开接口）"""
@@ -630,6 +650,7 @@ async def get_local_chain_status():
     return service.get_node_status()
 
 
+# 启动本地链
 @router.post("/local-chain/start")
 async def start_local_chain(request: Request):
     """启动本地链（开发环境功能，无需权限）
@@ -674,6 +695,7 @@ async def start_local_chain(request: Request):
     return result
 
 
+# 停止本地链
 @router.post("/local-chain/stop")
 async def stop_local_chain():
     """停止本地链（开发环境功能，无需权限）"""
@@ -685,6 +707,7 @@ async def stop_local_chain():
     return result
 
 
+# 获取本地链账户列表
 @router.get("/local-chain/accounts")
 async def get_local_chain_accounts():
     """获取本地链账户列表（含余额，开发环境功能）"""
@@ -695,6 +718,7 @@ async def get_local_chain_accounts():
     return {"accounts": service.get_accounts()}
 
 
+# 从本地链转账 ETH
 @router.post("/local-chain/send-eth")
 async def send_eth_from_local_chain(request: Request):
     """从本地链账户转账 ETH 到指定地址（开发环境功能）"""
@@ -717,6 +741,7 @@ async def send_eth_from_local_chain(request: Request):
     return result
 
 
+# 获取本地链代币列表
 @router.get("/local-chain/tokens")
 async def get_local_chain_tokens():
     """获取本地链已部署的测试代币列表（开发环境功能）"""
@@ -727,6 +752,7 @@ async def get_local_chain_tokens():
     return {"tokens": service.get_tokens()}
 
 
+# 部署测试代币
 @router.post("/local-chain/deploy-token")
 async def deploy_local_token(request: Request):
     """在本地链部署测试代币 (MockERC20，开发环境功能)"""
@@ -754,6 +780,7 @@ async def deploy_local_token(request: Request):
     return result
 
 
+# Mint 测试代币
 @router.post("/local-chain/mint-token")
 async def mint_local_token(request: Request):
     """在本地链 Mint 测试代币（开发环境功能）"""
@@ -779,6 +806,7 @@ async def mint_local_token(request: Request):
 
 # ==================== Redis 管理 ====================
 
+# 获取 Redis 状态
 @router.get("/redis/status")
 async def get_redis_status(request: Request):
     """获取 Redis 节点状态"""
@@ -788,6 +816,7 @@ async def get_redis_status(request: Request):
     return service.get_status()
 
 
+# 启动 Redis
 @router.post("/redis/start")
 async def start_redis(request: Request):
     """启动 Redis 服务"""
@@ -800,6 +829,7 @@ async def start_redis(request: Request):
     return result
 
 
+# 停止 Redis
 @router.post("/redis/stop")
 async def stop_redis(request: Request):
     """停止 Redis 服务"""
@@ -812,6 +842,7 @@ async def stop_redis(request: Request):
     return result
 
 
+# 获取 Redis 配置
 @router.get("/redis/config")
 async def get_redis_config(request: Request):
     """获取 Redis 配置"""
@@ -824,6 +855,7 @@ async def get_redis_config(request: Request):
     return result
 
 
+# 获取 Redis 键列表
 @router.get("/redis/keys")
 async def get_redis_keys(
     request: Request,
@@ -841,6 +873,7 @@ async def get_redis_keys(
     return result
 
 
+# 清空 Redis 数据库
 @router.post("/redis/flush-db")
 async def flush_redis_db(request: Request):
     """清空 Redis 数据库"""
@@ -859,6 +892,7 @@ async def flush_redis_db(request: Request):
     return result
 
 
+# 删除 Redis 指定键
 @router.post("/redis/delete-key")
 async def delete_redis_key(request: Request):
     """删除 Redis 指定键"""

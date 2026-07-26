@@ -34,6 +34,7 @@ from rps_backend.repository import (
 router = APIRouter(prefix="", tags=["user"])
 
 
+# 构造游戏响应
 def _build_game_response(game: dict) -> GameResponse:
     """根据数据库记录构造对局详情响应"""
     return GameResponse(
@@ -53,6 +54,7 @@ def _build_game_response(game: dict) -> GameResponse:
 
 # ==================== 历史记录 ====================
 
+# 查询历史记录
 @router.get("/history", response_model=PlayerHistoryResponse)
 async def get_history(address: str, page: int = 1, size: int = 20):
     """查询历史记录"""
@@ -72,6 +74,7 @@ async def get_history(address: str, page: int = 1, size: int = 20):
 
 # ==================== 玩家统计 ====================
 
+# 获取玩家统计
 @router.get("/player/{address}/stats", response_model=PlayerStatsResponse)
 async def get_player_statistics(address: str):
     """获取玩家统计"""
@@ -106,6 +109,7 @@ async def get_player_statistics(address: str):
 
 # ==================== 玩家对局 ====================
 
+# 获取玩家对局列表
 @router.get("/player/{address}/games", response_model=PlayerHistoryResponse)
 async def get_player_games_endpoint(address: str, page: int = 1, size: int = 20):
     """获取玩家对局列表"""
@@ -126,6 +130,7 @@ async def get_player_games_endpoint(address: str, page: int = 1, size: int = 20)
 
 # ==================== 用户个人资料 ====================
 
+# 获取用户个人资料
 @router.get("/user/profile/{address}", response_model=UserProfile)
 async def get_user_profile(address: str):
     """获取用户个人资料"""
@@ -146,6 +151,7 @@ async def get_user_profile(address: str):
     return UserProfile(address=address)
 
 
+# 更新用户个人资料
 @router.put("/user/profile/{address}")
 async def update_user_profile(address: str, body: UserPreferencesUpdate):
     """更新用户个人资料"""
@@ -163,6 +169,7 @@ async def update_user_profile(address: str, body: UserPreferencesUpdate):
 
 # ==================== 用户偏好设置 ====================
 
+# 获取用户偏好设置
 @router.get("/user/preferences/{address}")
 async def get_user_prefs(address: str):
     """获取用户偏好设置"""
@@ -172,6 +179,7 @@ async def get_user_prefs(address: str):
     return {"success": True, "preferences": {}}
 
 
+# 更新用户偏好设置
 @router.put("/user/preferences/{address}")
 async def update_user_prefs(address: str, body: UserPreferencesUpdate):
     """更新用户偏好设置"""
@@ -191,6 +199,7 @@ async def update_user_prefs(address: str, body: UserPreferencesUpdate):
 
 # ==================== 主题设置 ====================
 
+# 设置用户主题
 @router.post("/user/theme")
 async def set_theme(body: ThemeUpdateRequest):
     """设置用户主题"""
@@ -202,6 +211,7 @@ async def set_theme(body: ThemeUpdateRequest):
 
 # ==================== 通知设置 ====================
 
+# 获取用户通知设置
 @router.get("/user/notifications/{address}")
 async def get_notification_settings(address: str):
     """获取用户通知设置"""
@@ -210,6 +220,7 @@ async def get_notification_settings(address: str):
     return {"address": address, "notifications_enabled": enabled}
 
 
+# 更新用户通知设置
 @router.put("/user/notifications/{address}")
 async def update_notification_settings(address: str, body: NotificationSettings):
     """更新用户通知设置"""

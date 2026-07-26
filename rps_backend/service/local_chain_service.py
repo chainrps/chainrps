@@ -18,6 +18,7 @@ from web3 import Web3
 from rps_backend.config import CHAIN_ID
 
 
+# 查找 ganache 可执行文件
 def _find_ganache_executable() -> Optional[str]:
     """
     在 Windows 上查找可执行的 ganache 命令路径。
@@ -41,6 +42,7 @@ def _find_ganache_executable() -> Optional[str]:
     return None
 
 
+# 本地链管理服务
 class LocalChainService:
     _instance = None
     _process: Optional[subprocess.Popen] = None
@@ -51,12 +53,14 @@ class LocalChainService:
     _w3: Optional[Web3] = None
     _tokens: Dict[str, Dict[str, Any]] = {}
 
+    # 单例模式实例化
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._init_web3()
-        return cls._instance
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._init_web3()
+            return cls._instance
 
+    # 初始化 Web3 连接
     def _init_web3(self):
         try:
             self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
@@ -71,12 +75,14 @@ class LocalChainService:
         except Exception:
             self._w3 = None
 
+    # 加载账户列表
     def _load_accounts(self):
         try:
             self._accounts = self._w3.eth.accounts
         except Exception:
             self._accounts = []
 
+    # 从数据库加载代币信息
     def _load_tokens_from_db(self):
         try:
             from rps_backend.repository import list_contracts
@@ -94,6 +100,7 @@ class LocalChainService:
         except Exception:
             pass
 
+    # 检查本地链是否运行
     def is_running(self) -> bool:
         if self._process and self._process.poll() is None:
             return True
@@ -104,6 +111,7 @@ class LocalChainService:
         except Exception:
             return False
 
+    # 启动本地链节点
     def start_node(
         self,
         deterministic: bool = True,
@@ -206,6 +214,7 @@ class LocalChainService:
             print(f"🔴 启动本地链异常: {error_trace}")
             return {"success": False, "message": f"启动失败: {str(e)}"}
 
+    # 停止本地链节点
     def stop_node(self) -> Dict[str, Any]:
         try:
             # 1. 如果是通过本服务启动的子进程，直接终止
@@ -288,6 +297,7 @@ class LocalChainService:
         except Exception as e:
             return {"success": False, "message": f"停止失败: {str(e)}"}
 
+    # 获取节点状态
     def get_node_status(self) -> Dict[str, Any]:
         running = self.is_running()
         result = {
@@ -315,6 +325,7 @@ class LocalChainService:
 
         return result
 
+    # 获取账户列表
     def get_accounts(self) -> List[Dict[str, Any]]:
         if not self.is_running() or not self._w3:
             return []
@@ -340,6 +351,7 @@ class LocalChainService:
 
         return accounts_info
 
+    # 发送 ETH
     def send_eth(self, from_index: int, to_address: str, amount_eth: float) -> Dict[str, Any]:
         if not self.is_running() or not self._w3:
             return {"success": False, "message": "本地链未运行"}
@@ -372,6 +384,7 @@ class LocalChainService:
         except Exception as e:
             return {"success": False, "message": f"转账失败: {str(e)}"}
 
+    # 部署 Mock ERC20 代币
     def deploy_mock_erc20(
         self,
         from_index: int = 0,
@@ -487,6 +500,7 @@ class LocalChainService:
         except Exception as e:
             return {"success": False, "message": f"部署失败: {str(e)}"}
 
+    # 铸造代币
     def mint_tokens(
         self,
         token_symbol: str,
@@ -532,9 +546,11 @@ class LocalChainService:
         except Exception as e:
             return {"success": False, "message": f"Mint 失败: {str(e)}"}
 
+    # 获取代币列表
     def get_tokens(self) -> List[Dict[str, Any]]:
         return list(self._tokens.values())
 
+    # 添加代币
     def add_token(self, symbol: str, address: str, name: str, decimals: int = 6) -> Dict[str, Any]:
         self._tokens[symbol] = {
             "address": address,
@@ -545,5 +561,6 @@ class LocalChainService:
         return {"success": True, "message": f"代币 {symbol} 已添加"}
 
 
+# 获取本地链服务实例
 def get_local_chain_service() -> LocalChainService:
     return LocalChainService()

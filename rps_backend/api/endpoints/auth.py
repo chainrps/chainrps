@@ -19,16 +19,19 @@ from rps_backend.service.auth_service import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+# 登录请求模型
 class LoginRequest(BaseModel):
     username: str
     password: str
 
 
+# 修改密码请求模型
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
 
 
+# 提取Token
 def _extract_token(request: Request) -> Optional[str]:
     """从 Authorization 头提取 Bearer token"""
     auth = request.headers.get("Authorization", "")
@@ -37,6 +40,7 @@ def _extract_token(request: Request) -> Optional[str]:
     return None
 
 
+# 获取当前管理员
 def get_current_admin(request: Request) -> dict:
     """
     FastAPI 依赖：校验 JWT 并返回当前管理员信息
@@ -64,6 +68,7 @@ def get_current_admin(request: Request) -> dict:
     }
 
 
+# 管理员登录
 @router.post("/login")
 async def login(body: LoginRequest):
     """管理员登录，返回 JWT token"""
@@ -73,6 +78,7 @@ async def login(body: LoginRequest):
     return result
 
 
+# 获取当前管理员信息
 @router.get("/me")
 async def get_me(request: Request):
     """获取当前登录管理员信息"""
@@ -80,6 +86,7 @@ async def get_me(request: Request):
     return {"success": True, "admin": admin}
 
 
+# 修改密码
 @router.post("/change-password")
 async def change_password(body: ChangePasswordRequest, request: Request):
     """修改当前管理员密码"""
@@ -94,6 +101,7 @@ async def change_password(body: ChangePasswordRequest, request: Request):
     return {"success": True, "message": "密码修改成功"}
 
 
+# 获取管理员列表
 @router.get("/admins")
 async def get_admins(request: Request):
     """列出所有管理员（需要登录）"""

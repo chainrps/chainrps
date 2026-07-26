@@ -8,6 +8,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from rps_backend.websocket.manager import ws_manager
 
 
+# WebSocket 连接处理
 async def websocket_endpoint(websocket: WebSocket, player_address: str):
     """WebSocket 连接处理函数，循环接收消息并交由管理器处理"""
     # 建立连接

@@ -24,6 +24,7 @@ from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
 
 
+# 校验承诺哈希
 def _verify_commit(choice: str, salt: str, address: str, commit_hash: str) -> bool:
     """校验承诺哈希：keccak256(choice + salt + address)"""
     if not choice or not salt or not address or not commit_hash:
@@ -33,6 +34,7 @@ def _verify_commit(choice: str, salt: str, address: str, commit_hash: str) -> bo
     return computed.lower() == commit_hash.lower()
 
 
+# 判定胜负
 def _determine_winner(choice1: str, choice2: str) -> Optional[int]:
     """
     判定胜负
@@ -50,6 +52,7 @@ def _determine_winner(choice1: str, choice2: str) -> Optional[int]:
     return 2
 
 
+# 游戏状态管理器
 class GameManager:
     """
     游戏状态管理器
@@ -58,10 +61,12 @@ class GameManager:
     胜负结果由 contract_service 从链上事件同步后调用 update_game_result_from_chain 写入。
     """
 
+    # 初始化
     def __init__(self):
         """初始化，后端不需要 Web3 实例（不发起任何链上交易）"""
         pass
 
+    # 提交哈希承诺
     async def submit_commit(self, game_id: int, player_address: str, commit_hash: str) -> dict:
         """
         提交哈希承诺
@@ -140,6 +145,7 @@ class GameManager:
 
         return {"success": True, "game_id": game_id}
 
+    # 揭晓出拳
     async def reveal_choice(self, game_id: int, player_address: str, choice: Choice, salt: str) -> dict:
         """
         揭晓出拳（仅记录状态与通知，不做胜负判定与结算）
@@ -197,6 +203,7 @@ class GameManager:
         # 胜负结果由链上合约事件同步（contract_service 监听 GameSettled / DrawHandled）
         return {"success": True, "game_id": game_id}
 
+    # 处理平局
     async def handle_draw(self, game_id: int, player_address: str) -> dict:
         """
         处理平局
@@ -205,6 +212,7 @@ class GameManager:
         """
         return {"success": True, "game_id": game_id, "player": player_address}
 
+    # 从链上同步对局结果
     async def update_game_result_from_chain(
         self,
         game_id: int,

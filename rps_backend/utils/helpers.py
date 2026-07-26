@@ -8,26 +8,31 @@ import uuid
 from datetime import datetime
 
 
+# 获取当前时间戳
 def now_timestamp() -> int:
     """获取当前时间的整数时间戳（秒）"""
     return int(time.time())
 
 
+# 获取当前UTC时间ISO格式
 def now_iso() -> str:
     """获取当前 UTC 时间的 ISO 格式字符串"""
     return datetime.utcnow().isoformat()
 
 
+# 计算截止时间戳
 def calculate_deadline(timeout: int) -> float:
     """根据超时时长（秒）计算截止时间戳"""
     return time.time() + timeout
 
 
+# 时间戳转ISO格式
 def deadline_to_iso(timestamp: float) -> str:
     """将时间戳转换为 UTC 的 ISO 格式字符串"""
     return datetime.utcfromtimestamp(timestamp).isoformat()
 
 
+# 校验以太坊地址
 def validate_address(address: str) -> bool:
     """简单校验以太坊地址格式：以 0x 开头且总长度为 42 字符"""
     if not isinstance(address, str):
@@ -44,11 +49,13 @@ def validate_address(address: str) -> bool:
     return True
 
 
+# 生成匹配ID
 def generate_match_id() -> str:
     """生成唯一的匹配 ID（基于 uuid4）"""
     return str(uuid.uuid4())
 
 
+# 安全转换为浮点型
 def safe_float(value, default: float = 0.0) -> float:
     """安全地将任意值转换为 float，转换失败时返回默认值"""
     try:
@@ -57,6 +64,7 @@ def safe_float(value, default: float = 0.0) -> float:
         return default
 
 
+# 分页计算
 def paginate(page: int, size: int) -> tuple[int, int]:
     """根据页码和每页大小计算分页的 (offset, limit)"""
     # 页码从 1 开始，小于 1 时按 1 处理

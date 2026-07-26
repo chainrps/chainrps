@@ -11,6 +11,7 @@ from rps_backend.models import WSMessage
 from rps_backend.websocket.manager import WebSocketManager
 
 
+# 心跳循环
 async def heartbeat_loop(ws_manager: WebSocketManager, interval: int):
     """心跳循环，每隔 interval 秒向所有连接广播一次心跳消息"""
     while True:
@@ -22,6 +23,7 @@ async def heartbeat_loop(ws_manager: WebSocketManager, interval: int):
         ))
 
 
+# 检查连接状态
 async def check_connections(ws_manager: WebSocketManager):
     """检查所有连接的状态，清理已断开的连接"""
     # 收集已断开的玩家地址，避免遍历时修改字典

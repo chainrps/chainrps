@@ -13,6 +13,7 @@ router = APIRouter(prefix="/ext", tags=["extension"])
 
 # ==================== 代币信息 ====================
 
+# 获取支持的代币列表
 @router.get("/tokens")
 async def get_supported_tokens():
     """
@@ -79,6 +80,7 @@ async def get_supported_tokens():
 
 # ==================== 游戏配置 ====================
 
+# 获取游戏全局配置
 @router.get("/config")
 async def get_game_config():
     """获取游戏全局配置"""
@@ -105,6 +107,7 @@ async def get_game_config():
 
 # ==================== 排行榜 ====================
 
+# 获取排行榜
 @router.get("/leaderboard")
 async def get_leaderboard(type: str = "wins", limit: int = 20):
     """
@@ -122,6 +125,7 @@ async def get_leaderboard(type: str = "wins", limit: int = 20):
 
 # ==================== 锦标赛（预留） ====================
 
+# 查询锦标赛列表
 @router.get("/tournaments")
 async def list_tournaments():
     """
@@ -136,6 +140,7 @@ async def list_tournaments():
     }
 
 
+# 创建锦标赛
 @router.post("/tournaments/create")
 async def create_tournament():
     """
@@ -151,6 +156,7 @@ async def create_tournament():
 
 # ==================== 风控（预留） ====================
 
+# 查询用户风控状态
 @router.get("/risk/status/{address}")
 async def get_risk_status(address: str):
     """
@@ -168,6 +174,7 @@ async def get_risk_status(address: str):
 
 # ==================== 邀请机制（预留） ====================
 
+# 发送邀请
 @router.post("/invite/send")
 async def send_invite():
     """
@@ -181,6 +188,7 @@ async def send_invite():
     }
 
 
+# 查询邀请奖励
 @router.get("/invite/rewards/{address}")
 async def get_invite_rewards(address: str):
     """

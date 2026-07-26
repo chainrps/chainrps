@@ -28,12 +28,14 @@ from rps_backend.config import (
 )
 
 
+# Redis客户端
 class RedisClient:
     """Redis 客户端，封装匹配队列、WebSocket 注册与对局缓存操作
 
     当 Redis 不可用时自动降级为内存模式，确保开发环境可用。
     """
 
+    # 初始化
     def __init__(self):
         """使用 REDIS_URL 创建 Redis 客户端，开启 decode_responses 自动解码
 
@@ -58,6 +60,7 @@ class RedisClient:
             self._memory_mode = True
             self._init_memory_store()
 
+    # 初始化内存存储
     def _init_memory_store(self):
         """初始化内存存储（降级模式使用）"""
         self._match_queues: Dict[str, List[str]] = {}
@@ -65,6 +68,7 @@ class RedisClient:
         self._game_cache: Dict[str, str] = {}
         self._room_cache: Dict[str, str] = {}
 
+    # 检查Redis连接状态
     def is_connected(self) -> bool:
         """通过 ping 检查 Redis 连接是否正常"""
         if self._memory_mode:
@@ -77,10 +81,12 @@ class RedisClient:
 
     # ==================== 匹配队列操作 ====================
 
+    # 构造队列键名
     def _queue_key(self, token: str, bet_amount: float) -> str:
         """构造匹配队列的 Redis Key"""
         return f"{MATCH_QUEUE_PREFIX}{token}:{bet_amount}"
 
+    # 添加到匹配队列
     def add_to_match_queue(self, player_address: str, token: str, bet_amount: float) -> int:
         """
         将玩家加入匹配队列尾部
@@ -105,6 +111,7 @@ class RedisClient:
         self.client.rpush(queue_key, player_data)
         return self.client.llen(queue_key)
 
+    # 从匹配队列移除
     def remove_from_match_queue(self, player_address: str, token: str, bet_amount: float) -> bool:
         """
         从匹配队列移除指定玩家
@@ -137,6 +144,7 @@ class RedisClient:
 
         return False
 
+    # 获取队列长度
     def get_match_queue_length(self, token: str, bet_amount: float) -> int:
         """获取匹配队列长度"""
         queue_key = self._queue_key(token, bet_amount)
@@ -146,6 +154,7 @@ class RedisClient:
 
         return self.client.llen(queue_key)
 
+    # 尝试匹配玩家
     def try_match_players(self, token: str, bet_amount: float) -> Optional[Dict]:
         """
         尝试从队列头部弹出两个玩家进行匹配
@@ -181,6 +190,7 @@ class RedisClient:
             "player2": json.loads(player2_data),
         }
 
+    # 获取队列位置
     def get_queue_position(self, player_address: str, token: str, bet_amount: float) -> Optional[int]:
         """
         获取玩家在匹配队列中的位置（1 开始）
@@ -213,6 +223,7 @@ class RedisClient:
 
     # ==================== WebSocket 连接管理 ====================
 
+    # 注册WebSocket连接
     def register_ws_connection(self, player_address: str, connection_id: str):
         """注册玩家 WebSocket 连接 ID"""
         if self._memory_mode:
@@ -220,6 +231,7 @@ class RedisClient:
             return
         self.client.set(f"{WS_PREFIX}{player_address}", connection_id)
 
+    # 注销WebSocket连接
     def unregister_ws_connection(self, player_address: str):
         """注销玩家 WebSocket 连接"""
         if self._memory_mode:
@@ -227,6 +239,7 @@ class RedisClient:
             return
         self.client.delete(f"{WS_PREFIX}{player_address}")
 
+    # 获取WebSocket连接
     def get_ws_connection(self, player_address: str) -> Optional[str]:
         """获取玩家 WebSocket 连接 ID，不存在返回 None"""
         if self._memory_mode:
@@ -235,6 +248,7 @@ class RedisClient:
 
     # ==================== 游戏状态缓存 ====================
 
+    # 缓存游戏状态
     def cache_game_state(self, game_id: int, state: dict):
         """缓存对局状态（JSON 序列化后存储）"""
         if self._memory_mode:
@@ -242,6 +256,7 @@ class RedisClient:
             return
         self.client.set(f"{GAME_CACHE_PREFIX}{game_id}", json.dumps(state))
 
+    # 获取缓存的游戏状态
     def get_cached_game_state(self, game_id: int) -> Optional[dict]:
         """获取缓存的对局状态，不存在或解析失败返回 None"""
         if self._memory_mode:
@@ -256,6 +271,7 @@ class RedisClient:
         except json.JSONDecodeError:
             return None
 
+    # 删除缓存的游戏状态
     def delete_cached_game_state(self, game_id: int):
         """删除缓存的对局状态"""
         if self._memory_mode:
@@ -265,6 +281,7 @@ class RedisClient:
 
     # ==================== 房间状态缓存 ====================
 
+    # 缓存房间状态
     def cache_room_state(self, room_id: str, state: dict):
         """缓存房间状态（JSON 序列化后存储）"""
         if self._memory_mode:
@@ -272,6 +289,7 @@ class RedisClient:
             return
         self.client.set(f"{ROOM_CACHE_PREFIX}{room_id}", json.dumps(state))
 
+    # 获取缓存的房间状态
     def get_cached_room_state(self, room_id: str) -> Optional[dict]:
         """获取缓存的房间状态，不存在或解析失败返回 None"""
         if self._memory_mode:
@@ -286,6 +304,7 @@ class RedisClient:
         except json.JSONDecodeError:
             return None
 
+    # 删除缓存的房间状态
     def delete_cached_room_state(self, room_id: str):
         """删除缓存的房间状态"""
         if self._memory_mode:

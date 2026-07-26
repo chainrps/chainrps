@@ -43,6 +43,7 @@ except json.JSONDecodeError as e:
     print(f"⚠️  合约 ABI 文件解析失败: {e}")
 
 
+# 合约事件监听服务
 class ContractService:
     """
     合约事件监听服务
@@ -51,6 +52,7 @@ class ContractService:
     并通过 game_manager 通知玩家对局结果。
     """
 
+    # 初始化
     def __init__(self):
         """
         初始化 Web3 provider 与合约对象
@@ -110,6 +112,7 @@ class ContractService:
             self.w3 = None
             self.contract = None
 
+    # 从数据库加载合约地址
     def _load_contract_from_db(self) -> Optional[str]:
         """从数据库加载 localhost 网络的最新合约地址"""
         try:
@@ -122,6 +125,7 @@ class ContractService:
             print(f"⚠️  从数据库加载合约地址失败: {e}")
         return None
 
+    # 动态更新合约地址
     async def update_contract_address(self, new_address: str) -> bool:
         """
         动态更新合约地址并重启事件监听
@@ -174,6 +178,7 @@ class ContractService:
             self.contract = None
             return False
 
+    # 启动事件监听
     async def start_listening(self):
         """
         启动事件监听循环
@@ -202,6 +207,7 @@ class ContractService:
         self._listen_task = asyncio.create_task(self._listen_loop())
         print("✅ 链上事件监听已启动")
 
+    # 事件监听循环
     async def _listen_loop(self):
         """
         事件监听循环
@@ -234,6 +240,7 @@ class ContractService:
         except Exception as e:
             print(f"⚠️  事件监听循环异常: {e}")
 
+    # 处理区块范围内事件
     async def _process_events(self, from_block: int, to_block: int):
         """
         处理指定区块范围内的所有合约事件
@@ -282,6 +289,7 @@ class ContractService:
                 # 单类事件查询失败不影响其他事件
                 print(f"⚠️  查询事件 {event_name} 异常: {e}")
 
+    # 停止事件监听
     async def stop_listening(self):
         """停止事件监听"""
         self.listening = False
@@ -296,6 +304,7 @@ class ContractService:
 
     # ==================== 事件处理回调 ====================
 
+    # 处理GameCreated事件
     async def _on_game_created(self, event_data: dict):
         """
         处理 GameCreated 事件
@@ -334,6 +343,7 @@ class ContractService:
         update_game_from_chain_event(chain_game_id, updates)
         print(f"[GameCreated] gameId={chain_game_id}, creator={creator}")
 
+    # 处理PlayerJoined事件
     async def _on_player_joined(self, event_data: dict):
         """
         处理 PlayerJoined 事件
@@ -357,6 +367,7 @@ class ContractService:
         update_game_from_chain_event(chain_game_id, updates)
         print(f"[PlayerJoined] gameId={chain_game_id}, player={player}")
 
+    # 处理CommitSubmitted事件
     async def _on_commit_submitted(self, event_data: dict):
         """
         处理 CommitSubmitted 事件
@@ -385,6 +396,7 @@ class ContractService:
 
         print(f"[CommitSubmitted] gameId={chain_game_id}, player={player}")
 
+    # 处理ChoiceRevealed事件
     async def _on_choice_revealed(self, event_data: dict):
         """
         处理 ChoiceRevealed 事件
@@ -416,6 +428,7 @@ class ContractService:
 
         print(f"[ChoiceRevealed] gameId={chain_game_id}, player={player}, choice={choice_str}")
 
+    # 处理GameSettled事件
     async def _on_game_settled(self, event_data: dict):
         """
         处理 GameSettled 事件
@@ -451,6 +464,7 @@ class ContractService:
         )
         print(f"[GameSettled] gameId={chain_game_id}, winner={winner}, fee={fee_float}")
 
+    # 处理TimeoutClaimed事件
     async def _on_timeout_claimed(self, event_data: dict):
         """
         处理 TimeoutClaimed 事件
@@ -488,6 +502,7 @@ class ContractService:
         )
         print(f"[TimeoutClaimed] gameId={chain_game_id}, claimer={claimer}")
 
+    # 处理DrawHandled事件
     async def _on_draw_handled(self, event_data: dict):
         """
         处理 DrawHandled 事件
@@ -515,6 +530,7 @@ class ContractService:
         )
         print(f"[DrawHandled] gameId={chain_game_id}")
 
+    # 处理MatchCancelled事件
     async def _on_match_cancelled(self, event_data: dict):
         """
         处理 MatchCancelled 事件
@@ -539,6 +555,7 @@ class ContractService:
         })
         print(f"[MatchCancelled] gameId={chain_game_id}")
 
+    # 从链上同步玩家历史记录
     async def sync_history_from_chain(
         self,
         address: str,

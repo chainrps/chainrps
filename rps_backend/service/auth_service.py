@@ -27,11 +27,13 @@ _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ==================== 密码工具 ====================
 
+# 密码哈希
 def hash_password(password: str) -> str:
     """对明文密码进行 bcrypt 哈希"""
     return _pwd_context.hash(password)
 
 
+# 密码校验
 def verify_password(plain: str, hashed: str) -> bool:
     """校验明文密码与哈希是否匹配"""
     try:
@@ -42,6 +44,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ==================== JWT 工具 ====================
 
+# 创建JWT令牌
 def create_token(admin: Dict[str, Any]) -> str:
     """为管理员签发 JWT 令牌"""
     now = datetime.now(timezone.utc)
@@ -55,6 +58,7 @@ def create_token(admin: Dict[str, Any]) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
+# 解码JWT令牌
 def decode_token(token: str) -> Optional[Dict[str, Any]]:
     """解码并验证 JWT 令牌，失败返回 None"""
     try:
@@ -65,6 +69,7 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
 
 # ==================== 管理员账户 CRUD ====================
 
+# 按用户名查询管理员
 def get_admin_by_username(username: str) -> Optional[Dict[str, Any]]:
     """按用户名查询管理员"""
     conn = get_connection()
@@ -79,6 +84,7 @@ def get_admin_by_username(username: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
+# 按ID查询管理员
 def get_admin_by_id(admin_id: int) -> Optional[Dict[str, Any]]:
     """按 ID 查询管理员"""
     conn = get_connection()
@@ -93,6 +99,7 @@ def get_admin_by_id(admin_id: int) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
+# 列出所有管理员
 def list_admins() -> list:
     """列出所有管理员"""
     conn = get_connection()
@@ -106,6 +113,7 @@ def list_admins() -> list:
         conn.close()
 
 
+# 创建管理员
 def create_admin(username: str, password: str, role: str = "admin") -> Dict[str, Any]:
     """创建新管理员"""
     conn = get_connection()
@@ -123,6 +131,7 @@ def create_admin(username: str, password: str, role: str = "admin") -> Dict[str,
         conn.close()
 
 
+# 修改管理员密码
 def update_admin_password(admin_id: int, new_password: str) -> Dict[str, Any]:
     """修改管理员密码"""
     conn = get_connection()
@@ -137,6 +146,7 @@ def update_admin_password(admin_id: int, new_password: str) -> Dict[str, Any]:
         conn.close()
 
 
+# 更新最后登录时间
 def update_last_login(admin_id: int):
     """更新最后登录时间"""
     conn = get_connection()
@@ -150,6 +160,7 @@ def update_last_login(admin_id: int):
         conn.close()
 
 
+# 初始化默认管理员
 def init_default_admin():
     """
     初始化默认超级管理员（admin / ADMIN）
@@ -177,6 +188,7 @@ def init_default_admin():
 
 # ==================== 登录 ====================
 
+# 管理员登录
 def login(username: str, password: str) -> Dict[str, Any]:
     """登录校验，成功返回 token 和管理员信息"""
     admin = get_admin_by_username(username)

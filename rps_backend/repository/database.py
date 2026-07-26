@@ -21,6 +21,7 @@ from ..models import GameState
 
 # ==================== 数据库连接 ====================
 
+# 获取数据库连接
 def get_connection():
     """
     获取数据库连接
@@ -38,6 +39,7 @@ def get_connection():
 
 # ==================== 数据库初始化 ====================
 
+# 初始化数据库
 def init_database():
     """
     初始化数据库表与索引
@@ -197,7 +199,8 @@ def init_database():
 
 
 # ==================== 对局记录操作 ====================
-
+pass
+# 创建对局记录
 def create_game_record(game_data: dict) -> int:
     """
     创建对局记录
@@ -234,6 +237,7 @@ def create_game_record(game_data: dict) -> int:
         conn.close()
 
 
+# 更新对局记录
 def update_game_record(game_id: int, updates: dict):
     """
     更新对局记录
@@ -260,6 +264,7 @@ def update_game_record(game_id: int, updates: dict):
         conn.close()
 
 
+# 获取对局记录
 def get_game_record(game_id: int) -> Optional[dict]:
     """
     获取对局记录
@@ -279,6 +284,7 @@ def get_game_record(game_id: int) -> Optional[dict]:
         conn.close()
 
 
+# 通过链上对局ID获取记录
 def get_game_by_chain_id(chain_game_id: int) -> Optional[dict]:
     """
     通过链上对局 ID 获取对局记录
@@ -299,6 +305,7 @@ def get_game_by_chain_id(chain_game_id: int) -> Optional[dict]:
         conn.close()
 
 
+# 获取玩家对局列表
 def get_player_games(address: str, page: int = 1, size: int = 20) -> List[dict]:
     """
     分页获取玩家对局列表
@@ -326,6 +333,7 @@ def get_player_games(address: str, page: int = 1, size: int = 20) -> List[dict]:
         conn.close()
 
 
+# 获取玩家对局总数
 def get_player_games_count(address: str) -> int:
     """
     获取玩家参与的对局总数
@@ -348,6 +356,7 @@ def get_player_games_count(address: str) -> int:
         conn.close()
 
 
+# 获取指定状态的活跃对局
 def get_active_games_by_state(state: str) -> List[dict]:
     """
     获取指定状态的活跃对局
@@ -367,6 +376,7 @@ def get_active_games_by_state(state: str) -> List[dict]:
         conn.close()
 
 
+# 从链上事件更新对局记录
 def update_game_from_chain_event(chain_game_id: int, updates: dict):
     """
     从链上事件更新对局记录
@@ -412,6 +422,7 @@ def update_game_from_chain_event(chain_game_id: int, updates: dict):
 
 # ==================== 玩家统计操作 ====================
 
+# 更新玩家统计数据
 def update_player_stats(address: str, result: str, amount: float = 0):
     """
     更新玩家统计数据
@@ -477,6 +488,7 @@ def update_player_stats(address: str, result: str, amount: float = 0):
         conn.close()
 
 
+# 获取玩家统计
 def get_player_stats(address: str) -> Optional[dict]:
     """
     获取玩家统计
@@ -499,6 +511,7 @@ def get_player_stats(address: str) -> Optional[dict]:
 
 # ==================== 默认配置初始化 ====================
 
+# 初始化默认配置
 def _init_default_config(cursor):
     defaults = [
         ("fee_rate", "200", "contract", "手续费率（基点，100=1%）", None),
@@ -522,6 +535,7 @@ def _init_default_config(cursor):
 
 # ==================== 用户配置操作 ====================
 
+# 获取用户偏好设置
 def get_user_preferences(address: str) -> Optional[dict]:
     conn = get_connection()
     try:
@@ -557,16 +571,19 @@ def update_user_preferences(address: str, updates: dict) -> bool:
         conn.close()
 
 
+# 设置用户主题
 def set_user_theme(address: str, theme: str) -> bool:
     return update_user_preferences(address, {"theme": theme})
 
 
+# 设置用户通知开关
 def set_user_notifications(address: str, enabled: bool) -> bool:
     return update_user_preferences(address, {"notifications_enabled": 1 if enabled else 0})
 
 
 # ==================== 系统配置操作 ====================
 
+# 获取所有系统配置
 def get_all_system_config(category: str = None) -> List[dict]:
     conn = get_connection()
     try:
@@ -581,6 +598,7 @@ def get_all_system_config(category: str = None) -> List[dict]:
         conn.close()
 
 
+# 获取系统配置值
 def get_system_config_value(key: str) -> Optional[str]:
     conn = get_connection()
     try:
@@ -619,6 +637,7 @@ def set_system_config(key: str, value: str, updated_by: str = None, description:
         conn.close()
 
 
+# 批量设置系统配置
 def batch_set_system_config(items: dict, updated_by: str = None) -> bool:
     conn = get_connection()
     try:
@@ -637,6 +656,7 @@ def batch_set_system_config(items: dict, updated_by: str = None) -> bool:
 
 # ==================== 合约记录操作 ====================
 
+# 添加合约记录
 def add_contract_record(data: dict) -> int:
     conn = get_connection()
     try:
@@ -664,6 +684,7 @@ def add_contract_record(data: dict) -> int:
         conn.close()
 
 
+# 按ID获取合约记录
 def get_contract_by_id(contract_id: int) -> Optional[dict]:
     conn = get_connection()
     try:
@@ -675,6 +696,7 @@ def get_contract_by_id(contract_id: int) -> Optional[dict]:
         conn.close()
 
 
+# 按地址获取合约记录
 def get_contract_by_address(address: str) -> Optional[dict]:
     conn = get_connection()
     try:
@@ -686,6 +708,7 @@ def get_contract_by_address(address: str) -> Optional[dict]:
         conn.close()
 
 
+# 列出合约记录
 def list_contracts(network: str = None, status: str = None) -> List[dict]:
     conn = get_connection()
     try:
@@ -706,6 +729,7 @@ def list_contracts(network: str = None, status: str = None) -> List[dict]:
         conn.close()
 
 
+# 更新合约记录
 def update_contract_record(contract_id: int, updates: dict) -> bool:
     conn = get_connection()
     try:
@@ -721,12 +745,14 @@ def update_contract_record(contract_id: int, updates: dict) -> bool:
         conn.close()
 
 
+# 更新合约ABI
 def update_contract_abi(contract_id: int, abi: str) -> bool:
     return update_contract_record(contract_id, {"abi": abi})
 
 
 # ==================== 审计日志操作 ====================
 
+# 添加审计日志
 def add_audit_log(admin_address: str, action: str, target: str = None,
                   old_value: str = None, new_value: str = None,
                   tx_hash: str = None, ip_address: str = None) -> int:
@@ -748,6 +774,7 @@ def add_audit_log(admin_address: str, action: str, target: str = None,
         conn.close()
 
 
+# 列出审计日志
 def list_audit_logs(admin_address: str = None, action: str = None,
                     page: int = 1, size: int = 20) -> List[dict]:
     conn = get_connection()
@@ -770,6 +797,7 @@ def list_audit_logs(admin_address: str = None, action: str = None,
         conn.close()
 
 
+# 从链上更新玩家记录
 def upsert_player_from_chain(address: str):
     """
     从链上数据更新玩家记录

@@ -24,13 +24,16 @@ from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
 
 
+# 匹配管理器
 class MatchManager:
     """匹配管理器：负责撮合玩家、记录活跃请求、监控对局超时提醒"""
 
+    # 初始化
     def __init__(self):
         """初始化活跃匹配请求字典（player_address -> match_info）"""
         self.active_matches: Dict[str, dict] = {}
 
+    # 请求匹配
     async def request_match(self, player_address: str, token: str, bet_amount: float) -> dict:
         """
         请求匹配
@@ -137,6 +140,7 @@ class MatchManager:
             "queue_position": queue_position,
         }
 
+    # 取消匹配
     async def cancel_match(self, player_address: str, token: str, bet_amount: float) -> bool:
         """
         取消匹配
@@ -147,6 +151,7 @@ class MatchManager:
         self.active_matches.pop(player_address, None)
         return removed
 
+    # 查询匹配状态
     async def get_match_status(self, player_address: str, token: str, bet_amount: float) -> dict:
         """
         查询匹配状态
@@ -166,6 +171,7 @@ class MatchManager:
             "queue_position": None,
         }
 
+    # 监控对局超时
     async def monitor_timeout(self, game_id: int):
         """
         监控对局超时（仅提醒，不判负）
@@ -242,6 +248,7 @@ class MatchManager:
                     await self._send_timeout_warning(game_id, "reveal")
                 return
 
+    # 发送超时提醒
     async def _send_timeout_warning(self, game_id: int, phase: str):
         """向对局双方推送超时提醒消息"""
         game = get_game_record(game_id)

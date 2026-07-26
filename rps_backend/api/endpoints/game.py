@@ -37,6 +37,7 @@ from rps_backend.service import game_manager, match_manager, room_manager
 router = APIRouter(prefix="/game", tags=["game"])
 
 
+# 构造游戏响应
 def _build_game_response(game: dict) -> GameResponse:
     """根据数据库记录构造对局详情响应"""
     return GameResponse(
@@ -56,6 +57,7 @@ def _build_game_response(game: dict) -> GameResponse:
 
 # ==================== 房间模式相关（必须放在参数化路径之前） ====================
 
+# 创建房间
 @router.post("/room/create")
 async def create_room(request: CreateRoomRequest):
     """创建房间（替代原来的寻找对手）"""
@@ -81,6 +83,7 @@ async def create_room(request: CreateRoomRequest):
     }
 
 
+# 加入房间
 @router.post("/room/join")
 async def join_room(request: JoinRoomRequest):
     """加入房间"""
@@ -122,6 +125,7 @@ async def join_room(request: JoinRoomRequest):
     }
 
 
+# 准备/取消准备
 @router.post("/room/ready")
 async def toggle_ready(request: ToggleReadyRequest):
     """准备/取消准备"""
@@ -150,6 +154,7 @@ async def toggle_ready(request: ToggleReadyRequest):
     )
 
 
+# 退出房间
 @router.post("/room/leave")
 async def leave_room(request: LeaveRoomRequest):
     """
@@ -174,6 +179,7 @@ async def leave_room(request: LeaveRoomRequest):
     }
 
 
+# 获取房间列表
 @router.get("/room/list", response_model=RoomListResponse)
 async def get_room_list():
     """获取交易大厅房间列表"""
@@ -205,6 +211,7 @@ async def get_room_list():
     )
 
 
+# 获取玩家房间
 @router.get("/room/player/{player_address}")
 async def get_player_room(player_address: str):
     """
@@ -240,6 +247,7 @@ async def get_player_room(player_address: str):
     }
 
 
+# 获取房间信息
 @router.get("/room/{room_id}")
 async def get_room(room_id: str):
     """获取房间信息"""
@@ -264,6 +272,7 @@ async def get_room(room_id: str):
     )
 
 
+# 上报链上对局ID
 @router.post("/room/{room_id}/chain-game")
 async def report_chain_game(room_id: str, request: ReportChainGameRequest):
     """
@@ -284,6 +293,7 @@ async def report_chain_game(room_id: str, request: ReportChainGameRequest):
 
 # ==================== 调试 / MOCK 接口 ====================
 
+# 创建模拟游戏
 @router.post("/debug/mock-game")
 async def mock_game(request: dict):
     """
@@ -332,6 +342,7 @@ async def mock_game(request: dict):
     }
 
 
+# 获取模拟UI数据
 @router.get("/debug/mock-ui/{stage}")
 async def mock_ui_stage(stage: str):
     """
@@ -456,6 +467,7 @@ async def mock_ui_stage(stage: str):
 
 # ==================== 匹配相关 ====================
 
+# 加入匹配队列
 @router.post("/join", response_model=MatchJoinResponse)
 async def join_match(request: JoinMatchRequest):
     """加入公共匹配队列"""
@@ -478,6 +490,7 @@ async def join_match(request: JoinMatchRequest):
     )
 
 
+# 创建私密对局
 @router.post("/create")
 async def create_private_match(request: CreatePrivateMatchRequest):
     """
@@ -493,6 +506,7 @@ async def create_private_match(request: CreatePrivateMatchRequest):
     }
 
 
+# 取消匹配
 @router.post("/cancel")
 async def cancel_match(request: CancelMatchRequest):
     """取消匹配"""
@@ -505,6 +519,7 @@ async def cancel_match(request: CancelMatchRequest):
     return {"success": True, "cancelled": removed}
 
 
+# 获取匹配状态
 @router.get("/match/status/{player_address}", response_model=MatchStatusResponse)
 async def get_match_status(player_address: str, token: str, bet_amount: float):
     """获取匹配状态"""
@@ -523,6 +538,7 @@ async def get_match_status(player_address: str, token: str, bet_amount: float):
 
 # ==================== 游戏流程相关 ====================
 
+# 提交哈希承诺
 @router.post("/commit")
 async def submit_commit(request: SubmitCommitRequest):
     """提交哈希承诺（记录状态+通知对手）"""
@@ -538,6 +554,7 @@ async def submit_commit(request: SubmitCommitRequest):
     return result
 
 
+# 揭晓出拳
 @router.post("/reveal")
 async def reveal_choice(request: RevealChoiceRequest):
     """揭晓出拳（记录状态+通知对手）"""
@@ -554,6 +571,7 @@ async def reveal_choice(request: RevealChoiceRequest):
     return result
 
 
+# 处理平局
 @router.post("/draw")
 async def handle_draw(request: HandleDrawRequest):
     """处理平局"""
@@ -570,6 +588,7 @@ async def handle_draw(request: HandleDrawRequest):
 
 # ==================== 参数化路径（必须放在最后） ====================
 
+# 加入私密对局
 @router.post("/{match_id}/join")
 async def join_private_match(match_id: int, request: JoinPrivateMatchRequest):
     """加入私密对局"""
@@ -596,6 +615,7 @@ async def join_private_match(match_id: int, request: JoinPrivateMatchRequest):
     }
 
 
+# 查询对局状态
 @router.get("/{match_id}", response_model=GameResponse)
 async def get_game(match_id: int):
     """查询对局状态"""

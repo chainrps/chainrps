@@ -14,13 +14,16 @@ from typing import Dict, Any, Optional
 _REDIS_SERVICE_NAMES = ["redisservice", "Redis", "redis"]
 
 
+# Redis 管理服务
 class RedisAdminService:
     """Redis 管理服务"""
 
+    # 初始化
     def __init__(self):
         self._redis_exe_path = self._find_redis_server()
         self._redis_service_name = self._find_redis_service()
 
+    # 查找 Redis Windows 服务
     def _find_redis_service(self) -> Optional[str]:
         """检测是否存在 Redis Windows 服务"""
         if os.name != "nt":
@@ -37,6 +40,7 @@ class RedisAdminService:
                 pass
         return None
 
+    # 查找 redis-server 可执行文件
     def _find_redis_server(self) -> Optional[str]:
         """查找 redis-server 可执行文件路径"""
         # 1. PATH 中查找
@@ -71,6 +75,7 @@ class RedisAdminService:
                 pass
         return None
 
+    # 查找 redis-cli 可执行文件
     def _find_redis_cli(self) -> Optional[str]:
         """查找 redis-cli 可执行文件路径"""
         path = shutil.which("redis-cli")
@@ -105,6 +110,7 @@ class RedisAdminService:
                 pass
         return None
 
+    # 获取 Redis 状态
     def get_status(self) -> Dict[str, Any]:
         """获取 Redis 节点状态"""
         result = {
@@ -151,6 +157,7 @@ class RedisAdminService:
 
         return result
 
+    # 检查服务是否运行
     def _is_service_running(self) -> bool:
         """检查 Redis Windows 服务是否正在运行"""
         if not self._redis_service_name:
@@ -164,6 +171,7 @@ class RedisAdminService:
         except Exception:
             return False
 
+    # 启动 Redis 服务
     def start_node(self) -> Dict[str, Any]:
         """启动 Redis 服务（优先 Windows 服务，其次进程方式）"""
         # 检查是否已运行
@@ -232,6 +240,7 @@ class RedisAdminService:
 
         return {"success": False, "message": f"Redis 启动但连接失败: {last_error}"}
 
+    # 停止 Redis 服务
     def stop_node(self) -> Dict[str, Any]:
         """停止 Redis 服务（优先 Windows 服务，其次进程方式）"""
         # 模式1：Windows 服务
@@ -292,6 +301,7 @@ class RedisAdminService:
 
         return {"success": True, "message": "Redis 已停止"}
 
+    # 清空数据库
     def flush_db(self, db: int = 0) -> Dict[str, Any]:
         """清空指定数据库"""
         try:
@@ -306,6 +316,7 @@ class RedisAdminService:
         except Exception as e:
             return {"success": False, "message": f"清空失败: {str(e)}"}
 
+    # 获取 Redis 配置
     def get_config(self) -> Dict[str, Any]:
         """获取 Redis 配置"""
         try:
@@ -331,6 +342,7 @@ class RedisAdminService:
         except Exception as e:
             return {"success": False, "message": str(e)}
 
+    # 获取键列表
     def get_keys(self, pattern: str = "*", db: int = 0, limit: int = 100) -> Dict[str, Any]:
         """获取键列表"""
         try:
@@ -376,6 +388,7 @@ class RedisAdminService:
         except Exception as e:
             return {"success": False, "message": str(e)}
 
+    # 删除指定键
     def delete_key(self, key: str) -> Dict[str, Any]:
         """删除指定键"""
         try:
@@ -389,5 +402,6 @@ class RedisAdminService:
             return {"success": False, "message": str(e)}
 
 
+# 获取 Redis 管理服务实例
 def get_redis_admin_service() -> RedisAdminService:
     return RedisAdminService()

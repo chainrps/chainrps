@@ -24,7 +24,6 @@ from rps_backend.utils.helpers import now_timestamp, calculate_deadline, deadlin
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
 
-
 ROOM_STATUS = {
     "CREATED": "created",
     "JOINED": "joined",
@@ -41,6 +40,7 @@ UNREADY_TIMEOUT = 60
 ROOM_GAME_TIMEOUT = 600
 
 
+# 房间管理器
 class RoomManager:
     """房间管理器：负责房间的创建、加入、准备和游戏开始"""
 
@@ -53,6 +53,7 @@ class RoomManager:
         # 房间游戏超时任务：room_id -> asyncio.Task
         self._game_timers: Dict[str, asyncio.Task] = {}
 
+    # 创建房间
     def create_room(self, creator_address: str, token: str, bet_amount: float) -> dict:
         """
         创建房间
@@ -104,6 +105,7 @@ class RoomManager:
             "message": "房间创建成功",
         }
 
+    # 加入房间
     def join_room(self, room_id: str, player_address: str) -> dict:
         """
         加入房间
@@ -163,6 +165,7 @@ class RoomManager:
             "room": room,
         }
 
+    # 准备/取消准备
     def toggle_ready(self, room_id: str, player_address: str) -> dict:
         """
         准备/取消准备
@@ -230,6 +233,7 @@ class RoomManager:
             "room": room,
         }
 
+    # 启动玩家未准备超时计时器
     def _start_unready_timer(self, player_address: str, room_id: str):
         """
         启动玩家未准备超时计时器
@@ -278,6 +282,7 @@ class RoomManager:
         task = asyncio.create_task(timeout_task())
         self._unready_timers[player_lower] = task
 
+    # 停止玩家未准备超时计时器
     def _stop_unready_timer(self, player_address: str):
         """停止玩家的未准备超时计时器"""
         if not player_address:
@@ -287,6 +292,7 @@ class RoomManager:
         if task:
             task.cancel()
 
+    # 启动房间游戏总超时计时器
     def _start_game_timer(self, room_id: str):
         """启动房间游戏总超时计时器（10分钟）"""
         self._stop_game_timer(room_id)
@@ -305,6 +311,7 @@ class RoomManager:
         task = asyncio.create_task(timeout_task())
         self._game_timers[room_id] = task
 
+    # 停止房间游戏超时计时器
     def _stop_game_timer(self, room_id: str):
         """停止房间游戏超时计时器"""
         if not room_id:
@@ -313,6 +320,7 @@ class RoomManager:
         if task:
             task.cancel()
 
+    # 关闭房间
     def _close_room(self, room_id: str, reason: str, message: str):
         """
         关闭房间（超时、异常等情况）
@@ -371,6 +379,7 @@ class RoomManager:
         # 广播房间列表变更
         self._broadcast_room_list_changed("room_closed", room_id)
 
+    # 开始倒计时
     async def _start_countdown(self, room_id: str):
         """
         15秒倒计时后开始游戏
@@ -461,6 +470,7 @@ class RoomManager:
 
         await self._start_game(room_id)
 
+    # 开始游戏
     async def _start_game(self, room_id: str):
         """
         开始游戏：创建本地对局记录，通知双方进入链上对局创建流程
@@ -550,6 +560,7 @@ class RoomManager:
                 },
             ))
 
+    # 上报链上对局ID
     async def report_chain_game(self, room_id: str, creator_address: str, chain_game_id: int) -> dict:
         """
         创建者上报链上对局 ID，后端通知 player2 加入链上对局
@@ -595,10 +606,12 @@ class RoomManager:
 
         return {"success": True, "chain_game_id": chain_game_id}
 
+    # 获取房间信息
     def get_room(self, room_id: str) -> Optional[dict]:
         """获取房间信息"""
         return self._rooms.get(room_id)
 
+    # 获取交易大厅房间列表
     def get_room_list(self) -> List[dict]:
         """
         获取交易大厅的房间列表
@@ -625,6 +638,7 @@ class RoomManager:
 
         return sorted(active_rooms, key=lambda r: r["created_at"], reverse=True)
 
+    # 玩家退出房间
     def leave_room(self, room_id: str, player_address: str) -> dict:
         """
         玩家退出房间
@@ -729,6 +743,7 @@ class RoomManager:
 
         return {"success": True, "action": "left", "message": "已离开房间"}
 
+    # 广播房间列表变更事件
     def _broadcast_room_list_changed(self, event: str, room_id: str):
         """
         广播房间列表变更事件给所有已连接客户端
@@ -749,6 +764,7 @@ class RoomManager:
             }
         )))
 
+    # 查询玩家当前所在房间
     def get_player_room(self, player_address: str) -> Optional[dict]:
         """
         查询玩家当前所在的房间
@@ -770,6 +786,7 @@ class RoomManager:
             return None
         return room
 
+    # 移除房间
     def remove_room(self, room_id: str):
         """移除房间"""
         room = self._rooms.pop(room_id, None)
@@ -792,4 +809,5 @@ class RoomManager:
         self._broadcast_room_list_changed("room_removed", room_id)
 
 
+# 房间管理器实例
 room_manager = RoomManager()
