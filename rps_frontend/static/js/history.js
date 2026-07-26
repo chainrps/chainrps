@@ -1,6 +1,8 @@
+// 游戏历史记录模块
 const History = (function() {
     let games = [];
 
+    // 从本地存储加载历史记录
     function loadFromStorage() {
         try {
             const data = localStorage.getItem('rps_history');
@@ -13,6 +15,7 @@ const History = (function() {
         return games;
     }
 
+    // 保存历史记录到本地存储
     function saveToStorage() {
         try {
             localStorage.setItem('rps_history', JSON.stringify(games));
@@ -22,6 +25,7 @@ const History = (function() {
         }
     }
 
+    // 添加一局游戏记录
     function addGame(gameRecord) {
         games.unshift(gameRecord);
         if (games.length > 100) {
@@ -30,10 +34,12 @@ const History = (function() {
         saveToStorage();
     }
 
+    // 获取游戏记录列表
     function getGames(limit = 50) {
         return games.slice(0, limit);
     }
 
+    // 获取统计数据
     function getStats() {
         const stats = {
             total: games.length,
@@ -51,6 +57,7 @@ const History = (function() {
         return stats;
     }
 
+    // 渲染历史记录列表
     function renderHistoryList(container, currentAddress) {
         if (games.length === 0) {
             container.innerHTML = `
@@ -87,11 +94,13 @@ const History = (function() {
         container.innerHTML = html;
     }
 
+    // 清空历史记录
     function clear() {
         games = [];
         saveToStorage();
     }
 
+    // 从链上同步历史记录
     async function syncFromChain(playerAddress) {
         if (!playerAddress || !Contract.getContract()) return [];
 
@@ -152,6 +161,7 @@ const History = (function() {
         }
     }
 
+    // 从后端同步历史记录
     async function syncFromBackend(playerAddress, page = 1, size = 50) {
         if (!playerAddress) return [];
         try {
@@ -179,6 +189,7 @@ const History = (function() {
         return [];
     }
 
+    // 返回历史记录相关函数
     return {
         loadFromStorage,
         addGame,

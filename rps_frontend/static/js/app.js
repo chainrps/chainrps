@@ -1,3 +1,4 @@
+// 应用主模块（立即执行函数）
 const App = (function() {
     let currentMode = 'A';
     let currentToken = 'ETH';
@@ -15,6 +16,34 @@ const App = (function() {
     let gameTimerInterval = null;
     let gamePhase = 'idle';
 
+    // 根据链ID获取网络名称
+    function getNetworkNameByChainId(chainId) {
+        if (CONFIG.networks) {
+            for (const [key, network] of Object.entries(CONFIG.networks)) {
+                if (network.chainId === chainId) {
+                    return network.name;
+                }
+            }
+        }
+        // 额外的已知网络映射
+        const knownNetworks = {
+            1: 'Ethereum Mainnet',
+            137: 'Polygon Mainnet',
+            80002: 'Polygon Amoy',
+            31337: 'Hardhat Network',
+            1337: 'Localhost 8545',
+            56: 'BNB Chain',
+            42161: 'Arbitrum One',
+            10: 'Optimism',
+            8453: 'Base',
+            43114: 'Avalanche',
+            100: 'Gnosis',
+            250: 'Fantom',
+        };
+        return knownNetworks[chainId] || `Chain #${chainId}`;
+    }
+
+    // 初始化应用
     async function init() {
         UI.init();
         History.loadFromStorage();
@@ -24,6 +53,7 @@ const App = (function() {
         initEventListeners();
         initWalletListeners();
         initContractListeners();
+        initChainStatusIndicator();
 
         const savedMode = Settings.getDefaultMode();
         if (savedMode && CONFIG.enableModeB) {
@@ -40,7 +70,7 @@ const App = (function() {
         updateHistoryAndStats();
 
         await autoConnectWallet();
-        
+
         // 处理 URL 路由
         handleRoute();
 
@@ -49,8 +79,186 @@ const App = (function() {
 
         // 监听 URL 变化
         window.addEventListener('popstate', handleRoute);
+
+        // 首次检测主链状态
+        checkChainStatus();
+        // 每 60 秒自动检测一次
+        setInterval(checkChainStatus, 60000);
     }
 
+    // ==================== 主链状态检测 ====================
+
+    let chainStatusCheckInProgress = false;
+    let lastChainStatusResult = null;
+    let chainStatusAutoRefreshTimer = null;
+
+    // 初始化主链状态指示器
+    function initChainStatusIndicator() {
+        const indicator = document.getElementById('chainStatusIndicator');
+        const panel = document.getElementById('chainStatusPanel');
+        const closeBtn = document.getElementById('chainStatusPanelClose');
+        const recheckBtn = document.getElementById('csRecheckBtn');
+        const openAdminBtn = document.getElementById('csOpenAdminBtn');
+
+        if (indicator) {
+            indicator.addEventListener('click', () => {
+                if (panel) panel.classList.toggle('hidden');
+                if (panel && !panel.classList.contains('hidden')) {
+                    checkChainStatus();
+                }
+            });
+        }
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                panel.classList.add('hidden');
+            });
+        }
+        if (recheckBtn) {
+            recheckBtn.addEventListener('click', () => {
+                checkChainStatus(true);
+            });
+        }
+        if (openAdminBtn) {
+            openAdminBtn.addEventListener('click', () => {
+                window.open('/admin#/local-chain', '_blank');
+            });
+        }
+        // 点击面板外关闭
+        document.addEventListener('click', (e) => {
+            if (panel && panel.classList.contains('hidden')) return;
+            if (!indicator || !panel) return;
+            if (indicator.contains(e.target) || panel.contains(e.target)) return;
+            panel.classList.add('hidden');
+        });
+    }
+
+    // 检查主链状态
+    async function checkChainStatus(forceRefresh = false) {
+        if (chainStatusCheckInProgress) return;
+        if (!CONFIG.backendUrl) return;
+        chainStatusCheckInProgress = true;
+
+        const indicator = document.getElementById('chainStatusIndicator');
+        const dot = document.getElementById('chainStatusDot');
+        const text = document.getElementById('chainStatusText');
+
+        if (dot) dot.textContent = '⏳';
+        if (text) text.textContent = '检测中';
+        if (indicator) indicator.className = 'chain-status-indicator';
+
+        try {
+            const t0 = Date.now();
+            const res = await fetch(`${CONFIG.backendUrl}/api/ext/chain-status`, {
+                method: 'GET',
+                headers: { 'Cache-Control': 'no-cache' },
+                signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+            });
+            const clientLatency = Date.now() - t0;
+            const data = await res.json();
+            lastChainStatusResult = data;
+            renderChainStatus(data, clientLatency);
+        } catch (e) {
+            const errMsg = e && e.message ? e.message : String(e);
+            if (dot) dot.textContent = '🔴';
+            if (text) text.textContent = '后端不可达';
+            if (indicator) indicator.className = 'chain-status-indicator status-error';
+            // 同步更新面板
+            const checkStatus = document.getElementById('csCheckStatus');
+            const errEl = document.getElementById('csError');
+            if (checkStatus) {
+                checkStatus.textContent = '检测失败';
+                checkStatus.className = 'value err';
+            }
+            if (errEl) {
+                errEl.textContent = '后端服务无法访问: ' + errMsg;
+                errEl.className = 'value err';
+            }
+        } finally {
+            chainStatusCheckInProgress = false;
+        }
+    }
+
+    // 渲染主链状态到UI
+    function renderChainStatus(data, clientLatency) {
+        const indicator = document.getElementById('chainStatusIndicator');
+        const dot = document.getElementById('chainStatusDot');
+        const text = document.getElementById('chainStatusText');
+
+        const rpcReachable = !!data.rpc_reachable;
+        const hasError = !!data.error;
+        const contractOk = data.contract_code_exists === true;
+        const contractMissing = data.contract_code_exists === false;
+
+        // 判定总体状态: ok / warning / error
+        let status = 'ok';
+        let dotChar = '🟢';
+        let textStr = '正常';
+
+        if (!rpcReachable) {
+            status = 'error';
+            dotChar = '🔴';
+            textStr = 'RPC不可达';
+        } else if (contractMissing) {
+            status = 'warning';
+            dotChar = '🟡';
+            textStr = '合约未部署';
+        } else if (hasError) {
+            // RPC 可达但有错误（如 chain id 不匹配）
+            status = 'warning';
+            dotChar = '🟡';
+            textStr = '配置异常';
+        }
+
+        if (dot) dot.textContent = dotChar;
+        if (text) text.textContent = textStr;
+        if (indicator) indicator.className = 'chain-status-indicator status-' + status;
+
+        // 更新详情面板
+        // 设置状态值到指定元素
+        const setVal = (id, val, cls) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = val == null ? '-' : String(val);
+            el.className = 'value' + (cls ? ' ' + cls : '');
+        };
+
+        // 格式化时间显示
+        const fmtTime = (iso) => {
+            if (!iso) return '-';
+            try {
+                const d = new Date(iso);
+                return d.toLocaleString('zh-CN', {
+                    timeZone: 'Asia/Shanghai',
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                    hour12: false,
+                });
+            } catch (e) { return iso; }
+        };
+
+        setVal('csCheckStatus', status === 'ok' ? '✓ 正常' : (status === 'warning' ? '⚠ 异常' : '✗ 故障'),
+            status === 'ok' ? 'ok' : (status === 'warning' ? 'warn' : 'err'));
+        setVal('csRpcUrl', data.rpc_url || '-');
+        setVal('csRpcReachable', rpcReachable ? '✓ 可达' : '✗ 不可达',
+            rpcReachable ? 'ok' : 'err');
+        setVal('csLatency', data.latency_ms != null ? `${data.latency_ms} ms` : '-');
+        setVal('csChainId', data.chain_id != null ?
+            `${data.chain_id}${data.expected_chain_id && data.chain_id !== data.expected_chain_id ? ' (期望 ' + data.expected_chain_id + ')' : ''}` : '-',
+            data.expected_chain_id && data.chain_id !== data.expected_chain_id ? 'warn' : 'ok');
+        setVal('csBlockNumber', data.block_number != null ? Number(data.block_number).toLocaleString() : '-');
+        setVal('csContractAddress', data.contract_address || '未配置');
+        if (data.contract_code_exists === null || data.contract_code_exists === undefined) {
+            setVal('csContractCode', '-');
+        } else if (data.contract_code_exists) {
+            setVal('csContractCode', '✓ 已部署', 'ok');
+        } else {
+            setVal('csContractCode', '✗ 未部署', 'err');
+        }
+        setVal('csError', data.error || '无', data.error ? 'err' : 'ok');
+        setVal('csCheckedAt', fmtTime(data.checked_at));
+    }
+
+    // 检查并加载Mock调试参数
     async function checkMockParams() {
         const params = new URLSearchParams(window.location.search);
         const mockStage = params.get('mock');
@@ -250,6 +458,7 @@ const App = (function() {
         }
     }
 
+    // 处理URL路由
     function handleRoute() {
         const path = window.location.pathname;
         const params = new URLSearchParams(window.location.search);
@@ -272,11 +481,13 @@ const App = (function() {
         }
     }
 
+    // 导航到指定路径
     function navigateTo(path) {
         window.history.pushState({}, '', path);
         handleRoute();
     }
 
+    // 自动连接钱包
     async function autoConnectWallet() {
         if (!window.ethereum) return;
 
@@ -290,11 +501,13 @@ const App = (function() {
         }
     }
 
+    // 初始化主题
     function initTheme() {
         const savedTheme = localStorage.getItem('rps_theme') || CONFIG.defaultTheme;
         UI.setTheme(savedTheme);
     }
 
+    // 初始化事件监听器
     function initEventListeners() {
         document.getElementById('themeToggle').addEventListener('click', () => {
             UI.toggleTheme();
@@ -417,6 +630,7 @@ const App = (function() {
         });
 
         // 点击房间号徽章或复制按钮，复制房间号
+        // 复制房间号处理器
         const copyRoomIdHandler = (e) => {
             if (!currentRoomId) {
                 FWUI.Toast.warning('暂无房间号可复制');
@@ -532,6 +746,7 @@ const App = (function() {
         }
     }
 
+    // 验证合约地址
     async function verifyContractAddress() {
         const addrEl = document.getElementById('settingContractAddress');
         const address = addrEl ? addrEl.value.trim() : '';
@@ -565,23 +780,41 @@ const App = (function() {
         }
     }
 
+    let isHandlingWalletConnection = false;
+    let isManualConnect = false;
+
+    // 初始化钱包事件监听器
     function initWalletListeners() {
         Wallet.on('accountChanged', (address) => {
             if (address) {
-                handleWalletConnected(address);
+                const manual = isManualConnect;
+                isManualConnect = false;
+                handleWalletConnected(address, !manual).catch(e => console.error('handleWalletConnected error:', e));
             } else {
                 handleWalletDisconnected();
             }
         });
 
         Wallet.on('chainChanged', (chainId) => {
-            const allowedChainIds = [CONFIG.getChainId(), 31337, 1337, 80002, 137];
-            if (!allowedChainIds.includes(chainId)) {
-                FWUI.Toast.warning(`当前网络 ChainID: ${chainId}，请切换到 Localhost 8545 或 Polygon 网络,在钱包里切换网络。`);
-            }
+            const networkName = getNetworkNameByChainId(chainId);
+            UI.updateNetworkInfo(chainId, networkName);
+
+            isSwitchingChain = false;
+
             currentToken = CONFIG.getDefaultToken();
             UI.showTokenSelect(currentToken);
-            updateBalanceDisplay();
+
+            if (isHandlingWalletConnection) {
+                chainChangedDuringInit = true;
+                return;
+            }
+
+            if (Wallet.getAddress()) {
+                setTimeout(() => {
+                    initContract();
+                    updateBalanceDisplay();
+                }, 300);
+            }
         });
 
         Wallet.on('disconnect', () => {
@@ -589,6 +822,7 @@ const App = (function() {
         });
     }
 
+    // 初始化合约事件监听器
     function initContractListeners() {
         Contract.on('CommitSubmitted', (event, args) => {
             if (currentGameId && Number(event.args.gameId) === currentGameId) {
@@ -661,6 +895,7 @@ const App = (function() {
         });
     }
 
+    // 连接钱包
     async function connectWallet() {
         try {
             const wallets = Wallet.getAvailableWallets();
@@ -669,29 +904,89 @@ const App = (function() {
                 return;
             }
 
-            const result = await Wallet.connect();
-            handleWalletConnected(result.address);
-            
-            FWUI.Toast.success('钱包连接成功');
+            isManualConnect = true;
+            await Wallet.connect();
         } catch (e) {
+            isManualConnect = false;
             FWUI.Toast.error(e.message || '连接失败');
         }
     }
 
-    function handleWalletConnected(address) {
+    let isSwitchingChain = false;
+    let lastChainSwitchTime = 0;
+    const CHAIN_SWITCH_COOLDOWN = 5000;
+    let chainChangedDuringInit = false;
+
+    // 处理钱包连接成功
+    async function handleWalletConnected(address, silentMode = true) {
+        if (isHandlingWalletConnection) {
+            return;
+        }
+        isHandlingWalletConnection = true;
+        chainChangedDuringInit = false;
+        try {
         UI.updateWalletInfo(address, '0', currentToken);
         UI.setMyAddress(address);
+
+        let chainId = Wallet.getChainId();
+        let networkName = getNetworkNameByChainId(chainId);
+        UI.updateNetworkInfo(chainId, networkName);
 
         currentToken = CONFIG.getDefaultToken();
         UI.showTokenSelect(currentToken);
 
-        initContract();
+        let needsChainSwitch = false;
+        try {
+            const mainChainConfig = await fetchMainChainConfig();
+            if (mainChainConfig && mainChainConfig.chain_id) {
+                const mainChainId = mainChainConfig.chain_id;
+                const now = Date.now();
+                if (chainId !== mainChainId && now - lastChainSwitchTime > CHAIN_SWITCH_COOLDOWN) {
+                    lastChainSwitchTime = now;
+                    needsChainSwitch = true;
+                    if (!silentMode) {
+                        FWUI.Toast.info(`正在切换到 ChainRPS 主链: ${mainChainConfig.network_name}...`);
+                    }
+                    try {
+                        isSwitchingChain = true;
+                        const switched = await Wallet.switchOrAddChain({
+                            chainId: mainChainId,
+                            chainName: mainChainConfig.network_name,
+                            rpcUrls: [mainChainConfig.rpc_url],
+                            nativeCurrency: mainChainConfig.native_currency,
+                            blockExplorerUrls: mainChainConfig.block_explorer ? [mainChainConfig.block_explorer] : undefined,
+                        });
+                        if (switched && !silentMode) {
+                            FWUI.Toast.success(`已切换到 ChainRPS 主链: ${mainChainConfig.network_name}`);
+                        }
+                    } catch (switchError) {
+                        console.error('切换主链失败:', switchError);
+                        isSwitchingChain = false;
+                        if (!silentMode) {
+                            const errMsg = switchError.message || switchError.toString();
+                            if (errMsg.indexOf('User rejected') !== -1 || errMsg.indexOf('用户拒绝') !== -1) {
+                                FWUI.Toast.warning(`您已拒绝切换网络，请手动切换到 ${mainChainConfig.network_name}`);
+                            } else {
+                                FWUI.Toast.error(`切换网络失败，请手动切换到 ${mainChainConfig.network_name}`);
+                            }
+                        }
+                    }
+                }
 
-        const allowedChainIds = [31337, 1337, 80002, 137];
-        if (!allowedChainIds.includes(Wallet.getChainId())) {
-            // FWUI.Toast.warning('请切换到 Localhost 8545 或 Polygon 网络');
-            ;
+                if (mainChainConfig.contract_address) {
+                    CONFIG.setContractAddress(mainChainConfig.contract_address);
+                }
+            }
+        } catch (e) {
+            console.warn('获取主链配置失败，使用本地配置:', e);
         }
+
+        if (needsChainSwitch && isSwitchingChain) {
+            // 网络正在切换中，后续操作（initContract、updateBalance 等）交给 chainChanged 事件处理
+            return;
+        }
+
+        initContract();
 
         updateBalanceDisplay();
         
@@ -707,10 +1002,34 @@ const App = (function() {
             }
         });
 
-        // 检查是否有未完成的房间，支持断网重连
         checkAndRestorePlayerRoom(address);
+        } finally {
+            isHandlingWalletConnection = false;
+        }
     }
 
+    let cachedMainChainConfig = null;
+    // 获取主链配置
+    async function fetchMainChainConfig(forceRefresh = false) {
+        if (cachedMainChainConfig && !forceRefresh) {
+            return cachedMainChainConfig;
+        }
+        try {
+            const response = await fetch(`${CONFIG.backendUrl}/api/ext/chain-config`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    cachedMainChainConfig = data;
+                    return data;
+                }
+            }
+        } catch (e) {
+            console.warn('获取主链配置失败:', e);
+        }
+        return null;
+    }
+
+    // 检查并恢复玩家未完成房间
     async function checkAndRestorePlayerRoom(playerAddress) {
         if (!playerAddress || !CONFIG.backendUrl) return;
 
@@ -730,6 +1049,7 @@ const App = (function() {
         }
     }
 
+    // 处理钱包断开连接
     function handleWalletDisconnected() {
         UI.updateWalletInfo(null);
         UI.setMyAddress('');
@@ -738,6 +1058,7 @@ const App = (function() {
         UI.showStage('stageLobby');
     }
 
+    // 断开钱包连接
     async function disconnectWallet() {
         FWUI.Toast.info('正在断开钱包...');
         await Wallet.disconnect();
@@ -745,19 +1066,27 @@ const App = (function() {
         FWUI.Toast.success('钱包已断开连接');
     }
 
+    // 初始化合约实例
     function initContract() {
         const provider = Wallet.getProvider();
         const signer = Wallet.getSigner();
         const contractAddress = CONFIG.getContractAddress();
 
+        Contract.removeEventListeners();
+
         if (provider && contractAddress) {
             const c = Contract.init(contractAddress, provider, signer);
             if (c) {
-                Contract.setupEventListener();
+                try {
+                    Contract.setupEventListener();
+                } catch (e) {
+                    console.warn('设置合约事件监听器失败:', e.message);
+                }
             }
         }
     }
 
+    // 更新钱包余额显示
     async function updateBalanceDisplay() {
         if (!Wallet.isConnected()) return;
 
@@ -766,10 +1095,11 @@ const App = (function() {
             const balance = await Wallet.getBalance(tokenAddress);
             UI.updateWalletInfo(Wallet.getAddress(), balance, currentToken);
         } catch (e) {
-            console.error('获取余额失败:', e);
+            console.warn('获取余额失败:', e.message);
         }
     }
 
+    // 开始游戏
     async function startGame() {
         if (!Wallet.isConnected()) {
             FWUI.Toast.warning('请先连接钱包');
@@ -794,6 +1124,7 @@ const App = (function() {
         }
     }
 
+    // 进入交易大厅
     async function enterLobby() {
         UI.showStage('stageLobby');
         UI.setRoomListView(UI.getPreferredRoomListView());
@@ -809,6 +1140,7 @@ const App = (function() {
     let roomListLoading = false;
     let roomListTimeout = null;
 
+    // 开始大厅定时刷新
     function startLobbyRefresh() {
         stopLobbyRefresh();
         lobbyRefreshInterval = setInterval(() => {
@@ -823,6 +1155,7 @@ const App = (function() {
         }, 10000);
     }
 
+    // 停止大厅定时刷新
     function stopLobbyRefresh() {
         if (lobbyRefreshInterval) {
             clearInterval(lobbyRefreshInterval);
@@ -854,6 +1187,7 @@ const App = (function() {
         }
     }
 
+    // 注册大厅事件监听器
     function registerLobbyListeners() {
         if (!lobbyWsConnected) {
             lobbyWsConnected = true;
@@ -869,6 +1203,7 @@ const App = (function() {
         }
     }
 
+    // 加载房间列表
     function loadRoomList() {
         if (!CONFIG.backendUrl) return;
 
@@ -894,6 +1229,7 @@ const App = (function() {
             });
     }
 
+    // 显示创建房间对话框
     function showCreateRoomDialog() {
         return new Promise((resolve) => {
             const presetAmounts = [1, 10, 50, 100, 500];
@@ -1032,6 +1368,7 @@ const App = (function() {
         });
     }
 
+    // 创建房间
     async function createRoom() {
         if (!Wallet.isConnected()) {
             FWUI.Toast.warning('请先连接钱包');
@@ -1088,6 +1425,7 @@ const App = (function() {
         }
     }
 
+    // 显示加入房间对话框
     function showJoinRoomDialog() {
         let currentRooms = [];
         let selectedRoomId = null;
@@ -1144,6 +1482,7 @@ const App = (function() {
         const input = modal.element.querySelector('#' + inputId);
 
         // 将下拉框放到 body 上，用 fixed 定位，避免被 modal 的 overflow 裁剪
+        // 创建下拉框
         function createDropdown() {
             if (dropdownEl) return;
             dropdownEl = document.createElement('div');
@@ -1170,6 +1509,7 @@ const App = (function() {
             });
         }
 
+        // 定位下拉框
         function positionDropdown() {
             if (!dropdownEl || !input) return;
             const rect = input.getBoundingClientRect();
@@ -1178,6 +1518,7 @@ const App = (function() {
             dropdownEl.style.width = rect.width + 'px';
         }
 
+        // 显示下拉框
         function showDropdown() {
             createDropdown();
             positionDropdown();
@@ -1185,12 +1526,14 @@ const App = (function() {
             renderDropdownItems(input.value);
         }
 
+        // 隐藏下拉框
         function hideDropdown() {
             if (dropdownEl) {
                 dropdownEl.style.display = 'none';
             }
         }
 
+        // 渲染下拉框房间项
         function renderDropdownItems(keyword) {
             if (!dropdownEl) return;
             const kw = (keyword || '').trim().toLowerCase();
@@ -1231,6 +1574,7 @@ const App = (function() {
             }
         }
 
+        // 加载房间列表用于下拉框
         async function loadRoomsForDropdown() {
             if (!CONFIG.backendUrl) return [];
             try {
@@ -1276,6 +1620,7 @@ const App = (function() {
 
         // 点击外部关闭
         document.addEventListener('click', handleOutsideClick);
+        // 处理下拉框外部点击
         function handleOutsideClick(e) {
             if (!dropdownEl) return;
             if (!dropdownEl.contains(e.target) && e.target !== input) {
@@ -1299,6 +1644,7 @@ const App = (function() {
 
         // 清理函数
         const originalClose = modal.close;
+        // 重写modal关闭方法进行清理
         modal.close = function() {
             window.removeEventListener('resize', positionDropdown);
             window.removeEventListener('scroll', positionDropdown, true);
@@ -1394,6 +1740,7 @@ const App = (function() {
         }, 100);
     }
 
+    // 加入房间
     async function joinRoom(roomId) {
         if (!Wallet.isConnected()) {
             FWUI.Toast.warning('请先连接钱包');
@@ -1437,6 +1784,7 @@ const App = (function() {
         }
     }
 
+    // 加载房间并进入
     async function loadRoomAndEnter(roomId) {
         if (!roomId) return;
         try {
@@ -1454,6 +1802,7 @@ const App = (function() {
         }
     }
 
+    // 切换准备状态
     async function toggleReady() {
         if (!currentRoomId) return;
 
@@ -1479,6 +1828,7 @@ const App = (function() {
         }
     }
 
+    // 进入房间等待界面
     async function enterRoomWait() {
         UI.showStage('stageRoomWait');
         // 初始加载一次房间状态
@@ -1487,6 +1837,7 @@ const App = (function() {
         connectRoomSocket();
     }
 
+    // 连接房间WebSocket并注册事件
     function connectRoomSocket() {
         if (!CONFIG.wsUrl || !Wallet.getAddress()) return;
         if (!GameSocket.isConnected()) {
@@ -1579,6 +1930,7 @@ const App = (function() {
         });
     }
 
+    // 加载房间状态
     function loadRoomStatus() {
         if (!currentRoomId) return;
         
@@ -1609,6 +1961,7 @@ const App = (function() {
             });
     }
 
+    // 更新倒计时UI
     function updateCountdownUI(remaining, isDanger) {
         UI.updateCountdown(remaining, isDanger);
     }
@@ -1619,6 +1972,7 @@ const App = (function() {
     let countdownEndTime = null;
     let countdownRafId = null;
 
+    // 更新房间界面
     function updateRoomUI() {
         if (!currentRoom) return;
 
@@ -1669,6 +2023,7 @@ const App = (function() {
         }
     }
 
+    // 高亮自己的玩家卡片
     function highlightMyPlayerCard(isCreator) {
         const creatorCard = document.querySelector('.room-player-creator');
         const opponentCard = document.querySelector('.room-player-opponent');
@@ -1681,6 +2036,7 @@ const App = (function() {
         }
     }
 
+    // 开始服务器同步倒计时
     function startSyncedCountdown(endTime, serverTime, total) {
         stopAllCountdowns();
 
@@ -1691,6 +2047,7 @@ const App = (function() {
         // 本地计算的结束时间（考虑时间偏差）
         countdownEndTime = endTime - timeOffset;
 
+        // 倒计时tick回调
         function tick() {
             const now = Date.now() / 1000;
             let remaining = Math.max(0, countdownEndTime - now);
@@ -1711,6 +2068,7 @@ const App = (function() {
         tick();
     }
 
+    // 开始本地倒计时
     function startLocalCountdown() {
         if (countdownInterval) return;
 
@@ -1729,6 +2087,7 @@ const App = (function() {
         }, 1000);
     }
 
+    // 停止本地倒计时
     function stopLocalCountdown() {
         if (countdownInterval) {
             clearInterval(countdownInterval);
@@ -1736,6 +2095,7 @@ const App = (function() {
         }
     }
 
+    // 停止所有倒计时
     function stopAllCountdowns() {
         stopLocalCountdown();
         if (countdownRafId) {
@@ -1754,6 +2114,7 @@ const App = (function() {
     // 4. player2 调用合约 joinMatch(chain_game_id) 加入链上对局
     // 5. 双方使用 chain_game_id 进入提交/揭晓阶段
 
+    // 处理房间游戏开始事件
     async function handleRoomGameStarted(data) {
         console.log('[Room] 游戏开始:', data);
         stopRoomPolling();
@@ -1822,6 +2183,7 @@ const App = (function() {
         }
     }
 
+    // 为房间创建链上对局
     async function createChainGameForRoom(data) {
         try {
             UI.showStage('stageGame');
@@ -1873,6 +2235,7 @@ const App = (function() {
         }
     }
 
+    // 处理链上对局已创建事件
     async function handleChainGameCreated(data) {
         const chainGameId = Number(data.chain_game_id);
         if (!chainGameId) return;
@@ -1906,6 +2269,7 @@ const App = (function() {
         }
     }
 
+    // 轮询等待链上对局对手加入
     async function pollChainGameUntilJoined() {
         const maxAttempts = 100; // 约 5 分钟
         let attempts = 0;
@@ -1945,6 +2309,7 @@ const App = (function() {
     let roomStatusLoading = false;
     let roomStatusTimeout = null;
 
+    // 开始房间状态轮询
     function startRoomPolling() {
         if (roomPollingInterval) clearInterval(roomPollingInterval);
 
@@ -1960,6 +2325,7 @@ const App = (function() {
         }, 5000);
     }
 
+    // 停止房间状态轮询
     function stopRoomPolling() {
         if (roomPollingInterval) {
             clearInterval(roomPollingInterval);
@@ -1967,6 +2333,7 @@ const App = (function() {
         }
     }
 
+    // 开始快速匹配
     async function startQuickMatch() {
         try {
             UI.setStartButtonText('授权中...', true);
@@ -1999,12 +2366,14 @@ const App = (function() {
         }
     }
 
+    // 从后端请求匹配
     function requestMatchFromBackend() {
         if (!CONFIG.backendUrl) return;
 
         // 防止 fetch 和 WebSocket 重复触发匹配成功
         let matchHandled = false;
 
+        // 匹配成功处理回调
         function onMatchFound(gameId, opponent) {
             if (matchHandled) return;
             matchHandled = true;
@@ -2045,6 +2414,7 @@ const App = (function() {
         }
     }
 
+    // 开始匹配计时器
     function startMatchingTimer() {
         matchingStartTime = Date.now();
         matchingTimer = setInterval(() => {
@@ -2053,6 +2423,7 @@ const App = (function() {
         }, 1000);
     }
 
+    // 停止匹配计时器
     function stopMatchingTimer() {
         if (matchingTimer) {
             clearInterval(matchingTimer);
@@ -2060,6 +2431,7 @@ const App = (function() {
         }
     }
 
+    // 取消匹配
     function cancelMatch() {
         stopMatchingTimer();
         
@@ -2071,6 +2443,7 @@ const App = (function() {
         FWUI.Toast.info('已取消匹配');
     }
 
+    // 处理匹配成功
     function handleMatchFound(gameId, opponent) {
         stopMatchingTimer();
         currentGameId = Number(gameId);
@@ -2082,6 +2455,7 @@ const App = (function() {
         FWUI.Toast.success('匹配成功！');
     }
 
+    // 创建私密对局
     async function createPrivateMatch() {
         try {
             UI.setStartButtonText('创建对局中...', true);
@@ -2110,6 +2484,7 @@ const App = (function() {
         }
     }
 
+    // 加入私密对局
     async function joinPrivateMatch(matchId) {
         try {
             UI.setStartButtonText('加入对局中...', true);
@@ -2142,6 +2517,7 @@ const App = (function() {
         }
     }
 
+    // 轮询等待私密对局对手加入
     async function pollGameUntilJoined() {
         const maxAttempts = 60; // 最多轮询 60 次（约 3 分钟）
         let attempts = 0;
@@ -2176,6 +2552,7 @@ const App = (function() {
         }, 3000);
     }
 
+    // 进入游戏出拳阶段
     function enterGamePhase() {
         gamePhase = 'commit';
         UI.showStage('stageGame');
@@ -2203,6 +2580,7 @@ const App = (function() {
         startGameTimer('commit');
     }
 
+    // 开始游戏阶段计时器
     function startGameTimer(phase) {
         stopGameTimer();
         
@@ -2225,6 +2603,7 @@ const App = (function() {
         }, 1000);
     }
 
+    // 停止游戏计时器
     function stopGameTimer() {
         if (gameTimerInterval) {
             clearInterval(gameTimerInterval);
@@ -2232,6 +2611,7 @@ const App = (function() {
         }
     }
 
+    // 处理计时器超时
     function handleTimerExpired(phase) {
         const myAddress = Wallet.getAddress();
         
@@ -2250,6 +2630,7 @@ const App = (function() {
         }
     }
 
+    // 预览出拳选择
     function previewChoice(choice) {
         if (gamePhase !== 'commit' || myCommitSubmitted) return;
 
@@ -2269,6 +2650,7 @@ const App = (function() {
         });
     }
 
+    // 取消出拳预览
     function cancelChoicePreview() {
         pendingChoice = null;
         UI.setSelectedChoice(null);
@@ -2279,6 +2661,7 @@ const App = (function() {
         });
     }
 
+    // 确认并提交出拳
     async function selectChoice(choice) {
         if (gamePhase !== 'commit' || myCommitSubmitted) return;
 
@@ -2322,6 +2705,7 @@ const App = (function() {
         }
     }
 
+    // 揭晓出拳
     async function revealChoice() {
         if (!selectedChoice || !currentSalt || !myCommitSubmitted || myRevealed) return;
         
@@ -2347,6 +2731,7 @@ const App = (function() {
         }
     }
 
+    // 超时索赔
     async function claimTimeout() {
         try {
             UI.claimTimeoutBtn.disabled = true;
@@ -2363,6 +2748,7 @@ const App = (function() {
         }
     }
 
+    // 处理对局结算
     function handleGameSettled(args) {
         stopGameTimer();
 
@@ -2382,6 +2768,7 @@ const App = (function() {
         const feeFormatted = (Number(fee) / Math.pow(10, tokenDecimals)).toFixed(4);
         const totalPool = (Number(winnerPrize) + Number(fee)) / Math.pow(10, tokenDecimals);
 
+        // 构建对局结果并展示
         const buildResult = (myChoice, opponentChoice) => {
             showResult({
                 type: isWin ? 'win' : 'lose',
@@ -2421,12 +2808,14 @@ const App = (function() {
         }
     }
 
+    // 显示对局结果
     function showResult(result) {
         gamePhase = 'finished';
         UI.showStage('stageResult');
         UI.showResult(result);
     }
 
+    // 处理平局结算
     function handleDrawSettled(args) {
         const myAddress = Wallet.getAddress();
 
@@ -2478,6 +2867,7 @@ const App = (function() {
         }
     }
 
+    // 重置游戏状态
     function resetGameState() {
         currentGameId = null;
         selectedChoice = null;
@@ -2500,6 +2890,7 @@ const App = (function() {
         UI.setStartButtonText(currentMode === 'B' ? '创建/加入私密对局' : '🏠 进入交易大厅', false);
     }
 
+    // 更新历史记录和统计
     function updateHistoryAndStats() {
         const historyList = document.getElementById('historyList');
         if (historyList) {
@@ -2523,7 +2914,9 @@ const App = (function() {
 
     return {
         init,
+        // 获取当前模式
         getCurrentMode: () => currentMode,
+        // 获取当前对局ID
         getCurrentGameId: () => currentGameId
     };
 })();

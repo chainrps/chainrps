@@ -1,6 +1,8 @@
+// 用户设置模块
 const Settings = (function() {
     let currentPreferences = null;
 
+    // 从服务器加载用户配置
     async function loadFromServer(address) {
         if (!address) return null;
         try {
@@ -15,6 +17,7 @@ const Settings = (function() {
         return loadFromStorage(address);
     }
 
+    // 从本地存储加载用户配置
     function loadFromStorage(address) {
         try {
             const key = 'rps_settings_' + (address || 'default');
@@ -37,6 +40,7 @@ const Settings = (function() {
         return currentPreferences;
     }
 
+    // 保存配置到本地存储
     function saveToStorage(address) {
         try {
             const key = 'rps_settings_' + (address || 'default');
@@ -47,6 +51,7 @@ const Settings = (function() {
         }
     }
 
+    // 保存配置到服务器
     async function saveToServer(address) {
         if (!address) return false;
         try {
@@ -62,16 +67,19 @@ const Settings = (function() {
         }
     }
 
+    // 获取当前用户配置
     function getPreferences() {
         return currentPreferences;
     }
 
+    // 设置单个配置项
     function setPreference(key, value) {
         if (currentPreferences) {
             currentPreferences[key] = value;
         }
     }
 
+    // 渲染设置表单
     function renderSettingsForm() {
         if (!currentPreferences) return;
 
@@ -103,6 +111,7 @@ const Settings = (function() {
         if (contractAddrEl) contractAddrEl.value = CONFIG.getContractAddress() || '';
     }
 
+    // 从表单收集配置数据
     function collectFromForm() {
         const prefs = {};
 
@@ -127,6 +136,7 @@ const Settings = (function() {
         return prefs;
     }
 
+    // 保存所有设置
     async function saveSettings(address) {
         const newPrefs = collectFromForm();
         currentPreferences = { ...currentPreferences, ...newPrefs, address };
@@ -157,6 +167,7 @@ const Settings = (function() {
         return currentPreferences;
     }
 
+    // 应用主题
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('theme', theme);
@@ -166,22 +177,27 @@ const Settings = (function() {
         }
     }
 
+    // 检查音效是否启用
     function isSoundEnabled() {
         return currentPreferences ? currentPreferences.sound_enabled !== false : true;
     }
 
+    // 检查是否自动揭晓
     function isAutoReveal() {
         return currentPreferences ? currentPreferences.auto_reveal === true : false;
     }
 
+    // 获取默认游戏模式
     function getDefaultMode() {
         return currentPreferences ? currentPreferences.default_mode : 'A';
     }
 
+    // 获取默认代币
     function getDefaultToken() {
         return currentPreferences ? currentPreferences.default_token : 'USDC';
     }
 
+    // 返回设置相关函数
     return {
         loadFromServer,
         loadFromStorage,

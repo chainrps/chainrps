@@ -1,4 +1,5 @@
 (function() {
+    // 创建模态框
     function createModal(options = {}) {
         const {
             title = '',
@@ -112,6 +113,7 @@
             modal.style.transform = 'scale(1)';
         });
 
+        // 关闭模态框
         function close() {
             mask.style.opacity = '0';
             modal.style.transform = 'scale(0.9)';
@@ -132,6 +134,7 @@
             }
         }
 
+        // 点击遮罩层关闭模态框
         if (maskClosable) {
             mask.addEventListener('click', (e) => {
                 if (e.target === mask) {
@@ -140,6 +143,7 @@
             });
         }
 
+        // 设置模态框内容
         function setContent(newContent) {
             const body = modal.querySelector('.fwui-modal-body');
             if (body) {
@@ -147,6 +151,7 @@
             }
         }
 
+        // 设置模态框标题
         function setTitle(newTitle) {
             const titleEl = modal.querySelector('.fwui-modal-title');
             if (titleEl) {
@@ -162,6 +167,7 @@
         };
     }
 
+    // 确认对话框
     function confirm(options = {}) {
         const {
             title = '确认',
@@ -207,6 +213,7 @@
         const okBtn = modal.element.querySelector('[data-action="ok"]');
         const cancelBtn = modal.element.querySelector('[data-action="cancel"]');
 
+        // 确认按钮点击事件处理
         okBtn.addEventListener('click', async () => {
             if (typeof onOk === 'function') {
                 const result = onOk();
@@ -228,6 +235,7 @@
             }
         });
 
+        // 取消按钮点击事件处理
         cancelBtn.addEventListener('click', () => {
             if (typeof onCancel === 'function') {
                 onCancel();
@@ -238,6 +246,7 @@
         return modal;
     }
 
+    // 输入对话框
     function prompt(options = {}) {
         const {
             title = '输入',
@@ -307,6 +316,7 @@
 
         // 回车确认
         if (input) {
+            // 输入框按键事件处理
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     const val = input.value;
@@ -326,6 +336,7 @@
         const okBtn = modal.element.querySelector('[data-action="ok"]');
         const cancelBtn = modal.element.querySelector('[data-action="cancel"]');
 
+        // 确认按钮点击事件处理
         okBtn.addEventListener('click', () => {
             const val = input ? input.value : '';
             if (typeof onConfirm === 'function') {
@@ -334,6 +345,7 @@
             modal.close();
         });
 
+        // 取消按钮点击事件处理
         cancelBtn.addEventListener('click', () => {
             if (typeof onCancel === 'function') {
                 onCancel();
@@ -346,8 +358,11 @@
 
     window.FWUI = window.FWUI || {};
     window.FWUI.Modal = {
+        // 创建模态框
         create: createModal,
+        // 确认对话框
         confirm,
+        // 输入对话框
         prompt
     };
 })();

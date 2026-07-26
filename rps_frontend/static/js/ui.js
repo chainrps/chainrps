@@ -1,6 +1,8 @@
+// UI渲染模块
 const UI = (function() {
     const elements = {};
 
+    // 初始化UI元素引用
     function init() {
         elements.themeToggle = document.getElementById('themeToggle');
         elements.connectWalletBtn = document.getElementById('connectWalletBtn');
@@ -8,6 +10,9 @@ const UI = (function() {
         elements.walletBalance = document.getElementById('walletBalance');
         elements.walletAddress = document.getElementById('walletAddress');
         elements.walletAvatar = document.getElementById('walletAvatar');
+        elements.walletNetwork = document.getElementById('walletNetwork');
+        elements.networkIcon = document.getElementById('networkIcon');
+        elements.networkName = document.getElementById('networkName');
         elements.disconnectBtn = document.getElementById('disconnectBtn');
         
         elements.modeSwitcher = document.getElementById('modeSwitcher');
@@ -86,6 +91,7 @@ const UI = (function() {
         elements.leaveRoomBtn = document.getElementById('leaveRoomBtn');
     }
 
+    // 切换显示的舞台
     function showStage(stage) {
         const stages = ['stageHome', 'stageMatching', 'stageGame', 'stageResult', 'stageLobby', 'stageRoomWait'];
         stages.forEach(s => {
@@ -95,6 +101,7 @@ const UI = (function() {
         });
     }
 
+    // 更新钱包信息显示
     function updateWalletInfo(address, balance, token) {
         if (address) {
             elements.connectWalletBtn.classList.add('hidden');
@@ -103,7 +110,6 @@ const UI = (function() {
             if (balance !== undefined) {
                 elements.walletBalance.textContent = `${parseFloat(balance).toFixed(4)} ${token || 'USDC'}`;
             }
-            // 设置头像 - 根据地址生成独特的emoji头像
             if (elements.walletAvatar) {
                 elements.walletAvatar.textContent = getAvatarForAddress(address);
             }
@@ -113,6 +119,40 @@ const UI = (function() {
         }
     }
 
+    // 更新网络信息显示
+    function updateNetworkInfo(chainId, networkName) {
+        if (!elements.walletNetwork) return;
+
+        const networkIcons = {
+            1: '🔷',
+            137: '🟣',
+            80002: '🟣',
+            31337: '🔧',
+            1337: '🔧',
+            56: '🟡',
+            42161: '🔵',
+            10: '🔴',
+            8453: '🔵',
+            43114: '🔺',
+            100: '🟢',
+            250: '🎭',
+        };
+
+        const icon = networkIcons[chainId] || '🔗';
+        const name = networkName || `Chain #${chainId}`;
+
+        if (elements.networkIcon) {
+            elements.networkIcon.textContent = icon;
+        }
+        if (elements.networkName) {
+            elements.networkName.textContent = name;
+        }
+
+        elements.walletNetwork.classList.remove('hidden');
+        elements.walletNetwork.title = `网络: ${name} (Chain ID: ${chainId})`;
+    }
+
+    // 根据地址获取头像
     function getAvatarForAddress(address) {
         if (!address) return '👤';
         const avatars = ['😎', '🚀', '🦄', '🌟', '💎', '🔥', '⚡', '🎯', '🏆', '💪', '🎮', '🎲', '💫', '🎭', '🐲', '🦸'];
@@ -124,12 +164,14 @@ const UI = (function() {
         return avatars[sum % avatars.length];
     }
 
+    // 格式化地址显示
     function formatAddress(address, len = 6) {
         if (!address) return '';
         if (address.length <= len * 2 + 2) return address;
         return address.slice(0, len) + '...' + address.slice(-len);
     }
 
+    // 设置主题
     function setTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         const themeIcon = document.querySelector('.theme-icon');
@@ -139,10 +181,12 @@ const UI = (function() {
         localStorage.setItem('rps_theme', theme);
     }
 
+    // 获取当前主题
     function getCurrentTheme() {
         return document.documentElement.getAttribute('data-theme') || 'light';
     }
 
+    // 切换主题
     function toggleTheme() {
         const current = getCurrentTheme();
         const next = current === 'dark' ? 'light' : 'dark';
@@ -150,12 +194,14 @@ const UI = (function() {
         return next;
     }
 
+    // 更新匹配耗时显示
     function updateMatchingTime(seconds) {
         if (elements.matchingTime) {
             elements.matchingTime.textContent = `${seconds}s`;
         }
     }
 
+    // 更新游戏计时器
     function updateGameTimer(seconds, isWarning = false, isDanger = false) {
         if (!elements.gameTimer) return;
         
@@ -171,12 +217,14 @@ const UI = (function() {
         }
     }
 
+    // 设置游戏状态徽章
     function setGameStatus(text) {
         if (elements.gameStatusBadge) {
             elements.gameStatusBadge.textContent = text;
         }
     }
 
+    // 设置我的出拳
     function setMyChoice(choice, revealed = false) {
         if (!elements.myChoice) return;
         if (choice) {
@@ -190,6 +238,7 @@ const UI = (function() {
         }
     }
 
+    // 设置对手出拳
     function setOpponentChoice(choice, revealed = false) {
         if (!elements.opponentChoice) return;
         if (choice && revealed) {
@@ -204,48 +253,56 @@ const UI = (function() {
         }
     }
 
+    // 设置我的状态
     function setMyStatus(text) {
         if (elements.myStatus) {
             elements.myStatus.textContent = text;
         }
     }
 
+    // 设置对手状态
     function setOpponentStatus(text) {
         if (elements.opponentStatus) {
             elements.opponentStatus.textContent = text;
         }
     }
 
+    // 设置对手地址
     function setOpponentAddress(address) {
         if (elements.opponentAddress) {
             elements.opponentAddress.textContent = address ? formatAddress(address) : '等待对手...';
         }
     }
 
+    // 设置我的地址
     function setMyAddress(address) {
         if (elements.myAddress) {
             elements.myAddress.textContent = address ? formatAddress(address) : '我的地址';
         }
     }
 
+    // 设置对局ID
     function setGameId(gameId) {
         if (elements.gameIdDisplay) {
             elements.gameIdDisplay.textContent = `对局 #${gameId}`;
         }
     }
 
+    // 显示或隐藏揭示按钮
     function showRevealButton(show) {
         if (elements.revealSection) {
             elements.revealSection.classList.toggle('hidden', !show);
         }
     }
 
+    // 显示或隐藏超时按钮
     function showTimeoutButton(show) {
         if (elements.timeoutSection) {
             elements.timeoutSection.classList.toggle('hidden', !show);
         }
     }
 
+    // 启用或禁用出拳按钮
     function setChoiceButtonsEnabled(enabled) {
         const buttons = document.querySelectorAll('.choice-btn');
         buttons.forEach(btn => {
@@ -253,6 +310,7 @@ const UI = (function() {
         });
     }
 
+    // 设置选中的出拳
     function setSelectedChoice(choice) {
         const buttons = document.querySelectorAll('.choice-btn');
         buttons.forEach(btn => {
@@ -261,6 +319,7 @@ const UI = (function() {
         });
     }
 
+    // 显示对局结果
     function showResult(result) {
         if (!elements.resultTitle) return;
         
@@ -304,6 +363,7 @@ const UI = (function() {
         }
     }
 
+    // 显示代币选中状态
     function showTokenSelect(token) {
         const buttons = document.querySelectorAll('.token-btn');
         buttons.forEach(btn => {
@@ -316,6 +376,7 @@ const UI = (function() {
         }
     }
 
+    // 设置开始按钮文字
     function setStartButtonText(text, loading = false) {
         if (elements.startGameBtnText) {
             elements.startGameBtnText.textContent = text;
@@ -325,6 +386,7 @@ const UI = (function() {
         }
     }
 
+    // 切换游戏模式
     function switchMode(mode) {
         const buttons = document.querySelectorAll('.mode-btn');
         buttons.forEach(btn => {
@@ -345,6 +407,7 @@ const UI = (function() {
         }
     }
 
+    // 切换标签页
     function switchTab(tab) {
         document.querySelectorAll('.panel-tab').forEach(t => {
             t.classList.toggle('active', t.dataset.tab === tab);
@@ -373,6 +436,7 @@ const UI = (function() {
         }
     }
 
+    // 切换历史视图
     function switchView(view) {
         document.querySelectorAll('.view-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.view === view);
@@ -383,6 +447,7 @@ const UI = (function() {
         }
     }
 
+    // 更新统计数据
     function updateStats(stats) {
         if (elements.statTotal) elements.statTotal.textContent = stats.total || 0;
         if (elements.statWins) elements.statWins.textContent = stats.wins || 0;
@@ -400,6 +465,7 @@ const UI = (function() {
 
     let roomListView = 'list'; // 'list' | 'card'
 
+    // 设置房间列表视图
     function setRoomListView(view) {
         roomListView = view;
         if (elements.roomList) {
@@ -412,6 +478,7 @@ const UI = (function() {
         localStorage.setItem('rps_room_view', view);
     }
 
+    // 获取首选房间列表视图
     function getPreferredRoomListView() {
         // 手机默认卡片，PC 默认列表
         const stored = localStorage.getItem('rps_room_view');
@@ -420,6 +487,7 @@ const UI = (function() {
         return isMobile ? 'card' : 'list';
     }
 
+    // 渲染房间列表
     function renderRoomList(rooms) {
         if (!elements.roomList) return;
 
@@ -449,6 +517,7 @@ const UI = (function() {
             return;
         }
 
+        // 状态文本映射
         const statusText = (status) => {
             const map = {
                 'created': '等待对手',
@@ -501,6 +570,7 @@ const UI = (function() {
         }).join('');
     }
 
+    // 设置房间信息
     function setRoomInfo(room, isCreator = false) {
         if (elements.roomIdDisplay) elements.roomIdDisplay.textContent = room.room_id;
         if (elements.roomToken) elements.roomToken.textContent = room.token;
@@ -534,6 +604,7 @@ const UI = (function() {
         updateRoomReady(room.creator_ready, room.player2_ready);
     }
 
+    // 更新房间准备状态
     function updateRoomReady(creatorReady, opponentReady) {
         if (elements.roomCreatorReady) {
             const icon = creatorReady ? '🟢' : '⚪';
@@ -550,18 +621,21 @@ const UI = (function() {
         }
     }
 
+    // 设置准备按钮文字
     function setReadyButtonText(text) {
         if (elements.readyBtnText) {
             elements.readyBtnText.textContent = text;
         }
     }
 
+    // 显示或隐藏倒计时
     function showCountdown(show) {
         if (elements.roomCountdown) {
             elements.roomCountdown.classList.toggle('hidden', !show);
         }
     }
 
+    // 更新倒计时数字
     function updateCountdown(number, isDanger = false) {
         if (elements.countdownNumber) {
             elements.countdownNumber.textContent = number;
@@ -574,6 +648,7 @@ const UI = (function() {
         }
     }
 
+    // 返回UI相关函数
     return {
         init,
         elements,
@@ -611,6 +686,7 @@ const UI = (function() {
         updateRoomReady,
         setReadyButtonText,
         showCountdown,
-        updateCountdown
+        updateCountdown,
+        updateNetworkInfo
     };
 })();

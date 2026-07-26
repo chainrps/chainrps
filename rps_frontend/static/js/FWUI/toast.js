@@ -14,6 +14,7 @@
     `;
     document.body.appendChild(toastContainer);
 
+    // 显示提示消息
     function showToast(message, type = 'info', duration = 3000) {
         const toast = document.createElement('div');
         toast.className = `fwui-toast fwui-toast-${type}`;
@@ -64,6 +65,7 @@
             toast.style.transform = 'translateY(0)';
         });
 
+        // 移除提示消息
         function remove() {
             toast.style.opacity = '0';
             toast.style.transform = 'translateY(-20px)';
@@ -82,10 +84,15 @@
     }
 
     const Toast = {
+        // 成功提示
         success: (msg, duration) => showToast(msg, 'success', duration),
+        // 错误提示
         error: (msg, duration) => showToast(msg, 'error', duration),
+        // 警告提示
         warning: (msg, duration) => showToast(msg, 'warning', duration),
+        // 信息提示
         info: (msg, duration) => showToast(msg, 'info', duration),
+        // 显示提示
         show: showToast
     };
 

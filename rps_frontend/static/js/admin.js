@@ -1,3 +1,4 @@
+// 管理后台应用模块
 const AdminApp = {
     adminAddress: null,
     provider: null,
@@ -16,6 +17,7 @@ const AdminApp = {
         'audit': '#/audit',
     },
 
+    // 初始化管理后台
     init() {
         this.loadTheme();
         this._initSidebar();
@@ -26,19 +28,23 @@ const AdminApp = {
 
     // ==================== 认证与登录 ====================
 
+    // 获取认证令牌
     getToken() {
         return localStorage.getItem('adminToken') || '';
     },
 
+    // 设置认证令牌
     setToken(token) {
         localStorage.setItem('adminToken', token);
     },
 
+    // 清除认证令牌
     clearToken() {
         localStorage.removeItem('adminToken');
         localStorage.removeItem('adminUser');
     },
 
+    // 显示登录遮罩
     _showLogin() {
         document.getElementById('loginOverlay').classList.remove('hidden');
         // 预填默认用户名方便开发
@@ -47,10 +53,12 @@ const AdminApp = {
         }
     },
 
+    // 隐藏登录遮罩
     _hideLogin() {
         document.getElementById('loginOverlay').classList.add('hidden');
     },
 
+    // 校验登录状态并初始化
     async _checkAuthAndInit() {
         const token = this.getToken();
         if (!token) {
@@ -79,6 +87,7 @@ const AdminApp = {
         }
     },
 
+    // 处理登录表单提交
     async handleLogin(event) {
         event.preventDefault();
         const username = document.getElementById('loginUsername').value.trim();
@@ -115,6 +124,7 @@ const AdminApp = {
         return false;
     },
 
+    // 退出登录
     logout() {
         this.clearToken();
         this.adminUser = null;
@@ -123,6 +133,7 @@ const AdminApp = {
 
     // ==================== 修改密码 ====================
 
+    // 打开修改密码弹窗
     openChangePasswordModal() {
         document.getElementById('changePasswordModal').classList.add('show');
         document.getElementById('oldPassword').value = '';
@@ -131,15 +142,18 @@ const AdminApp = {
         document.getElementById('changePwdError').textContent = '';
     },
 
+    // 关闭修改密码弹窗
     closeChangePasswordModal() {
         document.getElementById('changePasswordModal').classList.remove('show');
     },
 
+    // 修改密码按钮点击处理
     handleChangePasswordClick() {
         // 按钮点击触发，调用表单提交逻辑
         this.handleChangePassword({ preventDefault: () => {} });
     },
 
+    // 处理修改密码表单提交
     async handleChangePassword(event) {
         if (event && event.preventDefault) event.preventDefault();
         const oldPwd = document.getElementById('oldPassword').value;
@@ -191,6 +205,7 @@ const AdminApp = {
         return false;
     },
 
+    // 登录成功后初始化
     _initAfterAuth() {
         this.autoConnectWallet();
         // 根据初始 hash 决定加载哪个 tab，默认 dashboard
@@ -200,6 +215,7 @@ const AdminApp = {
 
     // ==================== 侧边栏交互 ====================
 
+    // 初始化侧边栏交互
     _initSidebar() {
         const sidebar = document.getElementById('adminSidebar');
         const toggle = document.getElementById('sidebarToggle');
@@ -217,6 +233,7 @@ const AdminApp = {
         searchInput.addEventListener('input', () => this._filterNav(searchInput.value));
     },
 
+    // 过滤侧边栏导航
     _filterNav(keyword) {
         const kw = (keyword || '').trim().toLowerCase();
         document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
@@ -230,6 +247,7 @@ const AdminApp = {
 
     // ==================== Hash 路由 ====================
 
+    // 初始化 hash 路由
     _initHashRouter() {
         window.addEventListener('hashchange', () => {
             const tab = this._tabFromHash();
@@ -239,12 +257,14 @@ const AdminApp = {
         });
     },
 
+    // 从 hash 获取 tab 标识
     _tabFromHash() {
         const hash = window.location.hash;
         const entry = Object.entries(this._tabHashMap).find(([_, h]) => h === hash);
         return entry ? entry[0] : null;
     },
 
+    // 更新 URL hash
     _updateHash(tabName) {
         const hash = this._tabHashMap[tabName];
         if (hash && window.location.hash !== hash) {
@@ -253,6 +273,7 @@ const AdminApp = {
         }
     },
 
+    // 自动连接管理员钱包
     async autoConnectWallet() {
         if (!window.ethereum) return;
         
@@ -272,6 +293,13 @@ const AdminApp = {
                 `;
                 document.getElementById('adminConnectInfo').style.display = 'flex';
                 document.getElementById('adminAddress').textContent = this.adminAddress;
+                document.getElementById('fundToAddress').textContent = this.adminAddress;
+
+                // 自动填充本地链充值接收地址
+                const fundToAddr = document.getElementById('fundToAddress');
+                if (fundToAddr && (!fundToAddr.value || fundToAddr.value.startsWith('0x0000'))) {
+                    fundToAddr.value = this.adminAddress;
+                }
 
                 this.loadContractInfo();
             }
@@ -281,11 +309,13 @@ const AdminApp = {
         }
     },
 
+    // 加载主题
     loadTheme() {
         const theme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', theme);
     },
 
+    // 切换标签页
     switchTab(tabName, updateHash) {
         // updateHash 默认为 true（由用户点击触发时需要更新 URL）
         if (typeof updateHash === 'undefined') updateHash = true;
@@ -303,7 +333,10 @@ const AdminApp = {
         // 按需懒加载对应模块的数据
         if (tabName === 'dashboard') this.loadDashboard();
         if (tabName === 'contracts') this.loadContracts();
-        if (tabName === 'config') this.loadConfig();
+        if (tabName === 'config') {
+            this.loadConfig();
+            this.loadMainChainConfig();
+        }
         if (tabName === 'audit') this.loadAuditLogs();
         if (tabName === 'localChain') {
             this._applyNodeConfigToForm();
@@ -312,6 +345,7 @@ const AdminApp = {
         if (tabName === 'redis') this.refreshRedisStatus();
     },
 
+    // 发起带认证的 API 请求
     async apiRequest(path, method = 'GET', body = null) {
         const headers = { 'Content-Type': 'application/json' };
         // 携带 JWT token 认证
@@ -334,6 +368,7 @@ const AdminApp = {
         return res.json();
     },
 
+    // 加载仪表盘数据
     async loadDashboard() {
         try {
             const data = await this.apiRequest('/api/admin/dashboard');
@@ -351,6 +386,7 @@ const AdminApp = {
         }
     },
 
+    // 加载合约列表
     async loadContracts() {
         try {
             const network = document.getElementById('networkFilter').value;
@@ -386,14 +422,17 @@ const AdminApp = {
         }
     },
 
+    // 显示添加合约弹窗
     showAddContractModal() {
         document.getElementById('contractModal').classList.add('show');
     },
 
+    // 关闭合约弹窗
     closeContractModal() {
         document.getElementById('contractModal').classList.remove('show');
     },
 
+    // 添加合约记录
     async addContract() {
         const name = document.getElementById('modalContractName').value;
         const address = document.getElementById('modalContractAddress').value;
@@ -422,6 +461,7 @@ const AdminApp = {
         }
     },
 
+    // 显示部署合约弹窗
     showDeployModal() {
         if (!this.signer) {
             FWUI.Toast.warning('请先连接管理员钱包');
@@ -437,10 +477,12 @@ const AdminApp = {
         document.getElementById('deployModal').classList.add('show');
     },
 
+    // 关闭部署合约弹窗
     closeDeployModal() {
         document.getElementById('deployModal').classList.remove('show');
     },
 
+    // 设置部署步骤状态
     setDeployStep(step, completed = false) {
         for (let i = 1; i <= 4; i++) {
             const el = document.getElementById('deployStep' + i);
@@ -454,6 +496,7 @@ const AdminApp = {
         }
     },
 
+    // 截断过长的字符串
     truncateLongString(str, maxLength = 200) {
         if (!str || typeof str !== 'string') return str;
         if (str.length <= maxLength) return str;
@@ -462,6 +505,7 @@ const AdminApp = {
         return str.slice(0, prefixLen) + '...[省略' + (str.length - prefixLen - suffixLen) + '个字符]...' + str.slice(-suffixLen);
     },
 
+    // 显示部署状态消息
     showDeployStatus(message, type = 'info') {
         const el = document.getElementById('deployStatus');
         el.style.display = 'block';
@@ -482,6 +526,7 @@ const AdminApp = {
 
         // ===== 1. 递归提取 ethers.js v6 嵌套错误结构中的所有关键字段 =====
         // ethers v6 错误结构通常为：error.error.info.error.data / error.error.data / error.reason
+        // 递归提取完整错误信息
         const extractFullErrorInfo = (err) => {
             const found = [];
             const seen = new Set();
@@ -510,7 +555,8 @@ const AdminApp = {
 
         // ===== 2. 尝试解码 0x 开头的 revert data 为可读字符串 =====
         // Solidity revert reason 通常为: 0x08c379a0... + ABI 编码的字符串
-        // 或自定义 error的 4-byte selector + data
+        // 或自定义错误的 4-byte selector + data
+        // 解码 revert 数据
         const decodeRevertData = (hex) => {
             if (!hex || typeof hex !== 'string' || !hex.startsWith('0x')) return null;
             // 纯 0x 空数据
@@ -570,6 +616,7 @@ const AdminApp = {
         // 查找所有 data 字段并尝试解码
         const decodedReverts = [];
         const allDataFields = [];
+        // 收集所有 data 字段
         const collectData = (node, depth) => {
             if (!node || typeof node !== 'object' || depth > 6) return;
             if (node.data && typeof node.data === 'string' && node.data.startsWith('0x')) {
@@ -615,9 +662,11 @@ const AdminApp = {
         if (methods.length > 0) detailLines.push('RPC方法: ' + [...new Set(methods)].join(', '));
 
         // 构建完整错误对象 JSON（用于调试，截断到合理长度）
+        // 构建完整错误对象的 JSON
         const fullJson = (() => {
             try {
                 const seen = new Set();
+                // 安全序列化错误对象
                 const safeObj = (node, depth) => {
                     if (!node || typeof node !== 'object' || depth > 4) return null;
                     if (seen.has(node)) return '[Circular]';
@@ -676,6 +725,7 @@ const AdminApp = {
         return result + detailBlock + jsonBlock;
     },
 
+    // 部署合约
     async deployContract() {
         const networkName = document.getElementById('deployNetwork').value;
         const feeCollector = document.getElementById('deployFeeCollector').value.trim();
@@ -825,6 +875,7 @@ const AdminApp = {
         }
     },
 
+    // 查看合约详情
     async viewContract(id) {
         try {
             const contract = await this.apiRequest(`/api/admin/contracts/${id}`);
@@ -845,6 +896,7 @@ const AdminApp = {
         }
     },
 
+    // 显示部署代币弹窗
     showDeployTokenModal() {
         if (!this.signer) {
             FWUI.Toast.warning('请先连接钱包');
@@ -853,6 +905,7 @@ const AdminApp = {
         document.getElementById('deployTokenModal').classList.add('show');
     },
 
+    // 部署代币
     async deployToken() {
         const name = document.getElementById('deployTokenName').value.trim();
         const symbol = document.getElementById('deployTokenSymbol').value.trim();
@@ -922,6 +975,7 @@ const AdminApp = {
         }
     },
 
+    // 显示铸造代币弹窗
     showMintTokenModal() {
         if (!this.signer) {
             FWUI.Toast.warning('请先连接钱包');
@@ -933,6 +987,7 @@ const AdminApp = {
         document.getElementById('mintTokenModal').classList.add('show');
     },
 
+    // 铸造代币
     async mintToken() {
         const tokenAddress = document.getElementById('mintTokenAddress').value.trim();
         const toAddress = document.getElementById('mintToAddress').value.trim();
@@ -977,6 +1032,7 @@ const AdminApp = {
     _chainGameCount: 0,
     _contractList: [],
 
+    // 使用当前激活的合约
     useActiveContract() {
         const addr = CONFIG.getContractAddress ? CONFIG.getContractAddress() : '';
         if (addr) {
@@ -987,6 +1043,7 @@ const AdminApp = {
         }
     },
 
+    // 显示合约下拉菜单
     async showContractDropdown() {
         const dropdown = document.getElementById('contractDropdown');
         const itemsContainer = document.getElementById('contractDropdownItems');
@@ -1038,12 +1095,14 @@ const AdminApp = {
         dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
     },
 
+    // 选择合约
     selectContract(address, name) {
         document.getElementById('explorerContractAddress').value = address;
         document.getElementById('contractDropdown').style.display = 'none';
         FWUI.Toast.info(`已选择合约: ${name}`);
     },
 
+    // 获取链浏览器合约实例
     async _getExplorerContract() {
         const addr = document.getElementById('explorerContractAddress').value.trim();
         if (!addr || !/^0x[a-fA-F0-9]{40}$/.test(addr)) {
@@ -1064,6 +1123,7 @@ const AdminApp = {
         }
     },
 
+    // 链上查询合约信息
     async queryContractOnChain() {
         const contract = await this._getExplorerContract();
         if (!contract) return;
@@ -1100,6 +1160,7 @@ const AdminApp = {
         }
     },
 
+    // 加载链上对局列表
     async loadChainGames() {
         let contract = this._chainExplorerContract;
         if (!contract) {
@@ -1167,6 +1228,7 @@ const AdminApp = {
         document.getElementById('nextChainGamesBtn').disabled = startId <= 1 || total <= page * perPage;
     },
 
+    // 上一页对局
     prevChainGamesPage() {
         if (this._chainGamesPage > 1) {
             this._chainGamesPage--;
@@ -1174,6 +1236,7 @@ const AdminApp = {
         }
     },
 
+    // 下一页对局
     nextChainGamesPage() {
         const maxPage = Math.ceil(this._chainGameCount / this._chainGamesPerPage);
         if (this._chainGamesPage < maxPage) {
@@ -1182,6 +1245,7 @@ const AdminApp = {
         }
     },
 
+    // 按ID查询对局
     queryGameById() {
         const id = document.getElementById('queryGameId').value.trim();
         if (!id || isNaN(id)) {
@@ -1191,6 +1255,7 @@ const AdminApp = {
         this.showGameDetail(parseInt(id));
     },
 
+    // 显示对局详情
     async showGameDetail(gameId) {
         const contract = this._chainExplorerContract;
         if (!contract) {
@@ -1260,6 +1325,7 @@ const AdminApp = {
 
     _NODE_CONFIG_KEY: 'rps_local_chain_config',
 
+    // 保存节点配置到本地存储
     _saveNodeConfig(config) {
         try {
             localStorage.setItem(this._NODE_CONFIG_KEY, JSON.stringify(config));
@@ -1268,6 +1334,7 @@ const AdminApp = {
         }
     },
 
+    // 从本地存储加载节点配置
     _loadNodeConfig() {
         try {
             const raw = localStorage.getItem(this._NODE_CONFIG_KEY);
@@ -1278,6 +1345,7 @@ const AdminApp = {
         return null;
     },
 
+    // 应用节点配置到表单
     _applyNodeConfigToForm() {
         const cfg = this._loadNodeConfig();
         if (!cfg) return;
@@ -1311,10 +1379,18 @@ const AdminApp = {
         }
     },
 
+    // 刷新本地节点状态
     async refreshNodeStatus() {
         try {
             const status = await this.apiRequest('/api/admin/local-chain/status');
             this._renderNodeStatus(status);
+            // 自动填充充值接收地址为当前连接钱包地址
+            if (this.adminAddress) {
+                const fundToAddr = document.getElementById('fundToAddress');
+                if (fundToAddr && (!fundToAddr.value || fundToAddr.value.startsWith('0x0000'))) {
+                    fundToAddr.value = this.adminAddress;
+                }
+            }
             if (status.running) {
                 this.refreshAccounts();
                 this.refreshTokenList();
@@ -1325,6 +1401,7 @@ const AdminApp = {
         }
     },
 
+    // 渲染节点状态
     _renderNodeStatus(status) {
         const statusEl = document.getElementById('nodeStatusText');
         if (status.running) {
@@ -1347,6 +1424,7 @@ const AdminApp = {
         if (stopBtn) stopBtn.disabled = !status.running;
     },
 
+    // 切换到本地网络
     async switchToLocalNetwork() {
         if (!window.ethereum) {
             FWUI.Toast.warning('未检测到 MetaMask，请先安装钱包插件');
@@ -1434,6 +1512,7 @@ const AdminApp = {
         }
     },
 
+    // 网络切换后处理
     _afterNetworkSwitch() {
         if (this.provider) {
             this.provider.getNetwork().then(network => {
@@ -1442,9 +1521,11 @@ const AdminApp = {
         }
     },
 
+    // 启动本地节点
     async startLocalNode() {
         try {
             // 读取启动配置（留空使用后端默认值）
+            // 获取表单输入值
             const getVal = (id) => {
                 const el = document.getElementById(id);
                 return el && el.value.trim() !== '' ? el.value.trim() : null;
@@ -1478,6 +1559,7 @@ const AdminApp = {
         }
     },
 
+    // 停止本地节点
     async stopLocalNode() {
         FWUI.Modal.confirm({
             title: '确认停止节点',
@@ -1494,6 +1576,7 @@ const AdminApp = {
         });
     },
 
+    // 刷新账户列表
     async refreshAccounts() {
         try {
             const data = await this.apiRequest('/api/admin/local-chain/accounts');
@@ -1528,12 +1611,14 @@ const AdminApp = {
         }
     },
 
+    // 复制地址到剪贴板
     copyAddress(addr) {
         navigator.clipboard.writeText(addr).then(() => {
             FWUI.Toast.success('地址已复制');
         });
     },
 
+    // 充值地址（转账ETH）
     async fundAddress() {
         const fromIndex = parseInt(document.getElementById('fundFromAccount').value);
         const toAddress = document.getElementById('fundToAddress').value.trim();
@@ -1569,6 +1654,7 @@ const AdminApp = {
         }
     },
 
+    // 刷新代币列表
     async refreshTokenList() {
         try {
             const data = await this.apiRequest('/api/admin/local-chain/tokens');
@@ -1580,6 +1666,7 @@ const AdminApp = {
         }
     },
 
+    // 渲染代币列表
     _renderTokenList() {
         const tbody = document.getElementById('nodeTokensBody');
         const tokens = this._localTokens;
@@ -1601,6 +1688,7 @@ const AdminApp = {
         `).join('');
     },
 
+    // 渲染代币下拉选择
     _renderTokenSelect() {
         const select = document.getElementById('mintTokenSelect');
         const tokens = this._localTokens;
@@ -1615,14 +1703,17 @@ const AdminApp = {
         ).join('');
     },
 
+    // 设置待铸造代币
     setMintToken(symbol) {
         document.getElementById('mintTokenSelect').value = symbol;
     },
 
+    // 显示部署本地代币弹窗
     showDeployLocalTokenModal() {
         document.getElementById('deployLocalTokenModal').classList.add('show');
     },
 
+    // 部署本地代币
     async deployLocalToken() {
         const name = document.getElementById('deployLocalTokenName').value.trim();
         const symbol = document.getElementById('deployLocalTokenSymbol').value.trim();
@@ -1658,6 +1749,7 @@ const AdminApp = {
         }
     },
 
+    // 铸造本地代币
     async mintLocalToken() {
         const symbol = document.getElementById('mintTokenSelect').value;
         const toAddress = document.getElementById('mintLocalToAddress').value.trim();
@@ -1692,6 +1784,7 @@ const AdminApp = {
 
     // ==================== Redis 管理 ====================
 
+    // 刷新 Redis 状态
     async refreshRedisStatus() {
         try {
             const status = await this.apiRequest('/api/admin/redis/status');
@@ -1705,6 +1798,7 @@ const AdminApp = {
         }
     },
 
+    // 渲染 Redis 状态
     _renderRedisStatus(status) {
         const statusEl = document.getElementById('redisStatusText');
         if (status.running) {
@@ -1733,6 +1827,7 @@ const AdminApp = {
         if (stopBtn) stopBtn.disabled = !status.running;
     },
 
+    // 启动 Redis
     async startRedis() {
         try {
             FWUI.Toast.info('正在启动 Redis...');
@@ -1744,6 +1839,7 @@ const AdminApp = {
         }
     },
 
+    // 停止 Redis
     async stopRedis() {
         FWUI.Modal.confirm({
             title: '确认停止 Redis',
@@ -1760,6 +1856,7 @@ const AdminApp = {
         });
     },
 
+    // 加载 Redis 配置
     async loadRedisConfig() {
         try {
             const data = await this.apiRequest('/api/admin/redis/config');
@@ -1791,6 +1888,7 @@ const AdminApp = {
         }
     },
 
+    // 加载 Redis 键列表
     async loadRedisKeys() {
         const pattern = document.getElementById('redisKeyPattern').value.trim() || '*';
         try {
@@ -1822,6 +1920,7 @@ const AdminApp = {
         }
     },
 
+    // 删除 Redis 键
     async deleteRedisKey(key) {
         FWUI.Modal.confirm({
             title: '确认删除',
@@ -1839,6 +1938,7 @@ const AdminApp = {
         });
     },
 
+    // 清空 Redis 数据库
     async flushRedisDb() {
         FWUI.Modal.confirm({
             title: '⚠️ 危险操作',
@@ -1863,6 +1963,7 @@ const AdminApp = {
         });
     },
 
+    // 加载配置列表
     async loadConfig() {
         try {
             const category = document.getElementById('configCategory').value;
@@ -1892,6 +1993,7 @@ const AdminApp = {
         }
     },
 
+    // 更新单项配置
     async updateConfig(key) {
         const input = document.getElementById('config-' + key);
         const value = input.value;
@@ -1904,6 +2006,100 @@ const AdminApp = {
         }
     },
 
+    // 加载主链配置
+    async loadMainChainConfig() {
+        try {
+            const data = await this.apiRequest('/api/ext/chain-config');
+            if (data && data.success) {
+                const chainIdEl = document.getElementById('mainChainId');
+                const networkNameEl = document.getElementById('mainNetworkName');
+                const rpcUrlEl = document.getElementById('mainRpcUrl');
+                const blockExplorerEl = document.getElementById('mainBlockExplorer');
+                const contractAddrEl = document.getElementById('mainContractAddress');
+                const nativeSymbolEl = document.getElementById('mainNativeSymbol');
+
+                if (chainIdEl) chainIdEl.value = data.chain_id || '';
+                if (networkNameEl) networkNameEl.value = data.network_name || '';
+                if (rpcUrlEl) rpcUrlEl.value = data.rpc_url || '';
+                if (blockExplorerEl) blockExplorerEl.value = data.block_explorer || '';
+                if (contractAddrEl) contractAddrEl.value = data.contract_address || '';
+                if (nativeSymbolEl && data.native_currency) {
+                    nativeSymbolEl.value = data.native_currency.symbol || '';
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load main chain config:', e);
+            FWUI.Toast.error('加载主链配置失败: ' + e.message);
+        }
+    },
+
+    // 保存主链配置
+    async saveMainChainConfig() {
+        try {
+            const chainId = document.getElementById('mainChainId').value.trim();
+            const networkName = document.getElementById('mainNetworkName').value.trim();
+            const rpcUrl = document.getElementById('mainRpcUrl').value.trim();
+            const blockExplorer = document.getElementById('mainBlockExplorer').value.trim();
+            const contractAddress = document.getElementById('mainContractAddress').value.trim();
+            const nativeSymbol = document.getElementById('mainNativeSymbol').value.trim();
+
+            if (!chainId) {
+                FWUI.Toast.error('请输入 Chain ID');
+                return;
+            }
+            if (!rpcUrl) {
+                FWUI.Toast.error('请输入 RPC URL');
+                return;
+            }
+
+            const items = {
+                'chain_id': chainId,
+                'network_name': networkName,
+                'rpc_url': rpcUrl,
+                'block_explorer': blockExplorer,
+                'contract_address': contractAddress,
+                'native_symbol': nativeSymbol,
+            };
+
+            await this.apiRequest('/api/admin/config/batch', 'POST', {
+                items,
+                admin_address: this.adminAddress
+            });
+
+            FWUI.Toast.success('ChainRPS 主链配置保存成功');
+            this.loadAuditLogs();
+
+            // 刷新配置列表
+            if (document.getElementById('configCategory')) {
+                this.loadConfig();
+            }
+        } catch (e) {
+            console.error('Failed to save main chain config:', e);
+            FWUI.Toast.error('保存主链配置失败: ' + e.message);
+        }
+    },
+
+    // 使用当前链作为主链
+    async useCurrentChainAsMain() {
+        try {
+            if (!window.ethereum) {
+                FWUI.Toast.error('未检测到钱包，请先连接钱包');
+                return;
+            }
+
+            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            const chainId = parseInt(chainIdHex, 16);
+
+            document.getElementById('mainChainId').value = chainId;
+
+            FWUI.Toast.info(`已填入当前网络 Chain ID: ${chainId}，请补充其他信息后保存`);
+        } catch (e) {
+            console.error('Failed to get current chain:', e);
+            FWUI.Toast.error('获取当前网络失败: ' + e.message);
+        }
+    },
+
+    // 显示批量更新配置弹窗
     showBatchUpdateModal() {
         const inputModal = FWUI.Modal.create({
             title: '批量更新配置',
@@ -1953,6 +2149,7 @@ const AdminApp = {
         });
     },
 
+    // 执行批量更新配置
     async doBatchUpdate() {
         const json = document.getElementById('batchConfigInput').value;
         if (!json) {
@@ -1971,6 +2168,7 @@ const AdminApp = {
         }
     },
 
+    // 加载审计日志
     async loadAuditLogs() {
         try {
             const action = document.getElementById('auditAction').value;
@@ -1999,6 +2197,7 @@ const AdminApp = {
         }
     },
 
+    // 加载链配置
     loadChainConfig() {
         const addr = CONFIG.getContractAddress ? CONFIG.getContractAddress() : '';
         if (addr && this.isValidAddress(addr)) {
@@ -2006,10 +2205,12 @@ const AdminApp = {
         }
     },
 
+    // 校验地址格式
     isValidAddress(addr) {
         return typeof addr === 'string' && /^0x[a-fA-F0-9]{40}$/.test(addr);
     },
 
+    // 加载合约信息
     async loadContractInfo() {
         if (!this.provider) return;
         const contractAddress = CONFIG.getContractAddress ? CONFIG.getContractAddress() : '';
@@ -2021,6 +2222,7 @@ const AdminApp = {
             const contract = new ethers.Contract(contractAddress, abi, this.provider);
 
             // 安全调用合约方法：ABI 中不存在该方法时会同步抛出 TypeError，.catch 无法捕获
+            // 安全调用合约方法
             const safeCall = async (fn, defaultVal) => {
                 try {
                     if (typeof fn !== 'function') return defaultVal;
@@ -2054,6 +2256,7 @@ const AdminApp = {
         }
     },
 
+    // 加载合约 ABI
     async loadAbi() {
         const contracts = await this.apiRequest('/api/admin/contracts');
         if (contracts.length > 0 && contracts[0].abi) {
@@ -2062,6 +2265,7 @@ const AdminApp = {
         return [];
     },
 
+    // 连接管理员钱包
     async connectAdminWallet() {
         if (!window.ethereum) {
             FWUI.Toast.warning('请安装 MetaMask 钱包');
@@ -2080,6 +2284,7 @@ const AdminApp = {
             `;
             document.getElementById('adminConnectInfo').style.display = 'flex';
             document.getElementById('adminAddress').textContent = this.adminAddress;
+            document.getElementById('fundToAddress').textContent = this.adminAddress;
 
             FWUI.Toast.success('钱包连接成功');
             this.loadContractInfo();
@@ -2088,6 +2293,7 @@ const AdminApp = {
         }
     },
 
+    // 断开管理员钱包
     async disconnectAdminWallet() {
         // 真正与钱包断开：撤销 EIP-1193 权限
         if (window.ethereum && window.ethereum.request) {
@@ -2110,6 +2316,7 @@ const AdminApp = {
         document.getElementById('adminConnectInfo').style.display = 'none';
     },
 
+    // 获取带签名器的合约实例
     async getContractWithSigner() {
         if (!this.signer) {
             FWUI.Toast.warning('请先连接钱包');
@@ -2124,6 +2331,7 @@ const AdminApp = {
         return new ethers.Contract(contractAddress, abi, this.signer);
     },
 
+    // 设置手续费率
     async setFeeRate() {
         const rate = document.getElementById('newFeeRate').value;
         if (!rate) { FWUI.Toast.warning('请输入新费率'); return; }
@@ -2140,6 +2348,7 @@ const AdminApp = {
         }
     },
 
+    // 设置超时时间
     async setTimeouts() {
         const commit = document.getElementById('newCommitTimeout').value;
         const reveal = document.getElementById('newRevealTimeout').value;
@@ -2155,6 +2364,7 @@ const AdminApp = {
         }
     },
 
+    // 更新官方信息
     async updateOfficialInfo() {
         const website = document.getElementById('officialWebsite').value;
         const twitter = document.getElementById('officialTwitter').value;
@@ -2170,6 +2380,7 @@ const AdminApp = {
         }
     },
 
+    // 设置开发者地址
     async setDeveloperAddress() {
         const addr = document.getElementById('newDeveloperAddress').value;
         if (!addr) { FWUI.Toast.warning('请输入新地址'); return; }
@@ -2184,6 +2395,7 @@ const AdminApp = {
         }
     },
 
+    // 设置代币支持
     async setTokenSupport() {
         const tokenAddr = document.getElementById('tokenAddress').value;
         const supported = document.getElementById('tokenSupported').value === 'true';
@@ -2199,6 +2411,7 @@ const AdminApp = {
         }
     },
 
+    // 暂停合约
     async pauseContract() {
         FWUI.Modal.confirm({
             title: '确认暂停合约',
@@ -2219,6 +2432,7 @@ const AdminApp = {
         });
     },
 
+    // 恢复合约
     async unpauseContract() {
         try {
             const contract = await this.getContractWithSigner();
@@ -2231,6 +2445,7 @@ const AdminApp = {
         }
     },
 
+    // 取消对局
     async cancelMatch() {
         const gameId = document.getElementById('cancelGameId').value;
         if (!gameId) { FWUI.Toast.warning('请输入对局 ID'); return; }
@@ -2254,6 +2469,7 @@ const AdminApp = {
     },
 };
 
+// DOM 加载完成后初始化管理后台
 document.addEventListener('DOMContentLoaded', () => {
     AdminApp.init();
 });

@@ -4,7 +4,7 @@ const Contract = (function() {
     let provider = null;
     let signer = null;
 
-    const RPS_GAME_ABI = [
+    const CHAinRPS_ABI = [
         'function createMatch(uint256 amount, address token) external returns (uint256)',
         'function joinMatch(uint256 gameId) external',
         'function submitCommit(uint256 gameId, bytes32 commit) external',
@@ -72,10 +72,12 @@ const Contract = (function() {
 
     let eventFilter = null;
 
+    // 验证合约地址格式
     function isValidAddress(address) {
         return typeof address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(address);
     }
 
+    // 初始化合约
     function init(address, providerInstance, signerInstance = null) {
         if (typeof ethers === 'undefined') {
             throw new Error('ethers.js 未加载');
@@ -95,9 +97,9 @@ const Contract = (function() {
 
         try {
             if (signer) {
-                contract = new ethers.Contract(address, RPS_GAME_ABI, signer);
+                contract = new ethers.Contract(address, CHAinRPS_ABI, signer);
             } else {
-                contract = new ethers.Contract(address, RPS_GAME_ABI, provider);
+                contract = new ethers.Contract(address, CHAinRPS_ABI, provider);
             }
         } catch (e) {
             console.error('合约初始化失败:', e.message);
@@ -107,6 +109,7 @@ const Contract = (function() {
         return contract;
     }
 
+    // 设置签名者
     function setSigner(signerInstance) {
         signer = signerInstance;
         if (contract && signer) {
@@ -114,10 +117,12 @@ const Contract = (function() {
         }
     }
 
+    // 获取合约实例
     function getContract() {
         return contract;
     }
 
+    // 获取代币合约实例
     function getTokenContract(tokenAddress) {
         if (!provider) {
             throw new Error('Provider 未初始化');
@@ -132,6 +137,7 @@ const Contract = (function() {
         return tokenContract;
     }
 
+    // 查询代币余额
     async function getBalance(tokenAddress, account) {
         if (!isValidAddress(tokenAddress)) {
             return '0';
@@ -142,6 +148,7 @@ const Contract = (function() {
         return ethers.formatUnits(balance, decimals);
     }
 
+    // 查询代币授权额度
     async function getAllowance(tokenAddress, owner, spender) {
         const tokenContract = getTokenContract(tokenAddress);
         const allowance = await tokenContract.allowance(owner, spender);
@@ -149,6 +156,7 @@ const Contract = (function() {
         return ethers.formatUnits(allowance, decimals);
     }
 
+    // 授权代币
     async function approveToken(tokenAddress, amount) {
         if (!signer) {
             throw new Error('钱包未连接');
@@ -161,6 +169,7 @@ const Contract = (function() {
         return tx;
     }
 
+    // 确保代币授权额度充足（不足则发起授权）
     async function ensureAllowance(tokenAddress, amount, account) {
         if (!isValidAddress(contractAddress)) {
             throw new Error('合约未部署，请先在管理面板部署合约');
@@ -175,6 +184,7 @@ const Contract = (function() {
         return null;
     }
 
+    // 创建对局
     async function createMatch(amount, tokenAddress) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
@@ -209,6 +219,7 @@ const Contract = (function() {
         return { tx, gameId };
     }
 
+    // 加入对局
     async function joinMatch(gameId) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
@@ -228,6 +239,7 @@ const Contract = (function() {
         return tx;
     }
 
+    // 提交对局哈希值
     async function submitCommit(gameId, commitHash) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
@@ -237,6 +249,7 @@ const Contract = (function() {
         return tx;
     }
 
+    // 揭露选择
     async function revealChoice(gameId, choice, salt) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
@@ -246,6 +259,7 @@ const Contract = (function() {
         return tx;
     }
 
+    // 申领超时胜利
     async function claimTimeout(gameId) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
@@ -255,6 +269,7 @@ const Contract = (function() {
         return tx;
     }
 
+    // 处理平局
     async function handleDraw(gameId) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
@@ -264,6 +279,7 @@ const Contract = (function() {
         return tx;
     }
 
+    // 获取对局详情
     async function getGame(gameId) {
         if (!contract) {
             throw new Error('合约未初始化');
@@ -288,6 +304,7 @@ const Contract = (function() {
         };
     }
 
+    // 获取玩家提交的对局哈希值
     async function getCommit(gameId, player) {
         if (!contract) {
             throw new Error('合约未初始化');
@@ -295,6 +312,7 @@ const Contract = (function() {
         return await contract.getCommit(gameId, player);
     }
 
+    // 获取玩家参与的对局ID列表
     async function getPlayerGames(player) {
         if (!contract) {
             throw new Error('合约未初始化');
@@ -303,6 +321,7 @@ const Contract = (function() {
         return gameIds.map(id => Number(id));
     }
 
+    // 获取防伪信息（开发者、部署时间、版本、官方渠道）
     async function getAntiFakeInfo() {
         if (!contract) {
             throw new Error('合约未初始化');
@@ -318,6 +337,7 @@ const Contract = (function() {
         };
     }
 
+    // 获取对局总数
     async function getGameCount() {
         if (!contract) {
             throw new Error('合约未初始化');
@@ -325,6 +345,7 @@ const Contract = (function() {
         return Number(await contract.gameCount());
     }
 
+    // 获取手续费率（以百分比表示）
     async function getFeeRate() {
         if (!contract) {
             throw new Error('合约未初始化');
@@ -332,6 +353,7 @@ const Contract = (function() {
         return Number(await contract.feeRate());
     }
 
+    // 注册事件监听器
     function on(event, callback) {
         if (listeners[event]) {
             listeners[event].push(callback);
@@ -344,6 +366,7 @@ const Contract = (function() {
         }
     }
 
+    // 设置合约事件监听器
     function setupEventListener() {
         if (!contract || !provider) return;
 
@@ -368,6 +391,7 @@ const Contract = (function() {
         });
     }
 
+    // 移除所有合约事件监听器
     function removeEventListeners() {
         if (!contract) return;
         
@@ -389,6 +413,7 @@ const Contract = (function() {
         });
     }
 
+    // 获取对局状态的中文描述
     function getStatusText(status) {
         const statusMap = {
             0: '等待加入',
@@ -400,6 +425,7 @@ const Contract = (function() {
         return statusMap[status] || '未知';
     }
 
+    // 返回合约实例和相关函数
     return {
         init,
         setSigner,
@@ -426,7 +452,7 @@ const Contract = (function() {
         setupEventListener,
         removeEventListeners,
         getStatusText,
-        ABI: RPS_GAME_ABI,
+        ABI: CHAinRPS_ABI,
         ERC20_ABI
     };
 })();

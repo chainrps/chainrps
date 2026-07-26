@@ -140,6 +140,16 @@ async def health_check():
     }
 
 
+# favicon.ico
+@app.get("/favicon.ico")
+async def favicon():
+    """返回网站图标"""
+    favicon_path = os.path.join(STATIC_DIR, "favicon.ico")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    return RedirectResponse(url="/")
+
+
 # 根路径
 @app.get("/")
 async def root():

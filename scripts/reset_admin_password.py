@@ -25,7 +25,7 @@ from rps_backend.repository.database import get_connection
 from rps_backend.service.auth_service import hash_password
 from rps_backend.config import DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD
 
-
+# 重置管理员密码
 def reset_password(username: str, new_password: str):
     conn = get_connection()
     try:
@@ -54,7 +54,7 @@ def reset_password(username: str, new_password: str):
     finally:
         conn.close()
 
-
+# 主函数
 def main():
     # 解析命令行参数
     args = sys.argv[1:]
@@ -77,6 +77,6 @@ def main():
 
     reset_password(username, new_password)
 
-
+# 主函数入口
 if __name__ == "__main__":
     main()

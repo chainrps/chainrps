@@ -1,4 +1,5 @@
 (function() {
+    // 创建输入框
     function createInput(options = {}) {
         const {
             type = 'text',
@@ -88,12 +89,14 @@
             wrapper.appendChild(suffixEl);
         }
 
+        // 输入框聚焦事件处理
         input.addEventListener('focus', () => {
             wrapper.style.borderColor = '#6366f1';
             wrapper.style.boxShadow = '0 0 0 3px #e0e7ff';
             if (onFocus) onFocus();
         });
 
+        // 输入框失焦事件处理
         input.addEventListener('blur', () => {
             wrapper.style.borderColor = '#e2e8f0';
             wrapper.style.boxShadow = 'none';
@@ -108,24 +111,29 @@
             input.addEventListener('input', (e) => onInput(e.target.value, e));
         }
 
+        // 获取输入框的值
         function getValue() {
             return input.value;
         }
 
+        // 设置输入框的值
         function setValue(val) {
             input.value = val;
         }
 
+        // 设置禁用状态
         function setDisabled(isDisabled) {
             input.disabled = isDisabled;
             wrapper.style.opacity = isDisabled ? '0.5' : '1';
             wrapper.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
         }
 
+        // 聚焦输入框
         function focus() {
             input.focus();
         }
 
+        // 失焦输入框
         function blur() {
             input.blur();
         }

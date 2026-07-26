@@ -1,3 +1,4 @@
+// 全局配置模块
 const CONFIG = {
     // 后端服务器地址（动态，可由用户在设置中配置；默认 127.0.0.1）
     _serverIp: null,
@@ -11,9 +12,9 @@ const CONFIG = {
             name: 'Localhost 8545',
             rpcUrl: 'http://127.0.0.1:8545',
             chainId: 1337,
-            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+            nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
             supportedTokens: [
-                { symbol: 'ETH', name: 'Ether', decimals: 18, address: '0x0000000000000000000000000000000000000000' }
+                {symbol: 'ETH', name: 'Ether', decimals: 18, address: '0x0000000000000000000000000000000000000000'}
             ],
             tokenAddresses: {
                 'ETH': '0x0000000000000000000000000000000000000000'
@@ -23,10 +24,10 @@ const CONFIG = {
             name: 'Polygon Amoy',
             rpcUrl: 'https://rpc-amoy.polygon.technology/',
             chainId: 80002,
-            nativeCurrency: { name: 'Polygon', symbol: 'POL', decimals: 18 },
+            nativeCurrency: {name: 'Polygon', symbol: 'POL', decimals: 18},
             supportedTokens: [
-                { symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x0fa8781a83e46826621b3bc094ea2a0212e71b23' },
-                { symbol: 'USDT', name: 'Tether', decimals: 6, address: '0x0000000000000000000000000000000000000000' }
+                {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'},
+                {symbol: 'USDT', name: 'Tether', decimals: 6, address: '0x0000000000000000000000000000000000000000'}
             ],
             tokenAddresses: {
                 'USDC': '0x0fa8781a83e46826621b3bc094ea2a0212e71b23',
@@ -37,10 +38,10 @@ const CONFIG = {
             name: 'Polygon Mainnet',
             rpcUrl: 'https://polygon-rpc.com/',
             chainId: 137,
-            nativeCurrency: { name: 'Polygon', symbol: 'POL', decimals: 18 },
+            nativeCurrency: {name: 'Polygon', symbol: 'POL', decimals: 18},
             supportedTokens: [
-                { symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' },
-                { symbol: 'USDT', name: 'Tether', decimals: 6, address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F' }
+                {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'},
+                {symbol: 'USDT', name: 'Tether', decimals: 6, address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'}
             ],
             tokenAddresses: {
                 'USDC': '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
@@ -48,7 +49,7 @@ const CONFIG = {
             }
         }
     },
-    
+
     defaultNetwork: 'localhost',
 
     enableModeB: true,
@@ -64,6 +65,7 @@ const CONFIG = {
     debugWalletAddress: '0x1234567890abcdef1234567890abcdef12345678',
     debugBalance: 1000,
 
+    // 根据链ID获取网络配置
     getNetwork(chainId) {
         for (const [key, network] of Object.entries(this.networks)) {
             if (network.chainId === chainId) {
@@ -73,6 +75,7 @@ const CONFIG = {
         return this.networks[this.defaultNetwork];
     },
 
+    // 获取当前网络配置
     getCurrentNetwork() {
         if (window.ethereum) {
             const chainId = parseInt(window.ethereum.chainId);
@@ -81,6 +84,7 @@ const CONFIG = {
         return this.networks[this.defaultNetwork];
     },
 
+    // 获取当前网络的键值（用于本地存储）
     getNetworkKey() {
         const chainId = this.getChainId();
         for (const [key, network] of Object.entries(this.networks)) {
@@ -91,6 +95,7 @@ const CONFIG = {
         return this.defaultNetwork;
     },
 
+    // 获取当前网络的 RPC 地址
     getRpcUrl() {
         return this.getCurrentNetwork().rpcUrl;
     },
@@ -99,12 +104,14 @@ const CONFIG = {
         return this.getCurrentNetwork().chainId;
     },
 
+    // 获取已保存的合约地址
     getContractAddress() {
         const networkKey = this.getNetworkKey();
         const stored = localStorage.getItem('rps_contract_' + networkKey);
         return stored || '';
     },
 
+    // 设置合约地址
     setContractAddress(address) {
         const networkKey = this.getNetworkKey();
         if (address) {
@@ -114,21 +121,24 @@ const CONFIG = {
         }
     },
 
+    // 获取当前网络支持的代币地址映射
     getTokenAddresses() {
         return this.getCurrentNetwork().tokenAddresses;
     },
 
+    // 获取当前网络支持的代币列表
     getSupportedTokens() {
         return this.getCurrentNetwork().supportedTokens;
     },
 
+    // 获取默认代币符号
     getDefaultToken() {
         const tokens = this.getSupportedTokens();
         return tokens.length > 0 ? tokens[0].symbol : 'ETH';
     },
 
     // ==================== 后端服务器地址配置 ====================
-
+    // 获取后端服务器 IP 地址
     getServerIp() {
         if (this._serverIp) return this._serverIp;
         const stored = localStorage.getItem('rps_server_ip');
@@ -136,6 +146,7 @@ const CONFIG = {
         return this._serverIp;
     },
 
+    // 获取后端服务器端口
     getServerPort() {
         if (this._serverPort) return this._serverPort;
         const stored = localStorage.getItem('rps_server_port');
@@ -143,6 +154,7 @@ const CONFIG = {
         return this._serverPort;
     },
 
+    // 设置后端服务器地址
     setServerAddress(ip, port) {
         this._serverIp = ip || '127.0.0.1';
         this._serverPort = port || '8000';
@@ -150,10 +162,12 @@ const CONFIG = {
         localStorage.setItem('rps_server_port', this._serverPort);
     },
 
+    // 后端服务 HTTP 基础 URL
     get backendUrl() {
         return `http://${this.getServerIp()}:${this.getServerPort()}`;
     },
 
+    // 后端服务 WebSocket 基础 URL
     get wsUrl() {
         return `ws://${this.getServerIp()}:${this.getServerPort()}`;
     }

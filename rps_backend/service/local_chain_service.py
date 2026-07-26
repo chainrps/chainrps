@@ -14,8 +14,43 @@ import time
 from typing import Optional, List, Dict, Any
 
 from web3 import Web3
+from web3.exceptions import TimeExhausted
 
 from rps_backend.config import CHAIN_ID
+
+# RPC 连接配置
+RPC_TIMEOUT = 15  # 连接超时时间（秒）
+RPC_READ_TIMEOUT = 30  # 读取超时时间（秒）
+MAX_RETRY_ATTEMPTS = 3  # 最大重试次数
+RETRY_DELAY = 2  # 重试间隔（秒）
+
+
+# 重试装饰器
+def retry_on_failure(max_attempts: int = MAX_RETRY_ATTEMPTS, delay: float = RETRY_DELAY):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        time.sleep(delay)
+            raise last_exception if last_exception else Exception("重试次数耗尽")
+        return wrapper
+    return decorator
+
+
+# 创建带超时的 HTTPProvider
+def _create_http_provider(rpc_url: str) -> Web3.HTTPProvider:
+    """创建带有超时配置的 HTTPProvider"""
+    return Web3.HTTPProvider(
+        rpc_url,
+        request_kwargs={
+            "timeout": (RPC_TIMEOUT, RPC_READ_TIMEOUT)  # (连接超时, 读取超时)
+        }
+    )
 
 
 # 查找 ganache 可执行文件
@@ -63,17 +98,29 @@ class LocalChainService:
     # 初始化 Web3 连接
     def _init_web3(self):
         try:
-            self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+            self._w3 = Web3(_create_http_provider(self._rpc_url))
             if self._w3.is_connected():
-                # 动态读取节点真实的 chain_id，避免与配置默认值不一致
                 try:
                     self._chain_id = self._w3.eth.chain_id
                 except Exception:
-                    pass #别删除，用于人工代码审核 便利
+                    pass
                 self._load_accounts()
                 self._load_tokens_from_db()
         except Exception:
             self._w3 = None
+    
+    # 测试 RPC 连接是否稳定
+    def _test_rpc_connection(self) -> bool:
+        """测试 RPC 连接是否稳定，执行多个基础调用"""
+        if not self._w3:
+            return False
+        try:
+            # 执行多个基础调用验证连接稳定性
+            self._w3.eth.chain_id
+            self._w3.eth.block_number
+            return True
+        except Exception:
+            return False
 
     # 加载账户列表
     def _load_accounts(self):
@@ -105,9 +152,11 @@ class LocalChainService:
         if self._process and self._process.poll() is None:
             return True
         try:
-            if not self._w3:
+            if not self._w3 or not self._w3.is_connected():
                 self._init_web3()
-            return self._w3 is not None and self._w3.is_connected()
+            if self._w3 and self._w3.is_connected():
+                return self._test_rpc_connection()
+            return False
         except Exception:
             return False
 
@@ -154,26 +203,39 @@ class LocalChainService:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                # Windows 上需要 CREATE_NO_WINDOW 避免弹出控制台窗口
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
             )
-
-            # 等待节点启动（最多 5 秒）
-            time.sleep(5)
-
-            if self._process.poll() is not None:
-                stderr = self._process.stderr.read() if self._process.stderr else ""
-                stdout = self._process.stdout.read() if self._process.stdout else ""
-                error_detail = stderr or stdout or "未知错误"
-                # 截断过长的错误信息
-                if len(error_detail) > 500:
-                    error_detail = error_detail[:500] + "...[截断]"
-                return {"success": False, "message": f"ganache 进程已退出: {error_detail}"}
 
             # 更新实例配置（覆盖类属性默认值）
             self._rpc_url = f"http://{host}:{port}"
             self._chain_id = chain_id
-            self._init_web3()
+
+            # 智能等待节点启动（最多 15 秒，循环检测）
+            max_wait_time = 15
+            wait_interval = 1
+            elapsed_time = 0
+            
+            while elapsed_time < max_wait_time:
+                if self._process.poll() is not None:
+                    stderr = self._process.stderr.read() if self._process.stderr else ""
+                    stdout = self._process.stdout.read() if self._process.stdout else ""
+                    error_detail = stderr or stdout or "未知错误"
+                    if len(error_detail) > 500:
+                        error_detail = error_detail[:500] + "...[截断]"
+                    return {"success": False, "message": f"ganache 进程已退出: {error_detail}"}
+                
+                try:
+                    self._init_web3()
+                    if self._w3 and self._w3.is_connected() and self._test_rpc_connection():
+                        break
+                except Exception:
+                    pass
+                
+                time.sleep(wait_interval)
+                elapsed_time += wait_interval
+            
+            if elapsed_time >= max_wait_time:
+                return {"success": False, "message": f"等待节点启动超时（{max_wait_time}秒），RPC 连接失败"}
 
             if self._w3 and self._w3.is_connected():
                 # 读取节点实际的 chain_id（可能与传入参数不同）
@@ -351,38 +413,50 @@ class LocalChainService:
 
         return accounts_info
 
-    # 发送 ETH
+    # 发送 ETH（带重试机制）
     def send_eth(self, from_index: int, to_address: str, amount_eth: float) -> Dict[str, Any]:
         if not self.is_running() or not self._w3:
             return {"success": False, "message": "本地链未运行"}
 
-        try:
-            from_address = self._accounts[from_index]
-            to_address = self._w3.to_checksum_address(to_address)
-            value = self._w3.to_wei(amount_eth, 'ether')
+        last_error = None
+        for attempt in range(MAX_RETRY_ATTEMPTS):
+            try:
+                # 每次重试前检查并重新建立连接
+                if not self._w3 or not self._w3.is_connected():
+                    self._init_web3()
+                    if not self._w3 or not self._w3.is_connected():
+                        raise Exception("无法重新建立 RPC 连接")
 
-            tx_hash = self._w3.eth.send_transaction({
-                "from": from_address,
-                "to": to_address,
-                "value": value,
-            })
+                from_address = self._accounts[from_index]
+                to_address = self._w3.to_checksum_address(to_address)
+                value = self._w3.to_wei(amount_eth, 'ether')
 
-            receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash)
-            new_balance = self._w3.eth.get_balance(to_address)
-            new_balance_eth = float(self._w3.from_wei(new_balance, 'ether'))
+                tx_hash = self._w3.eth.send_transaction({
+                    "from": from_address,
+                    "to": to_address,
+                    "value": value,
+                })
 
-            return {
-                "success": True,
-                "message": "转账成功",
-                "tx_hash": tx_hash.hex(),
-                "from": from_address,
-                "to": to_address,
-                "amount_eth": amount_eth,
-                "new_balance_eth": new_balance_eth,
-                "block_number": receipt.blockNumber,
-            }
-        except Exception as e:
-            return {"success": False, "message": f"转账失败: {str(e)}"}
+                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                new_balance = self._w3.eth.get_balance(to_address)
+                new_balance_eth = float(self._w3.from_wei(new_balance, 'ether'))
+
+                return {
+                    "success": True,
+                    "message": "转账成功",
+                    "tx_hash": tx_hash.hex(),
+                    "from": from_address,
+                    "to": to_address,
+                    "amount_eth": amount_eth,
+                    "new_balance_eth": new_balance_eth,
+                    "block_number": receipt.blockNumber,
+                }
+            except Exception as e:
+                last_error = str(e)
+                if attempt < MAX_RETRY_ATTEMPTS - 1:
+                    time.sleep(RETRY_DELAY)
+        
+        return {"success": False, "message": f"转账失败: {last_error}"}
 
     # 部署 Mock ERC20 代币
     def deploy_mock_erc20(
@@ -455,52 +529,63 @@ class LocalChainService:
         if not abi or not bytecode:
             return {"success": False, "message": "无法获取合约编译产物"}
 
-        try:
-            from_address = self._accounts[from_index]
-            contract = self._w3.eth.contract(abi=abi, bytecode=bytecode)
-            supply_wei = initial_supply * (10 ** decimals)
-
-            tx_hash = contract.constructor(name, symbol, decimals, supply_wei).transact({"from": from_address})
-            receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash)
-            contract_address = receipt.contractAddress
-
-            self._tokens[symbol] = {
-                "address": contract_address,
-                "name": name,
-                "symbol": symbol,
-                "decimals": decimals,
-            }
-
+        last_error = None
+        for attempt in range(MAX_RETRY_ATTEMPTS):
             try:
-                from rps_backend.repository import add_contract_record
-                add_contract_record({
-                    "name": name,
+                if not self._w3 or not self._w3.is_connected():
+                    self._init_web3()
+                    if not self._w3 or not self._w3.is_connected():
+                        raise Exception("无法重新建立 RPC 连接")
+
+                from_address = self._accounts[from_index]
+                contract = self._w3.eth.contract(abi=abi, bytecode=bytecode)
+                supply_wei = initial_supply * (10 ** decimals)
+
+                tx_hash = contract.constructor(name, symbol, decimals, supply_wei).transact({"from": from_address})
+                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                contract_address = receipt.contractAddress
+
+                self._tokens[symbol] = {
                     "address": contract_address,
-                    "version": "v1.0.0",
-                    "network": "localhost",
-                    "abi": json.dumps(abi),
-                    "description": f"Mock ERC20 代币 - {name}",
-                    "deployed_by": from_address,
-                    "status": "active",
-                })
-            except Exception:
-                pass #别删除，用于人工代码审核 便利
+                    "name": name,
+                    "symbol": symbol,
+                    "decimals": decimals,
+                }
 
-            return {
-                "success": True,
-                "message": f"{symbol} 部署成功",
-                "address": contract_address,
-                "name": name,
-                "symbol": symbol,
-                "decimals": decimals,
-                "initial_supply": initial_supply,
-                "tx_hash": tx_hash.hex(),
-            }
+                try:
+                    from rps_backend.repository import add_contract_record
+                    add_contract_record({
+                        "name": name,
+                        "address": contract_address,
+                        "version": "v1.0.0",
+                        "network": "localhost",
+                        "abi": json.dumps(abi),
+                        "description": f"Mock ERC20 代币 - {name}",
+                        "deployed_by": from_address,
+                        "status": "active",
+                    })
+                except Exception:
+                    pass
 
-        except Exception as e:
-            return {"success": False, "message": f"部署失败: {str(e)}"}
+                return {
+                    "success": True,
+                    "message": f"{symbol} 部署成功",
+                    "address": contract_address,
+                    "name": name,
+                    "symbol": symbol,
+                    "decimals": decimals,
+                    "initial_supply": initial_supply,
+                    "tx_hash": tx_hash.hex(),
+                }
 
-    # 铸造代币
+            except Exception as e:
+                last_error = str(e)
+                if attempt < MAX_RETRY_ATTEMPTS - 1:
+                    time.sleep(RETRY_DELAY)
+        
+        return {"success": False, "message": f"部署失败: {last_error}"}
+
+    # 铸造代币（带重试机制）
     def mint_tokens(
         self,
         token_symbol: str,
@@ -515,36 +600,47 @@ class LocalChainService:
         if not token:
             return {"success": False, "message": f"代币 {token_symbol} 不存在"}
 
-        try:
-            from_address = self._accounts[from_index]
-            to_address = self._w3.to_checksum_address(to_address)
-            abi_json = [
-                {"inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"name":"mint","outputs":[],"stateMutability":"nonpayable","type":"function"},
-                {"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-                {"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
-            ]
-            contract = self._w3.eth.contract(address=token["address"], abi=abi_json)
-            decimals = contract.functions.decimals().call()
-            amount_wei = int(amount * (10 ** decimals))
+        last_error = None
+        for attempt in range(MAX_RETRY_ATTEMPTS):
+            try:
+                if not self._w3 or not self._w3.is_connected():
+                    self._init_web3()
+                    if not self._w3 or not self._w3.is_connected():
+                        raise Exception("无法重新建立 RPC 连接")
 
-            tx_hash = contract.functions.mint(to_address, amount_wei).transact({"from": from_address})
-            receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash)
+                from_address = self._accounts[from_index]
+                to_address = self._w3.to_checksum_address(to_address)
+                abi_json = [
+                    {"inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"name":"mint","outputs":[],"stateMutability":"nonpayable","type":"function"},
+                    {"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+                    {"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+                ]
+                contract = self._w3.eth.contract(address=token["address"], abi=abi_json)
+                decimals = contract.functions.decimals().call()
+                amount_wei = int(amount * (10 ** decimals))
 
-            new_balance = contract.functions.balanceOf(to_address).call()
-            balance_display = new_balance / (10 ** decimals)
+                tx_hash = contract.functions.mint(to_address, amount_wei).transact({"from": from_address})
+                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
 
-            return {
-                "success": True,
-                "message": f"Mint 成功，当前余额: {balance_display} {token_symbol}",
-                "tx_hash": tx_hash.hex(),
-                "to": to_address,
-                "amount": amount,
-                "symbol": token_symbol,
-                "new_balance": balance_display,
-            }
+                new_balance = contract.functions.balanceOf(to_address).call()
+                balance_display = new_balance / (10 ** decimals)
 
-        except Exception as e:
-            return {"success": False, "message": f"Mint 失败: {str(e)}"}
+                return {
+                    "success": True,
+                    "message": f"Mint 成功，当前余额: {balance_display} {token_symbol}",
+                    "tx_hash": tx_hash.hex(),
+                    "to": to_address,
+                    "amount": amount,
+                    "symbol": token_symbol,
+                    "new_balance": balance_display,
+                }
+
+            except Exception as e:
+                last_error = str(e)
+                if attempt < MAX_RETRY_ATTEMPTS - 1:
+                    time.sleep(RETRY_DELAY)
+        
+        return {"success": False, "message": f"Mint 失败: {last_error}"}
 
     # 获取代币列表
     def get_tokens(self) -> List[Dict[str, Any]]:

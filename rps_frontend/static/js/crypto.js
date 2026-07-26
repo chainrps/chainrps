@@ -1,4 +1,7 @@
+
+// 加密工具模块
 const RPSCrypto = (function() {
+    // 出拳选项常量
     const CHOICES = {
         ROCK: 1,
         PAPER: 2,
@@ -17,6 +20,7 @@ const RPSCrypto = (function() {
         3: '✌️'
     };
 
+    // 生成随机盐值
     function generateSalt() {
         if (typeof window.crypto !== 'undefined' && window.crypto.getRandomValues) {
             const array = new Uint8Array(32);
@@ -34,6 +38,7 @@ const RPSCrypto = (function() {
         }
     }
 
+    // 计算出拳承诺哈希
     function computeCommit(choice, salt, address) {
         if (typeof ethers === 'undefined') {
             throw new Error('ethers.js 未加载');
@@ -61,11 +66,13 @@ const RPSCrypto = (function() {
         );
     }
 
+    // 验证承诺哈希
     function verifyCommit(commit, choice, salt, address) {
         const computed = computeCommit(choice, salt, address);
         return computed.toLowerCase() === commit.toLowerCase();
     }
 
+    // 确定获胜者
     function determineWinner(choice1, choice2) {
         if (choice1 === choice2) {
             return 0;
@@ -82,19 +89,23 @@ const RPSCrypto = (function() {
         return 2;
     }
 
+    // 获取出拳名称
     function getChoiceName(choice) {
         return CHOICE_NAMES[choice] || '未知';
     }
 
+    // 获取出拳表情符号
     function getChoiceEmoji(choice) {
         return CHOICE_EMOJIS[choice] || '❓';
     }
 
+    // 根据名称获取出拳值
     function getChoiceValue(name) {
         const upper = name.toUpperCase();
         return CHOICES[upper] || 0;
     }
 
+    // 存储盐值到本地存储
     function storeSalt(gameId, salt, choice) {
         try {
             const key = `rps_salt_${gameId}`;
@@ -110,6 +121,7 @@ const RPSCrypto = (function() {
         }
     }
 
+    // 从本地存储获取盐值
     function getSalt(gameId) {
         try {
             const key = `rps_salt_${gameId}`;
@@ -123,6 +135,7 @@ const RPSCrypto = (function() {
         }
     }
 
+    // 清除本地存储中的盐值
     function clearSalt(gameId) {
         try {
             const key = `rps_salt_${gameId}`;
@@ -133,6 +146,7 @@ const RPSCrypto = (function() {
         }
     }
 
+    // 返回加密工具函数
     return {
         CHOICES,
         CHOICE_NAMES,

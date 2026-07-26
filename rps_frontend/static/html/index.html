@@ -1,12 +1,19 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <!--    文件头-->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description"
           content="ChainRPS链上公平猜拳（石头剪刀布），基于Polygon区块链实现透明可验证的石头剪刀布博弈，无后台操控，对局结果链上可查。">
+    <!--    标题-->
     <title>ChainRPS - 链上公平猜拳</title>
 
+    <!--    图标-->
+    <link rel="icon" href="../favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+
+    <!--    样式-->
     <link rel="stylesheet" href="../css/theme.css?v=20260726d">
     <link rel="stylesheet" href="../css/style.css?v=20260726d">
 </head>
@@ -27,6 +34,12 @@
                 <span class="theme-icon">🌙</span>
             </button>
 
+            <!-- 主链状态指示器 -->
+            <div class="chain-status-indicator" id="chainStatusIndicator" title="点击检测主链状态">
+                <span class="chain-status-dot" id="chainStatusDot">⚪</span>
+                <span class="chain-status-text" id="chainStatusText">检测中</span>
+            </div>
+
             <div class="wallet-section" id="walletSection">
                 <button class="btn btn-primary btn-connect-wallet" id="connectWalletBtn">
                     <span>连接钱包</span>
@@ -36,12 +49,21 @@
                         <div class="wallet-avatar" id="walletAvatar">👤</div>
                     </div>
                     <div class="wallet-details">
+                        <div class="wallet-network" id="walletNetwork" title="点击切换网络">
+                            <span class="network-icon" id="networkIcon">🔗</span>
+                            <span class="network-name" id="networkName">未知网络</span>
+                        </div>
                         <div class="wallet-balance-large" id="walletBalance">-</div>
                         <div class="wallet-address" id="walletAddress">-</div>
                     </div>
                     <button class="btn btn-ghost btn-disconnect" id="disconnectBtn" title="断开连接">
                         ✕
                     </button>
+                </div>
+                <!-- 网络切换下拉菜单 -->
+                <div class="network-dropdown hidden" id="networkDropdown">
+                    <div class="dropdown-header">选择网络</div>
+                    <div id="networkDropdownItems"></div>
                 </div>
             </div>
         </div>
@@ -349,7 +371,7 @@
                 <div class="tab-content tab-stats hidden" id="tabStats">
                     <div class="stats-grid">
                         <div class="stat-card">
-                            <div class="stat-value" id="statTotal">0</div>
+                            <div class="stat-value" id="statTotalGames">0</div>
                             <div class="stat-label">总对局</div>
                         </div>
                         <div class="stat-card stat-win">
@@ -477,7 +499,7 @@
         <div class="footer-links">
             <a href="#" class="footer-link">合约验证</a>
             <a href="#" class="footer-link">使用文档</a>
-            <a href="http://127.0.0.1:8000/admin" class="footer-link">管理面板</a>
+            <a href="http://127.0.0.1:8000/admin" class="footer-link" target="_blank">管理面板</a>
             <a href="#" class="footer-link">Discord</a>
         </div>
         <div class="footer-copyright">
@@ -504,6 +526,60 @@
 <script src="../js/ui.js?v=20260726d"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20260726d"></script>
-<script src="../js/app.js?v=20260726d"></script>
+<script src="../js/app.js?v=20260726e"></script>
+
+<!-- 主链状态详情面板 -->
+<div class="chain-status-panel hidden" id="chainStatusPanel">
+    <div class="chain-status-panel-header">
+        <span class="chain-status-panel-title">🔗 主链状态检测</span>
+        <button class="chain-status-panel-close" id="chainStatusPanelClose" title="关闭">×</button>
+    </div>
+    <div id="chainStatusPanelBody">
+        <div class="chain-status-row">
+            <span class="label">检测状态</span>
+            <span class="value" id="csCheckStatus">未检测</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">RPC 地址</span>
+            <span class="value" id="csRpcUrl">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">RPC 连通性</span>
+            <span class="value" id="csRpcReachable">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">响应延迟</span>
+            <span class="value" id="csLatency">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">节点 Chain ID</span>
+            <span class="value" id="csChainId">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">最新区块</span>
+            <span class="value" id="csBlockNumber">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">合约地址</span>
+            <span class="value" id="csContractAddress">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">合约代码</span>
+            <span class="value" id="csContractCode">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">错误信息</span>
+            <span class="value" id="csError">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">检测时间</span>
+            <span class="value" id="csCheckedAt">-</span>
+        </div>
+    </div>
+    <div class="chain-status-actions">
+        <button id="csRecheckBtn" class="btn-primary">🔄 重新检测</button>
+        <button id="csOpenAdminBtn">⚙️ 管理面板</button>
+    </div>
+</div>
 </body>
 </html>

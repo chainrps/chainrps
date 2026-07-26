@@ -1,4 +1,5 @@
 (function() {
+    // 创建按钮
     function createButton(options = {}) {
         let {
             text = '',
@@ -72,6 +73,7 @@
 
         btn.style.cssText = style;
 
+        // 更新按钮内容
         function updateContent() {
             let content = '';
             if (loading) {
@@ -103,6 +105,7 @@
             btn.addEventListener('click', onClick);
         }
 
+        // 鼠标移入事件处理
         btn.addEventListener('mouseenter', () => {
             if (!btn.disabled) {
                 if (type === 'primary') {
@@ -113,6 +116,7 @@
             }
         });
 
+        // 鼠标移出事件处理
         btn.addEventListener('mouseleave', () => {
             if (!btn.disabled) {
                 if (type === 'primary') {
@@ -123,17 +127,20 @@
             }
         });
 
+        // 设置按钮文本
         function setText(newText) {
             text = newText;
             updateContent();
         }
 
+        // 设置加载状态
         function setLoading(isLoading) {
             loading = isLoading;
             btn.disabled = isLoading;
             updateContent();
         }
 
+        // 设置禁用状态
         function setDisabled(isDisabled) {
             btn.disabled = isDisabled;
             btn.style.opacity = isDisabled ? '0.5' : '1';
