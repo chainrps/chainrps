@@ -3534,9 +3534,12 @@ const App = (function () {
     async function revealChoice() {
         if (!selectedChoice || !currentSalt || !myCommitSubmitted || myRevealed) return;
 
+        const revealBtn = UI.elements.revealBtn;
         try {
-            UI.revealBtn.disabled = true;
-            UI.revealBtn.textContent = '揭晓中...';
+            if (revealBtn) {
+                revealBtn.disabled = true;
+                revealBtn.textContent = '揭晓中...';
+            }
 
             await Contract.revealChoice(currentGameId, selectedChoice, currentSalt);
 
@@ -3558,16 +3561,21 @@ const App = (function () {
 
         } catch (e) {
             FWUI.Toast.error(e.message || '揭晓失败');
-            UI.revealBtn.disabled = false;
-            UI.revealBtn.textContent = '揭晓出拳';
+            if (revealBtn) {
+                revealBtn.disabled = false;
+                revealBtn.textContent = '揭晓出拳';
+            }
         }
     }
 
     // 超时索赔
     async function claimTimeout() {
+        const claimBtn = UI.elements.claimTimeoutBtn;
         try {
-            UI.claimTimeoutBtn.disabled = true;
-            UI.claimTimeoutBtn.textContent = '索赔中...';
+            if (claimBtn) {
+                claimBtn.disabled = true;
+                claimBtn.textContent = '索赔中...';
+            }
 
             await Contract.claimTimeout(currentGameId);
 
@@ -3575,8 +3583,10 @@ const App = (function () {
 
         } catch (e) {
             FWUI.Toast.error(e.message || '索赔失败');
-            UI.claimTimeoutBtn.disabled = false;
-            UI.claimTimeoutBtn.textContent = '索赔超时胜利';
+            if (claimBtn) {
+                claimBtn.disabled = false;
+                claimBtn.textContent = '索赔超时胜利';
+            }
         }
     }
 
