@@ -29,7 +29,7 @@ contracts/
 
 - Solidity ^0.8.20
 - OpenZeppelin Contracts（Ownable、ReentrancyGuard、Pausable）
-- 部署网络：Polygon Amoy 测试网 → Polygon 主网 / 本地 Ganache（chainId 31337）
+- 部署网络：Polygon Amoy 测试网 → Polygon 主网 / 本地 Ganache（chainId 5208888）
 
 ---
 
@@ -311,9 +311,9 @@ v1.1.0 已定义占位 mapping，便于二期平滑升级：
 - 区块浏览器: `https://polygonscan.com`
 
 ### 本地 Ganache 测试网
-- RPC: `http://127.0.0.1:8545`
-- Chain ID: `31337`
-- 启动参数：`ganache --wallet.deterministic`
+- RPC: `http://127.0.0.1:8686`
+- Chain ID: `5208888`
+- 启动参数：`ganache --wallet.deterministic --chain.chainId 5208888`
 
 ## 更多文档
 

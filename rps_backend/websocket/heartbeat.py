@@ -13,9 +13,12 @@ from rps_backend.websocket.manager import WebSocketManager
 
 # 心跳循环
 async def heartbeat_loop(ws_manager: WebSocketManager, interval: int):
-    """心跳循环，每隔 interval 秒向所有连接广播一次心跳消息"""
+    """心跳循环，每隔 interval 秒向所有连接广播一次心跳消息（无连接时跳过）"""
     while True:
         await asyncio.sleep(interval)
+        # 无连接时跳过广播，避免无效的 Redis Pub/Sub 和日志开销
+        if not ws_manager.active_connections:
+            continue
         # 广播心跳消息
         await ws_manager.broadcast(WSMessage(
             type="heartbeat",

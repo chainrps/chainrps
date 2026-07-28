@@ -23,12 +23,20 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rps.db")
 
 # ==================== 合约配置 ====================
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "")
-RPC_URL = os.getenv("RPC_URL", "http://127.0.0.1:8545")
-CHAIN_ID = int(os.getenv("CHAIN_ID", 1337))
+
+# ==================== 本地链配置(RPC) ====================
+RPC_LOCAL_HOST = os.getenv("RPC_LOCAL_HOST", "127.0.0.1")
+RPC_LOCAL_PORT = int(os.getenv("RPC_LOCAL_PORT", 8686))
+RPC_LOCAL_URL = f"http://{RPC_LOCAL_HOST}:{RPC_LOCAL_PORT}"
+RPC_URL = os.getenv("RPC_URL", RPC_LOCAL_URL)
+RPC_CHAIN_ID = int(os.getenv("CHAIN_ID", 5208888))
+RPC_DEFAULT_ACCOUNT_COUNT = int(os.getenv("RPC_DEFAULT_ACCOUNT_COUNT", 10))
+RPC_DEFAULT_BALANCE = float(os.getenv("RPC_DEFAULT_BALANCE", 100000))
+RPC_SYMBOL = os.getenv("RPC_SYMBOL", "ETH")
 
 # ==================== 超时配置（秒） ====================
-COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))    # 提交哈希超时
-REVEAL_TIMEOUT = int(os.getenv("REVEAL_TIMEOUT", 88))    # 揭晓超时
+COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))  # 提交哈希超时
+REVEAL_TIMEOUT = int(os.getenv("REVEAL_TIMEOUT", 88))  # 揭晓超时
 
 # ==================== WebSocket 配置 ====================
 WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", 30))  # 心跳间隔（秒）
@@ -55,6 +63,7 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 if not ADMIN_WHITELIST and not DEBUG:
     import warnings
+
     warnings.warn(
         "ADMIN_WHITELIST 未配置！生产环境下所有管理员接口将无权限校验。"
         "请在 .env 中设置 ADMIN_WHITELIST 或设置 DEBUG=true 以消除此警告。",
@@ -64,11 +73,10 @@ if not ADMIN_WHITELIST and not DEBUG:
 
 # ==================== Redis Key 前缀配置 ====================
 MATCH_QUEUE_PREFIX = os.getenv("MATCH_QUEUE_PREFIX", "rps:match:")  # 匹配队列前缀
-GAME_CACHE_PREFIX = os.getenv("GAME_CACHE_PREFIX", "rps:game:")     # 对局缓存前缀
-ROOM_CACHE_PREFIX = os.getenv("ROOM_CACHE_PREFIX", "rps:room:")     # 房间缓存前缀
-WS_PREFIX = os.getenv("WS_PREFIX", "rps:ws:")                        # WebSocket 会话前缀
+GAME_CACHE_PREFIX = os.getenv("GAME_CACHE_PREFIX", "rps:game:")  # 对局缓存前缀
+ROOM_CACHE_PREFIX = os.getenv("ROOM_CACHE_PREFIX", "rps:room:")  # 房间缓存前缀
+WS_PREFIX = os.getenv("WS_PREFIX", "rps:ws:")  # WebSocket 会话前缀
 REDIS_BROADCAST_CHANNEL = os.getenv("REDIS_BROADCAST_CHANNEL", "rps:broadcast")  # Redis 广播频道名称
-
 
 __all__ = [
     "HOST",
@@ -77,7 +85,7 @@ __all__ = [
     "DATABASE_PATH",
     "CONTRACT_ADDRESS",
     "RPC_URL",
-    "CHAIN_ID",
+    "RPC_CHAIN_ID",
     "COMMIT_TIMEOUT",
     "REVEAL_TIMEOUT",
     "WS_HEARTBEAT_INTERVAL",

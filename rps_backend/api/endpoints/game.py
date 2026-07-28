@@ -160,8 +160,8 @@ async def leave_room(request: LeaveRoomRequest):
     """
     退出房间
 
-    - 创建者退出 → 解散房间（从交易大厅移除）
-    - player2 退出 → 房间重置为 CREATED 状态，保留在交易大厅
+    - 创建者退出 → 解散房间（从游戏大厅移除）
+    - player2 退出 → 房间重置为 CREATED 状态，保留在游戏大厅
     - 游戏已开始 → 不允许退出，需走索赔流程
     """
     result = room_manager.leave_room(
@@ -182,7 +182,7 @@ async def leave_room(request: LeaveRoomRequest):
 # 获取房间列表
 @router.get("/room/list", response_model=RoomListResponse)
 async def get_room_list():
-    """获取交易大厅房间列表"""
+    """获取游戏大厅房间列表"""
     rooms = room_manager.get_room_list()
 
     room_responses = []

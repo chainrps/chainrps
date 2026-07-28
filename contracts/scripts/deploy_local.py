@@ -5,8 +5,10 @@ from pathlib import Path
 
 from web3 import Web3
 
+from rps_backend.config import RPC_CHAIN_ID, RPC_LOCAL_URL, RPC_LOCAL_PORT
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-RPC_URL = "http://127.0.0.1:8545"
+
 
 BUILD_DIR = PROJECT_ROOT / "contracts" / "build"
 BUILD_FILE = BUILD_DIR / "chainrps.json"
@@ -39,11 +41,11 @@ def load_contract_artifacts():
 
 # 部署合约
 def deploy_contract():
-    w3 = Web3(Web3.HTTPProvider(RPC_URL))
+    w3 = Web3(Web3.HTTPProvider(RPC_LOCAL_URL))
     
     if not w3.is_connected():
-        print(f"❌ 无法连接到本地测试网: {RPC_URL}")
-        print("   请先启动本地节点: ganache -h 127.0.0.1 -p 8545 --chain.chainId 31337")
+        print(f"❌ 无法连接到本地测试网: {RPC_LOCAL_URL}")
+        print(f"   请先启动本地节点: ganache -h 127.0.0.1 -p {RPC_LOCAL_PORT} --chain.chainId {RPC_CHAIN_ID}")
         sys.exit(1)
 
     print(f"✅ 已连接到本地测试网")

@@ -127,8 +127,7 @@ const UI = (function() {
             1: '🔷',
             137: '🟣',
             80002: '🟣',
-            31337: '🔧',
-            1337: '🔧',
+            5208888: '🔧',
             56: '🟡',
             42161: '🔵',
             10: '🔴',
@@ -324,21 +323,34 @@ const UI = (function() {
         if (!elements.resultTitle) return;
         
         elements.resultTitle.classList.remove('win', 'lose', 'draw');
+        elements.resultIcon.classList.remove('win-icon', 'lose-icon', 'draw-icon');
         
+        // 重触发动画：先移除再添加，确保每次展示都有动画
+        elements.resultIcon.style.animation = 'none';
+        elements.resultTitle.style.animation = 'none';
+        // 强制 reflow
+        void elements.resultIcon.offsetWidth;
+        void elements.resultTitle.offsetWidth;
+        elements.resultIcon.style.animation = '';
+        elements.resultTitle.style.animation = '';
+
         if (result.type === 'win') {
             elements.resultIcon.textContent = '🏆';
             elements.resultTitle.textContent = '你赢了！';
             elements.resultTitle.classList.add('win');
+            elements.resultIcon.classList.add('win-icon');
             elements.resultDesc.textContent = '恭喜获得胜利';
         } else if (result.type === 'lose') {
             elements.resultIcon.textContent = '😢';
             elements.resultTitle.textContent = '你输了';
             elements.resultTitle.classList.add('lose');
+            elements.resultIcon.classList.add('lose-icon');
             elements.resultDesc.textContent = '再接再厉，下一把加油！';
         } else {
             elements.resultIcon.textContent = '🤝';
             elements.resultTitle.textContent = '平局';
             elements.resultTitle.classList.add('draw');
+            elements.resultIcon.classList.add('draw-icon');
             elements.resultDesc.textContent = '双方出拳相同，不分胜负';
         }
         

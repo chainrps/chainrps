@@ -16,7 +16,8 @@ from typing import Optional, List, Dict, Any
 from web3 import Web3
 from web3.exceptions import TimeExhausted
 
-from rps_backend.config import CHAIN_ID
+from rps_backend.config import RPC_CHAIN_ID, RPC_URL, RPC_LOCAL_PORT, RPC_DEFAULT_BALANCE, RPC_SYMBOL, \
+    RPC_DEFAULT_ACCOUNT_COUNT
 
 # RPC 连接配置
 RPC_TIMEOUT = 15  # 连接超时时间（秒）
@@ -38,7 +39,9 @@ def retry_on_failure(max_attempts: int = MAX_RETRY_ATTEMPTS, delay: float = RETR
                     if attempt < max_attempts - 1:
                         time.sleep(delay)
             raise last_exception if last_exception else Exception("重试次数耗尽")
+
         return wrapper
+
     return decorator
 
 
@@ -77,16 +80,38 @@ def _find_ganache_executable() -> Optional[str]:
     return None
 
 
+# 查找 npx 可执行文件（用于启动 hardhat）
+def _find_npx_executable() -> Optional[str]:
+    """查找 npx 命令路径。"""
+    for name in ("npx.cmd", "npx.exe", "npx"):
+        path = shutil.which(name)
+        if path and not path.lower().endswith(".ps1"):
+            return path
+    return shutil.which("npx")
+
+
+# 获取项目根目录（hardhat 需要在项目目录中运行）
+def _get_project_root() -> str:
+    """获取项目根目录，用于 hardhat 启动时的 cwd。"""
+    # 从当前文件向上回溯到项目根目录
+    current_file = os.path.abspath(__file__)
+    # rps_backend/service/local_chain_service.py -> 向上 3 层到项目根
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+    return project_root
+
+
 # 本地链管理服务
 class LocalChainService:
     _instance = None
     _process: Optional[subprocess.Popen] = None
     _accounts: List[str] = []
     _private_keys: List[str] = []
-    _rpc_url: str = "http://127.0.0.1:8545"
-    _chain_id: int = CHAIN_ID
+    _rpc_url: str = RPC_URL
+    _chain_id: int = RPC_CHAIN_ID
     _w3: Optional[Web3] = None
     _tokens: Dict[str, Dict[str, Any]] = {}
+
+    _chain_type: str = "ganache"  # "ganache" | "hardhat"
 
     _keep_alive_enabled: bool = False
     _keep_alive_config: Dict[str, Any] = {}
@@ -98,10 +123,10 @@ class LocalChainService:
 
     # 单例模式实例化
     def __new__(cls):
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-                cls._instance._init_web3()
-            return cls._instance
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._init_web3()
+        return cls._instance
 
     # 独立 HTTP 健康检测（不依赖 web3.py 会话，防止僵尸连接干扰）
     def _check_http_health(self, timeout: int = 2) -> bool:
@@ -144,7 +169,7 @@ class LocalChainService:
                 self._w3 = None
         except Exception:
             self._w3 = None
-    
+
     # 测试 RPC 连接是否稳定
     def _test_rpc_connection(self) -> bool:
         """测试 RPC 连接是否稳定，执行多个基础调用"""
@@ -180,11 +205,11 @@ class LocalChainService:
                         "decimals": 6,
                     }
         except Exception:
-            pass #别删除，用于人工代码审核 便利
+            pass  # 别删除，用于人工代码审核 便利
 
     # 检查本地链是否运行（快速 HTTP 检测优先，防止假死误判）
     def is_running(self) -> bool:
-        http_ok = self._check_http_health(timeout=2)
+        http_ok = self._check_http_health(timeout=3)
         if http_ok:
             if not self._w3:
                 try:
@@ -197,13 +222,12 @@ class LocalChainService:
                 except Exception:
                     pass
             return True
-        
+
+        # 进程存活但 HTTP 短暂无响应：不立即清理，仅返回 False
+        # 保活巡检会通过连续失败次数判断是否真正假死
         if self._process and self._process.poll() is None:
-            print("⚠️  进程存活但 HTTP 无响应（疑似假死），清理连接...")
-            self._w3 = None
-            self._accounts = []
             return False
-        
+
         try:
             if not self._w3:
                 self._init_web3()
@@ -218,128 +242,200 @@ class LocalChainService:
         self,
         deterministic: bool = True,
         host: str = "127.0.0.1",
-        port: int = 8545,
-        chain_id: int = CHAIN_ID,
+        port: int = RPC_LOCAL_PORT,
+        chain_id: int = RPC_CHAIN_ID,
         accounts_count: int = 10,
-        default_balance: float = 1000,
+        default_balance: float = 100000,      # 每个账户的默认原生代币余额
         symbol: str = "ETH",
+        chain_type: str = "ganache",
     ) -> Dict[str, Any]:
         if self.is_running():
             return {"success": True, "message": "本地链已在运行", "rpc_url": self._rpc_url}
 
+        self._chain_type = chain_type
+
         try:
-            # Windows 上 ganache 是 .ps1/.cmd 脚本，subprocess.Popen 无法直接执行
-            # 需要找到完整的 .cmd 或 .exe 路径
-            ganache_path = _find_ganache_executable()
-            if not ganache_path:
-                return {
-                    "success": False,
-                    "message": "未找到 ganache 可执行文件。请先安装: npm install -g ganache",
-                }
-            print(f"🔍 找到 ganache 路径: {ganache_path}")
-
-            cmd = [ganache_path]
-            cmd.extend(["--server.host", host])
-            cmd.extend(["--server.port", str(port)])
-            cmd.extend(["--chain.chainId", str(chain_id)])
-            # 注意：--chain.nativeTokenSymbol 在 Ganache v7.x 中不存在，不要添加
-            # 原生代币符号由 chain ID 决定（默认为 ETH）
-            if deterministic:
-                cmd.append("--wallet.deterministic")
-            cmd.extend(["--wallet.totalAccounts", str(accounts_count)])
-            cmd.extend(["--wallet.defaultBalance", str(default_balance)])
-
-            print(f"🚀 启动 ganache: {' '.join(cmd)}")
-
-            self._process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
-            )
-
-            # 更新实例配置（覆盖类属性默认值）
-            self._rpc_url = f"http://{host}:{port}"
-            self._chain_id = chain_id
-
-            # 智能等待节点启动（最多 15 秒，循环检测）
-            max_wait_time = 15
-            wait_interval = 1
-            elapsed_time = 0
-            
-            while elapsed_time < max_wait_time:
-                if self._process.poll() is not None:
-                    stderr = self._process.stderr.read() if self._process.stderr else ""
-                    stdout = self._process.stdout.read() if self._process.stdout else ""
-                    error_detail = stderr or stdout or "未知错误"
-                    if len(error_detail) > 500:
-                        error_detail = error_detail[:500] + "...[截断]"
-                    return {"success": False, "message": f"ganache 进程已退出: {error_detail}"}
-                
-                try:
-                    self._init_web3()
-                    if self._w3 and self._w3.is_connected() and self._test_rpc_connection():
-                        break
-                except Exception:
-                    pass
-                
-                time.sleep(wait_interval)
-                elapsed_time += wait_interval
-            
-            if elapsed_time >= max_wait_time:
-                return {"success": False, "message": f"等待节点启动超时（{max_wait_time}秒），RPC 连接失败"}
-
-            if self._w3 and self._w3.is_connected():
-                # 读取节点实际的 chain_id（可能与传入参数不同）
-                try:
-                    actual_chain_id = self._w3.eth.chain_id
-                    self._chain_id = actual_chain_id
-                except Exception:
-                    pass #别删除，用于人工代码审核 便利
-
-                # 保存启动配置，供保活重启时使用
-                self._keep_alive_config = {
-                    "deterministic": deterministic,
-                    "host": host,
-                    "port": port,
-                    "chain_id": self._chain_id,
-                    "accounts_count": accounts_count,
-                    "default_balance": default_balance,
-                    "symbol": symbol,
-                }
-
-                return {
-                    "success": True,
-                    "message": "本地链启动成功",
-                    "rpc_url": self._rpc_url,
-                    "chain_id": self._chain_id,
-                    "accounts_count": len(self._accounts),
-                    "symbol": symbol,
-                    "default_balance": default_balance,
-                    "host": host,
-                    "port": port,
-                }
+            if chain_type == "hardhat":
+                return self._start_hardhat_node(
+                    host=host, port=port, chain_id=chain_id,
+                    accounts_count=accounts_count, default_balance=default_balance,
+                    symbol=symbol,
+                )
             else:
-                # 读取 stderr 帮助诊断
-                stderr_preview = ""
-                try:
-                    if self._process and self._process.stderr:
-                        stderr_preview = self._process.stderr.read()[:300]
-                except Exception:
-                    pass #别删除，用于人工代码审核 便利
-                msg = "本地链进程已启动但 RPC 无法连接"
-                if stderr_preview:
-                    msg += f"。stderr: {stderr_preview}"
-                return {"success": False, "message": msg}
-
-        except FileNotFoundError:
-            return {"success": False, "message": "未找到 ganache 命令，请先安装: npm install -g ganache"}
+                return self._start_ganache_node(
+                    deterministic=deterministic, host=host, port=port,
+                    chain_id=chain_id, accounts_count=accounts_count,
+                    default_balance=default_balance, symbol=symbol,
+                )
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
             print(f"🔴 启动本地链异常: {error_trace}")
             return {"success": False, "message": f"启动失败: {str(e)}"}
+
+    # 启动 Ganache 节点
+    def _start_ganache_node(
+        self,
+        deterministic: bool = True,
+        host: str = "127.0.0.1",
+        port: int = RPC_LOCAL_PORT,
+        chain_id: int = RPC_CHAIN_ID,
+        accounts_count: int = 10,
+        default_balance: float = 1000,
+            symbol: str = "ETH",
+    ) -> Dict[str, Any]:
+        ganache_path = _find_ganache_executable()
+        if not ganache_path:
+            return {
+                "success": False,
+                "message": "未找到 ganache 可执行文件。请先安装: npm install -g ganache",
+            }
+        print(f"🔍 找到 ganache 路径: {ganache_path}")
+
+        cmd = [ganache_path]
+        cmd.extend(["--server.host", host])
+        cmd.extend(["--server.port", str(port)])
+        cmd.extend(["--chain.chainId", str(chain_id)])
+        if deterministic:
+            cmd.append("--wallet.deterministic")
+        cmd.extend(["--wallet.totalAccounts", str(accounts_count)])
+        cmd.extend(["--wallet.defaultBalance", str(default_balance)])
+
+        print(f"🚀 启动 ganache: {' '.join(cmd)}")
+
+        # 输出重定向到 DEVNULL，避免管道缓冲区写满导致进程死锁
+        # 若需排查启动失败，依赖进程退出码 + RPC 健康检测判断
+        self._process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+
+        self._rpc_url = f"http://{host}:{port}"
+        self._chain_id = chain_id
+
+        return self._wait_node_ready(
+            chain_type="ganache",
+            host=host, port=port, chain_id=chain_id,
+            accounts_count=accounts_count, default_balance=default_balance,
+            symbol=symbol,
+        )
+
+    # 启动 Hardhat 节点
+    def _start_hardhat_node(
+        self,
+        host: str = "127.0.0.1",
+        port: int = RPC_LOCAL_PORT,
+            chain_id: int = RPC_CHAIN_ID,
+            accounts_count: int = RPC_DEFAULT_ACCOUNT_COUNT,
+            default_balance: float = RPC_DEFAULT_BALANCE,
+            symbol: str = RPC_SYMBOL,
+    ) -> Dict[str, Any]:
+        npx_path = _find_npx_executable()
+        if not npx_path:
+            return {
+                "success": False,
+                "message": "未找到 npx 命令。请先安装 Node.js 和 npm",
+            }
+
+        project_root = _get_project_root()
+        print(f"🔍 项目根目录: {project_root}")
+
+        cmd = [npx_path, "hardhat", "node"]
+        cmd.extend(["--port", str(port)])
+        cmd.extend(["--hostname", host])
+        # 始终传递 --chain-id，确保命令行参数覆盖默认配置
+        cmd.extend(["--chain-id", str(chain_id)])
+
+        print(f"🚀 启动 hardhat node: {' '.join(cmd)}")
+
+        # 输出重定向到 DEVNULL，避免管道缓冲区写满导致进程死锁
+        self._process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=project_root,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+
+        self._rpc_url = f"http://{host}:{port}"
+        self._chain_id = chain_id
+
+        return self._wait_node_ready(
+            chain_type="hardhat",
+            host=host, port=port, chain_id=chain_id,
+            accounts_count=accounts_count, default_balance=default_balance,
+            symbol=symbol,
+        )
+
+    # 等待节点启动完成（通用逻辑）
+    def _wait_node_ready(
+            self,
+            chain_type: str,
+            host: str,
+            port: int,
+            chain_id: int,
+            accounts_count: int,
+            default_balance: float,
+            symbol: str,
+    ) -> Dict[str, Any]:
+        max_wait_time = 15
+        wait_interval = 1
+        elapsed_time = 0
+
+        while elapsed_time < max_wait_time:
+            if self._process.poll() is not None:
+                # 进程已退出，通过返回码判断错误（输出已重定向到 DEVNULL，无法读取）
+                return_code = self._process.returncode
+                return {"success": False,
+                        "message": f"{chain_type} 进程已退出（返回码: {return_code}），请检查命令参数或端口占用"}
+
+            try:
+                self._init_web3()
+                if self._w3 and self._w3.is_connected() and self._test_rpc_connection():
+                    break
+            except Exception:
+                pass
+
+            time.sleep(wait_interval)
+            elapsed_time += wait_interval
+
+        if elapsed_time >= max_wait_time:
+            return {"success": False, "message": f"等待节点启动超时（{max_wait_time}秒），RPC 连接失败"}
+
+        if self._w3 and self._w3.is_connected():
+            try:
+                actual_chain_id = self._w3.eth.chain_id
+                self._chain_id = actual_chain_id
+            except Exception:
+                pass
+
+            self._keep_alive_config = {
+                "chain_type": chain_type,
+                "host": host,
+                "port": port,
+                "chain_id": self._chain_id,
+                "accounts_count": accounts_count,
+                "default_balance": default_balance,
+                "symbol": symbol,
+            }
+
+            return {
+                "success": True,
+                "message": "本地链启动成功",
+                "rpc_url": self._rpc_url,
+                "chain_id": self._chain_id,
+                "accounts_count": len(self._accounts),
+                "symbol": symbol,
+                "default_balance": default_balance,
+                "host": host,
+                "port": port,
+                "chain_type": chain_type,
+            }
+        else:
+            # 进程存活但 RPC 连不上，不读取管道（避免阻塞）
+            return {"success": False, "message": "本地链进程已启动但 RPC 无法连接，进程可能仍在初始化中"}
 
     # 停止本地链节点
     def stop_node(self, keep_alive: bool = None) -> Dict[str, Any]:
@@ -357,18 +453,18 @@ class LocalChainService:
                     self._process.wait(timeout=3)
                 self._process = None
 
-            # 2. 通过端口查找并杀掉占用 8545 的进程（Windows）
+            # 2. 通过端口查找并杀掉占用 RPC_LOCAL_PORT 的进程（Windows）
             killed_by_port = False
             if os.name == "nt":
                 try:
-                    # 用 netstat 查找占用 8545 端口的 PID
+                    # 用 netstat 查找占用 RPC_LOCAL_PORT 端口的 PID
                     netstat = subprocess.run(
                         ["netstat", "-ano", "-p", "TCP"],
                         capture_output=True, text=True, timeout=5,
                     )
                     pids = set()
                     for line in netstat.stdout.splitlines():
-                        if ":8545" in line and "LISTENING" in line:
+                        if f":{RPC_LOCAL_PORT}" in line and "LISTENING" in line:
                             parts = line.split()
                             if parts:
                                 pid = parts[-1]
@@ -382,19 +478,19 @@ class LocalChainService:
                             )
                             killed_by_port = True
                         except Exception:
-                            pass #别删除，用于人工代码审核 便利
+                            pass  # 别删除，用于人工代码审核 便利
                 except Exception:
-                    pass #别删除，用于人工代码审核 便利
+                    pass  # 别删除，用于人工代码审核 便利
             else:
                 # Linux/Mac: 用 fuser 或 lsof
                 try:
                     subprocess.run(
-                        ["fuser", "-k", "8545/tcp"],
+                        ["fuser", "-k", f"{RPC_LOCAL_PORT}/tcp"],
                         capture_output=True, timeout=5,
                     )
                     killed_by_port = True
                 except Exception:
-                    pass #别删除，用于人工代码审核 便利
+                    pass  # 别删除，用于人工代码审核 便利
 
             # 3. 尝试通过 RPC 关闭（备用）
             try:
@@ -405,7 +501,7 @@ class LocalChainService:
                     timeout=2,
                 )
             except Exception:
-                pass #别删除，用于人工代码审核 便利
+                pass  # 别删除，用于人工代码审核 便利
 
             # 4. 清理 Web3 连接
             self._w3 = None
@@ -416,12 +512,11 @@ class LocalChainService:
 
             # 验证是否真正停止
             try:
-                from web3 import Web3
-                test_w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+                test_w3 = Web3(_create_http_provider(self._rpc_url))
                 if test_w3.is_connected():
                     return {"success": False, "message": "本地链仍在运行，请手动关闭 Ganache 进程"}
             except Exception:
-                pass #别删除，用于人工代码审核 便利
+                pass  # 别删除，用于人工代码审核 便利
 
             return {"success": True, "message": "本地链已停止"}
         except Exception as e:
@@ -430,10 +525,16 @@ class LocalChainService:
     # 获取节点状态
     def get_node_status(self) -> Dict[str, Any]:
         running = self.is_running()
+        # 代币符号：优先使用用户启动节点时配置的 symbol
+        # 说明：Ganache v7.9.2 不支持 --chain.nativeTokenSymbol 参数，节点本身默认返回 "GO"，
+        # 因此这里返回用户配置的 symbol（保存在 _keep_alive_config 中），而非节点默认值
+        configured_symbol = (self._keep_alive_config.get("symbol") if self._keep_alive_config else None) or "ETH"
         result = {
             "running": running,
             "rpc_url": self._rpc_url,
             "chain_id": self._chain_id,
+            "chain_type": self._chain_type,
+            "symbol": configured_symbol,
             "keep_alive": self._keep_alive_enabled,
             "keep_alive_restart_count": self._keep_alive_restart_count,
             "keep_alive_last_restart_at": self._keep_alive_last_restart_at,
@@ -498,17 +599,30 @@ class LocalChainService:
                     if not self._w3 or not self._w3.is_connected():
                         raise Exception("无法重新建立 RPC 连接")
 
+                # 账户列表可能为空或过期（节点重启后），每次重试都重新加载
+                if not self._accounts:
+                    self._load_accounts()
+                if not self._accounts:
+                    raise Exception("无法获取本地链账户列表")
+
+                if from_index < 0 or from_index >= len(self._accounts):
+                    raise Exception(f"账户索引无效: {from_index}（当前共 {len(self._accounts)} 个账户）")
+
                 from_address = self._accounts[from_index]
                 to_address = self._w3.to_checksum_address(to_address)
                 value = self._w3.to_wei(amount_eth, 'ether')
 
+                # 显式指定 gas 和 gasPrice，避免 Ganache 在估算大额转账时挂起
                 tx_hash = self._w3.eth.send_transaction({
                     "from": from_address,
                     "to": to_address,
                     "value": value,
+                    "gas": 21000,
+                    "gasPrice": self._w3.to_wei(20, 'gwei'),
                 })
 
-                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                # 缩短等待超时，本地节点交易应秒级确认
+                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=15)
                 new_balance = self._w3.eth.get_balance(to_address)
                 new_balance_eth = float(self._w3.from_wei(new_balance, 'ether'))
 
@@ -526,17 +640,17 @@ class LocalChainService:
                 last_error = str(e)
                 if attempt < MAX_RETRY_ATTEMPTS - 1:
                     time.sleep(RETRY_DELAY)
-        
+
         return {"success": False, "message": f"转账失败: {last_error}"}
 
     # 部署 Mock ERC20 代币
     def deploy_mock_erc20(
-        self,
-        from_index: int = 0,
-        name: str = "Mock USDC",
-        symbol: str = "USDC",
-        decimals: int = 6,
-        initial_supply: int = 1_000_000,
+            self,
+            from_index: int = 0,
+            name: str = "Mock USDC",
+            symbol: str = "USDC",
+            decimals: int = 6,
+            initial_supply: int = 1_000_000,
     ) -> Dict[str, Any]:
         if not self.is_running() or not self._w3:
             return {"success": False, "message": "本地链未运行"}
@@ -554,7 +668,7 @@ class LocalChainService:
                     abi = data["abi"]
                     bytecode = data["bytecode"]
         except Exception:
-            pass #别删除，用于人工代码审核 便利
+            pass  # 别删除，用于人工代码审核 便利
 
         if not abi or not bytecode:
             try:
@@ -595,7 +709,7 @@ class LocalChainService:
                         bytecode = contract_data["evm"]["bytecode"]["object"]
                         break
             except Exception:
-                pass #别删除，用于人工代码审核 便利
+                pass  # 别删除，用于人工代码审核 便利
 
         if not abi or not bytecode:
             return {"success": False, "message": "无法获取合约编译产物"}
@@ -608,12 +722,33 @@ class LocalChainService:
                     if not self._w3 or not self._w3.is_connected():
                         raise Exception("无法重新建立 RPC 连接")
 
+                # 账户列表可能为空或过期，每次重试都重新加载
+                if not self._accounts:
+                    self._load_accounts()
+                if not self._accounts:
+                    raise Exception("无法获取本地链账户列表")
+
+                if from_index < 0 or from_index >= len(self._accounts):
+                    raise Exception(f"账户索引无效: {from_index}（当前共 {len(self._accounts)} 个账户）")
+
                 from_address = self._accounts[from_index]
                 contract = self._w3.eth.contract(abi=abi, bytecode=bytecode)
                 supply_wei = initial_supply * (10 ** decimals)
 
-                tx_hash = contract.constructor(name, symbol, decimals, supply_wei).transact({"from": from_address})
-                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                # 先估算 gas，加上 20% 安全余量，避免 Ganache 在 transact 内部估算时挂起
+                try:
+                    estimated_gas = contract.constructor(name, symbol, decimals, supply_wei).estimate_gas(
+                        {"from": from_address})
+                    gas_limit = int(estimated_gas * 1.2)
+                except Exception:
+                    gas_limit = 3000000  # 合约部署默认 3M gas
+
+                tx_hash = contract.constructor(name, symbol, decimals, supply_wei).transact({
+                    "from": from_address,
+                    "gas": gas_limit,
+                    "gasPrice": self._w3.to_wei(20, 'gwei'),
+                })
+                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
                 contract_address = receipt.contractAddress
 
                 self._tokens[symbol] = {
@@ -653,16 +788,16 @@ class LocalChainService:
                 last_error = str(e)
                 if attempt < MAX_RETRY_ATTEMPTS - 1:
                     time.sleep(RETRY_DELAY)
-        
+
         return {"success": False, "message": f"部署失败: {last_error}"}
 
     # 铸造代币（带重试机制）
     def mint_tokens(
-        self,
-        token_symbol: str,
-        to_address: str,
-        amount: float,
-        from_index: int = 0,
+            self,
+            token_symbol: str,
+            to_address: str,
+            amount: float,
+            from_index: int = 0,
     ) -> Dict[str, Any]:
         if not self.is_running() or not self._w3:
             return {"success": False, "message": "本地链未运行"}
@@ -679,19 +814,42 @@ class LocalChainService:
                     if not self._w3 or not self._w3.is_connected():
                         raise Exception("无法重新建立 RPC 连接")
 
+                # 账户列表可能为空或过期，每次重试都重新加载
+                if not self._accounts:
+                    self._load_accounts()
+                if not self._accounts:
+                    raise Exception("无法获取本地链账户列表")
+
+                if from_index < 0 or from_index >= len(self._accounts):
+                    raise Exception(f"账户索引无效: {from_index}（当前共 {len(self._accounts)} 个账户）")
+
                 from_address = self._accounts[from_index]
                 to_address = self._w3.to_checksum_address(to_address)
                 abi_json = [
-                    {"inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"name":"mint","outputs":[],"stateMutability":"nonpayable","type":"function"},
-                    {"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-                    {"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+                    {"inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}],
+                     "name": "mint", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
+                    {"inputs": [{"name": "account", "type": "address"}], "name": "balanceOf",
+                     "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+                    {"inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}],
+                     "stateMutability": "view", "type": "function"},
                 ]
                 contract = self._w3.eth.contract(address=token["address"], abi=abi_json)
                 decimals = contract.functions.decimals().call()
                 amount_wei = int(amount * (10 ** decimals))
 
-                tx_hash = contract.functions.mint(to_address, amount_wei).transact({"from": from_address})
-                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+                # 先估算 gas，加上 20% 安全余量，避免 Ganache 在 transact 内部估算时挂起
+                try:
+                    estimated_gas = contract.functions.mint(to_address, amount_wei).estimate_gas({"from": from_address})
+                    gas_limit = int(estimated_gas * 1.2)
+                except Exception:
+                    gas_limit = 200000  # ERC20 mint 默认 200K gas
+
+                tx_hash = contract.functions.mint(to_address, amount_wei).transact({
+                    "from": from_address,
+                    "gas": gas_limit,
+                    "gasPrice": self._w3.to_wei(20, 'gwei'),
+                })
+                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=15)
 
                 new_balance = contract.functions.balanceOf(to_address).call()
                 balance_display = new_balance / (10 ** decimals)
@@ -710,12 +868,147 @@ class LocalChainService:
                 last_error = str(e)
                 if attempt < MAX_RETRY_ATTEMPTS - 1:
                     time.sleep(RETRY_DELAY)
-        
+
         return {"success": False, "message": f"Mint 失败: {last_error}"}
 
     # 获取代币列表
     def get_tokens(self) -> List[Dict[str, Any]]:
         return list(self._tokens.values())
+
+    # ==================== 链浏览器查询 ====================
+
+    # 查询最新区块号
+    def get_latest_block_number(self) -> Optional[int]:
+        if not self._ensure_connected():
+            return None
+        try:
+            return self._w3.eth.block_number
+        except Exception:
+            return None
+
+    # 查询区块详情
+    def get_block(self, block_number: int) -> Optional[Dict[str, Any]]:
+        if not self._ensure_connected():
+            return None
+        try:
+            block = self._w3.eth.get_block(block_number, full_transactions=False)
+            return {
+                "number": block.number,
+                "hash": block.hash.hex() if block.hash else None,
+                "parent_hash": block.parentHash.hex() if block.parentHash else None,
+                "timestamp": block.timestamp,
+                "miner": block.miner,
+                "gas_used": block.gasUsed,
+                "gas_limit": block.gasLimit,
+                "size": block.size,
+                "tx_count": len(block.transactions),
+                "transactions": [tx.hex() if isinstance(tx, bytes) else tx for tx in block.transactions],
+            }
+        except Exception:
+            return None
+
+    # 查询交易详情
+    def get_transaction(self, tx_hash: str) -> Optional[Dict[str, Any]]:
+        if not self._ensure_connected():
+            return None
+        try:
+            tx = self._w3.eth.get_transaction(tx_hash)
+            receipt = self._w3.eth.get_transaction_receipt(tx_hash)
+            return {
+                "hash": tx.hash.hex(),
+                "block_number": tx.blockNumber,
+                "block_hash": tx.blockHash.hex() if tx.blockHash else None,
+                "from": tx["from"],
+                "to": tx.to,
+                "value": str(self._w3.from_wei(tx.value, 'ether')),
+                "gas": tx.gas,
+                "gas_price": str(self._w3.from_wei(tx.gasPrice, 'gwei')),
+                "nonce": tx.nonce,
+                "input": tx.input[:200] + "..." if len(tx.input) > 200 else tx.input,
+                "status": receipt.status if receipt else None,
+                "gas_used": receipt.gasUsed if receipt else None,
+                "contract_address": receipt.contractAddress if receipt else None,
+                "transaction_index": tx.transactionIndex,
+            }
+        except Exception:
+            return None
+
+    # 查询地址信息（余额、nonce、交易数）
+    def get_address_info(self, address: str) -> Optional[Dict[str, Any]]:
+        if not self._ensure_connected():
+            return None
+        try:
+            checksum_addr = self._w3.to_checksum_address(address)
+            balance_wei = self._w3.eth.get_balance(checksum_addr)
+            nonce = self._w3.eth.get_transaction_count(checksum_addr)
+            code = self._w3.eth.get_code(checksum_addr)
+            return {
+                "address": checksum_addr,
+                "balance": str(self._w3.from_wei(balance_wei, 'ether')),
+                "nonce": nonce,
+                "is_contract": len(code) > 0,
+                "code_size": len(code),
+            }
+        except Exception:
+            return None
+
+    # 查询地址的交易记录（扫描最近 N 个区块）
+    def get_address_transactions(self, address: str, scan_blocks: int = 500, limit: int = 50) -> Optional[
+        Dict[str, Any]]:
+        """
+        扫描最近 scan_blocks 个区块，提取与指定地址相关的交易（from 或 to 命中）。
+
+        本地链没有以太坊主网那种索引服务，只能遍历区块扫描。
+        scan_blocks 控制扫描深度，limit 控制返回条数。
+        """
+        if not self._ensure_connected():
+            return None
+        try:
+            checksum_addr = self._w3.to_checksum_address(address)
+            latest = self._w3.eth.block_number
+            from_block = max(0, latest - scan_blocks + 1)
+
+            txs = []
+            for block_num in range(latest, from_block - 1, -1):
+                try:
+                    block = self._w3.eth.get_block(block_num, full_transactions=True)
+                    for tx in block.transactions:
+                        if tx.get("from", "").lower() == checksum_addr.lower() or \
+                                (tx.get("to") and tx["to"].lower() == checksum_addr.lower()):
+                            txs.append({
+                                "hash": tx.hash.hex(),
+                                "block_number": tx.blockNumber,
+                                "from": tx["from"],
+                                "to": tx.to,
+                                "value": str(self._w3.from_wei(tx.value, 'ether')),
+                                "timestamp": block.timestamp,
+                                "status": None,  # 不逐笔查 receipt，性能考虑
+                            })
+                            if len(txs) >= limit:
+                                break
+                except Exception:
+                    continue
+                if len(txs) >= limit:
+                    break
+
+            return {
+                "address": checksum_addr,
+                "transactions": txs,
+                "count": len(txs),
+                "scanned_from_block": from_block,
+                "scanned_to_block": latest,
+                "truncated": len(txs) >= limit,
+            }
+        except Exception:
+            return None
+
+    # 确保 web3 已连接（内部辅助方法）
+    def _ensure_connected(self) -> bool:
+        if not self._w3:
+            self._init_web3()
+        if not self._w3 or not self._w3.is_connected():
+            return False
+        return True
 
     # 添加代币
     def add_token(self, symbol: str, address: str, name: str, decimals: int = 6) -> Dict[str, Any]:
@@ -737,7 +1030,7 @@ class LocalChainService:
           - 启动后台巡检线程，节点意外退出时自动重启
         enabled=False 时：
           - 停止保活巡检
-          - 不主动停止节点（如需停止请单独调用 stop_node）
+          - 停止节点
         """
         with self._keep_alive_lock:
             if enabled:
@@ -745,9 +1038,16 @@ class LocalChainService:
                 if start_kwargs:
                     self._keep_alive_config.update(start_kwargs)
 
-                # 节点未运行则先启动
+                cfg = self._keep_alive_config or {}
+                desired_chain_type = cfg.get("chain_type", "ganache")
+
+                # 链类型切换：当前运行的节点类型与期望不一致时，先停止旧节点
+                if self.is_running() and self._chain_type and self._chain_type != desired_chain_type:
+                    print(f"🔄 链类型切换: {self._chain_type} → {desired_chain_type}，先停止当前节点")
+                    self.stop_node(keep_alive=True)
+
+                # 节点未运行则按配置启动
                 if not self.is_running():
-                    cfg = self._keep_alive_config or {}
                     result = self.start_node(**cfg)
                     if not result.get("success"):
                         self._keep_alive_enabled = False
@@ -762,9 +1062,11 @@ class LocalChainService:
                 }
             else:
                 self._keep_alive_enabled = False
+                # 关闭保活时停止节点
+                stop_result = self.stop_node(keep_alive=False)
                 return {
                     "success": True,
-                    "message": "保活已关闭",
+                    "message": "节点已停止",
                     "keep_alive": False,
                 }
 
@@ -776,8 +1078,8 @@ class LocalChainService:
             "restart_count": self._keep_alive_restart_count,
             "last_restart_at": self._keep_alive_last_restart_at,
             "thread_running": (
-                self._keep_alive_thread is not None
-                and self._keep_alive_thread.is_alive()
+                    self._keep_alive_thread is not None
+                    and self._keep_alive_thread.is_alive()
             ),
         }
 
@@ -794,47 +1096,69 @@ class LocalChainService:
         self._keep_alive_thread.start()
         print("🔁 本地链保活巡检线程已启动")
 
-    # 保活巡检主循环（使用独立 HTTP 检测，主动处理假死）
+    # 保活巡检主循环（自适应间隔 + 轻量 HTTP 检测）
     def _keep_alive_loop(self):
-        check_interval = 10
+        healthy_interval = 30  # 健康时检查间隔（秒），降低对节点干扰
+        recovery_interval = 15  # 异常时检查间隔（秒）
+        check_timeout = 8  # 单次检测超时（秒），给 Ganache 足够响应时间
         consecutive_failures = 0
-        max_consecutive_failures = 3
+        max_consecutive_failures = 6  # 连续失败阈值，避免短暂卡顿误判
+        restart_cooldown = 90  # 重启冷却期（秒），防止频繁重启
+        last_state = None  # 0=健康, 1=异常, 用于状态变更日志
 
         while not self._keep_alive_stop_event.is_set():
             try:
                 if not self._keep_alive_enabled:
-                    self._keep_alive_stop_event.wait(check_interval)
+                    self._keep_alive_stop_event.wait(healthy_interval)
                     continue
 
-                http_ok = self._check_http_health(timeout=3)
+                http_ok = self._check_http_health(timeout=check_timeout)
                 if http_ok:
                     if consecutive_failures > 0:
+                        if last_state != 0:
+                            print("✅ 保活：RPC 连接恢复正常")
+                            last_state = 0
                         consecutive_failures = 0
-                        print("✅ 保活：RPC 连接恢复正常")
+                    interval = healthy_interval
                 else:
                     consecutive_failures += 1
-                    print(f"⚠️  保活检测：RPC 无响应（连续 {consecutive_failures} 次）")
+                    if last_state != 1:
+                        print(f"⚠️  保活检测：RPC 无响应（连续 {consecutive_failures} 次）")
+                        last_state = 1
+                    interval = recovery_interval
 
                     if consecutive_failures >= max_consecutive_failures:
-                        print(f"🔴 保活：连续 {max_consecutive_failures} 次检测失败，执行强制恢复...")
-                        self._force_recover()
-                        cfg = self._keep_alive_config or {}
-                        try:
-                            result = self.start_node(**cfg)
-                            if result.get("success"):
-                                self._keep_alive_restart_count += 1
-                                self._keep_alive_last_restart_at = time.time()
-                                consecutive_failures = 0
-                                print(f"✅ 保活：本地链已强制重启（第 {self._keep_alive_restart_count} 次）")
-                            else:
-                                print(f"❌ 保活重启失败：{result.get('message', '未知错误')}")
-                        except Exception as e:
-                            print(f"❌ 保活重启异常：{e}")
+                        # 检查重启冷却期，防止频繁重启
+                        now = time.time()
+                        if self._keep_alive_last_restart_at and (
+                                now - self._keep_alive_last_restart_at) < restart_cooldown:
+                            remaining = int(restart_cooldown - (now - self._keep_alive_last_restart_at))
+                            print(f"⏳ 保活：重启冷却中，还需等待 {remaining} 秒")
+                            consecutive_failures = 0  # 重置计数，等待冷却期结束
+                            interval = healthy_interval
+                        else:
+                            print(f"🔴 保活：连续 {max_consecutive_failures} 次检测失败，执行强制恢复...")
+                            self._force_recover()
+                            cfg = self._keep_alive_config or {}
+                            try:
+                                result = self.start_node(**cfg)
+                                if result.get("success"):
+                                    self._keep_alive_restart_count += 1
+                                    self._keep_alive_last_restart_at = time.time()
+                                    consecutive_failures = 0
+                                    last_state = None
+                                    print(f"✅ 保活：本地链已强制重启（第 {self._keep_alive_restart_count} 次）")
+                                else:
+                                    print(f"❌ 保活重启失败：{result.get('message', '未知错误')}")
+                            except Exception as e:
+                                print(f"❌ 保活重启异常：{e}")
+                            interval = recovery_interval
 
             except Exception as e:
                 print(f"🔴 保活巡检异常：{e}")
+                interval = recovery_interval
 
-            self._keep_alive_stop_event.wait(check_interval)
+            self._keep_alive_stop_event.wait(interval)
 
         print("🔁 本地链保活巡检线程已退出")
 
@@ -858,7 +1182,7 @@ class LocalChainService:
                 )
                 pids = set()
                 for line in netstat.stdout.splitlines():
-                    if ":8545" in line and "LISTENING" in line:
+                    if f":{RPC_LOCAL_PORT}" in line and "LISTENING" in line:
                         parts = line.split()
                         if parts:
                             pid = parts[-1]
@@ -870,7 +1194,7 @@ class LocalChainService:
                             ["taskkill", "/PID", pid, "/F"],
                             capture_output=True, timeout=5,
                         )
-                        print(f"  已清理端口 8545 占用进程 PID={pid}")
+                        print(f"  已清理端口 {RPC_LOCAL_PORT} 占用进程 PID={pid}")
                     except Exception:
                         pass
             except Exception:

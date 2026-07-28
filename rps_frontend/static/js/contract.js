@@ -4,6 +4,7 @@ const Contract = (function() {
     let provider = null;
     let signer = null;
 
+    // 合约 ABI 定义
     const CHAinRPS_ABI = [
         'function createMatch(uint256 amount, address token) external returns (uint256)',
         'function joinMatch(uint256 gameId) external',
@@ -50,6 +51,7 @@ const Contract = (function() {
         'event TokenSupportUpdated(address indexed token, bool supported)'
     ];
 
+    // ERC20 合约 ABI 定义
     const ERC20_ABI = [
         'function balanceOf(address account) external view returns (uint256)',
         'function allowance(address owner, address spender) external view returns (uint256)',

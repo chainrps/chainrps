@@ -514,22 +514,34 @@ def get_player_stats(address: str) -> Optional[dict]:
 # 初始化默认配置
 def _init_default_config(cursor):
     defaults = [
-        ("fee_rate", "200", "contract", "手续费率（基点，100=1%）", None),
-        ("commit_timeout", "66", "game", "提交哈希超时时间（秒）", None),
-        ("reveal_timeout", "88", "game", "揭晓出拳超时时间（秒）", None),
-        ("supported_tokens", "USDC,USDT", "game", "支持的代币列表", None),
-        ("maintenance_mode", "0", "system", "维护模式开关", None),
-        ("max_bet_amount", "10000", "game", "最大下注金额", None),
-        ("min_bet_amount", "1", "game", "最小下注金额", None),
-        ("official_website", "https://chainrps.io", "system", "官方网站", None),
-        ("official_twitter", "@ChainRPS", "system", "官方 Twitter", None),
-        ("official_discord", "discord.gg/chainrps", "system", "官方 Discord", None),
+        # 合约配置
+        ("fee_rate", "200", "contract", "手续费率（基点，100=1%）"),
+        # 游戏配置
+        ("commit_timeout", "66", "game", "提交哈希超时时间（秒）"),
+        ("reveal_timeout", "88", "game", "揭晓出拳超时时间（秒）"),
+        ("supported_tokens", "USDC,USDT", "game", "支持的代币列表（逗号分隔）"),
+        ("max_bet_amount", "10000", "game", "最大下注金额"),
+        ("min_bet_amount", "1", "game", "最小下注金额"),
+        # 主链配置
+        ("chain_id", "5208888", "chain", "目标区块链网络 Chain ID"),
+        ("network_name", "ChainRPS Local", "chain", "网络显示名称"),
+        ("rpc_url", "http://127.0.0.1:8686", "chain", "RPC 节点 URL"),
+        ("block_explorer", "", "chain", "区块浏览器 URL（可选）"),
+        ("contract_address", "", "chain", "ChainRPS 游戏合约地址"),
+        ("native_symbol", "ETH", "chain", "网络原生代币符号"),
+        ("native_name", "Ether", "chain", "网络原生代币名称"),
+        ("native_decimals", "18", "chain", "原生代币精度"),
+        # 系统配置
+        ("maintenance_mode", "0", "system", "维护模式开关（0=关闭, 1=开启）"),
+        ("official_website", "https://chainrps.io", "system", "官方网站"),
+        ("official_twitter", "@ChainRPS", "system", "官方 Twitter"),
+        ("official_discord", "discord.gg/chainrps", "system", "官方 Discord"),
     ]
     now = datetime.utcnow().isoformat()
-    for key, value, category, desc, updated_by in defaults:
+    for key, value, category, desc in defaults:
         cursor.execute(
             "INSERT OR IGNORE INTO system_config (config_key, config_value, category, description, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            [key, value, category, desc, updated_by, now]
+            [key, value, category, desc, None, now]
         )
 
 
@@ -644,8 +656,14 @@ def batch_set_system_config(items: dict, updated_by: str = None) -> bool:
         cursor = conn.cursor()
         now = datetime.utcnow().isoformat()
         for key, value in items.items():
+            # 使用 UPSERT 语义，仅更新 value/updated_by/updated_at，保留原有 category/description
             cursor.execute(
-                "INSERT OR REPLACE INTO system_config (config_key, config_value, updated_by, updated_at) VALUES (?, ?, ?, ?)",
+                """INSERT INTO system_config (config_key, config_value, updated_by, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(config_key) DO UPDATE SET
+                       config_value = excluded.config_value,
+                       updated_by = excluded.updated_by,
+                       updated_at = excluded.updated_at""",
                 [key, value, updated_by, now]
             )
         conn.commit()

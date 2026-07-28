@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from contextlib import asynccontextmanager
 
-from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL, CHAIN_ID
+from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL, RPC_CHAIN_ID
 from rps_backend.api.routes import router
 from rps_backend.websocket import ws_manager, websocket_endpoint, heartbeat_loop
 from rps_backend.websocket.heartbeat import check_connections
@@ -60,13 +60,13 @@ async def lifespan(app: FastAPI):
         chain_svc.set_keep_alive(
             True,
             deterministic=True,
-            chain_id=CHAIN_ID,
+            chain_id=RPC_CHAIN_ID,
         )
         status = chain_svc.get_node_status()
         if status.get("running"):
             print(f"✅ 本地链服务已就绪 (Chain ID: {status.get('chain_id')})")
         else:
-            print("⚠️  本地链节点未运行，保活机制已启动（将自动尝试连接）")
+            print("ℹ️  本地链节点未运行，保活机制已启动（将自动尝试连接）")
     except Exception as e:
         print(f"⚠️  本地链服务初始化失败: {e}")
 

@@ -4,8 +4,10 @@
 提供合约管理、系统配置、审计日志等管理员功能接口。
 所有接口均需要 JWT 登录认证（通过路由级 dependencies 强制校验）。
 """
+import asyncio
 import json
 import os
+from functools import partial
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Depends
@@ -41,6 +43,13 @@ router = APIRouter(
     tags=["admin"],
     dependencies=[Depends(get_current_admin)],
 )
+
+
+# 将同步阻塞的 local_chain_service 调用放到线程池执行，避免卡死事件循环
+async def _run_chain_async(func, *args, **kwargs):
+    """在线程池中执行同步的 LocalChainService 方法"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
 # 验证管理员权限
@@ -167,10 +176,10 @@ async def get_compile_artifacts(request: Request):
                     abi = c["abi"]
                 break
 
-    # 4. 若仍无 bytecode，尝试自动编译
+    # 4. 若仍无 bytecode，尝试自动编译（放到线程池，避免下载/编译阻塞事件循环）
     if not bytecode:
         try:
-            bytecode, abi = _try_auto_compile(project_root) or (None, None)
+            bytecode, abi = await _run_chain_async(_try_auto_compile, project_root) or (None, None)
         except Exception as e:
             print(f"⚠️  自动编译失败: {e}")
 
@@ -229,10 +238,10 @@ async def get_mock_erc20_artifacts(request: Request):
             except Exception:
                 pass #别删除，用于人工代码审核 便利
 
-    # 3. 尝试自动编译 MockERC20
+    # 3. 尝试自动编译 MockERC20（放到线程池，避免下载/编译阻塞事件循环）
     if not abi or not bytecode:
         try:
-            result = _try_auto_compile_mock_erc20(project_root)
+            result = await _run_chain_async(_try_auto_compile_mock_erc20, project_root)
             if result:
                 bytecode, abi = result
         except Exception as e:
@@ -533,13 +542,25 @@ async def reset_config(body: dict, request: Request):
 
     # 默认配置定义（与 database._init_default_config 保持一致）
     DEFAULT_CONFIG = {
+        # 合约配置
         "fee_rate": ("200", "contract", "手续费率（基点，100=1%）"),
+        # 游戏配置
         "commit_timeout": ("66", "game", "提交哈希超时时间（秒）"),
         "reveal_timeout": ("88", "game", "揭晓出拳超时时间（秒）"),
-        "supported_tokens": ("USDC,USDT", "game", "支持的代币列表"),
-        "maintenance_mode": ("0", "system", "维护模式开关"),
+        "supported_tokens": ("USDC,USDT", "game", "支持的代币列表（逗号分隔）"),
         "max_bet_amount": ("10000", "game", "最大下注金额"),
         "min_bet_amount": ("1", "game", "最小下注金额"),
+        # 主链配置
+        "chain_id": ("5208888", "chain", "目标区块链网络 Chain ID"),
+        "network_name": ("ChainRPS Local", "chain", "网络显示名称"),
+        "rpc_url": ("http://127.0.0.1:8686", "chain", "RPC 节点 URL"),
+        "block_explorer": ("", "chain", "区块浏览器 URL（可选）"),
+        "contract_address": ("", "chain", "ChainRPS 游戏合约地址"),
+        "native_symbol": ("ETH", "chain", "网络原生代币符号"),
+        "native_name": ("Ether", "chain", "网络原生代币名称"),
+        "native_decimals": ("18", "chain", "原生代币精度"),
+        # 系统配置
+        "maintenance_mode": ("0", "system", "维护模式开关（0=关闭, 1=开启）"),
         "official_website": ("https://chainrps.io", "system", "官方网站"),
         "official_twitter": ("@ChainRPS", "system", "官方 Twitter"),
         "official_discord": ("discord.gg/chainrps", "system", "官方 Discord"),
@@ -647,7 +668,9 @@ async def get_local_chain_status():
     """获取本地链状态（公开接口）"""
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
-    return service.get_node_status()
+    # get_node_status 内部会调用 is_running() 进行 HTTP 健康检测，可能阻塞数秒，
+    # 放到线程池执行避免卡死事件循环
+    return await _run_chain_async(service.get_node_status)
 
 
 # 启动本地链
@@ -656,12 +679,13 @@ async def start_local_chain(request: Request):
     """启动本地链（开发环境功能，无需权限）
 
     支持可选的自定义配置，全部参数均可省略使用默认值：
-    - host: 监听地址，默认 127.0.0.1
-    - port: 端口，默认 8545
-    - chain_id: 链 ID，默认 1337
-    - accounts_count: 生成账户数，默认 10
-    - default_balance: 每个账户默认余额，默认 1000
-    - symbol: 原生代币符号，默认 ETH
+    - chain_type: 链类型，可选 "ganache" | "hardhat"，默认 ganache
+    - host: 监听地址，默认 {RPC_LOCAL_HOST}
+    - port: 端口，默认 {RPC_LOCAL_PORT}
+    - chain_id: 链 ID，默认 {CHAIN_ID}（避免与 GoChain 冲突，防止 MetaMask 误识别）
+    - accounts_count: 生成账户数，默认 {DEFAULT_ACCOUNT_COUNT}
+    - default_balance: 每个账户默认余额，默认 {DEFAULT_BALANCE}
+    - symbol: 原生代币符号，默认 {RPC_SYMBOL}
     - deterministic: 是否使用确定性助记词，默认 true
     """
     try:
@@ -674,6 +698,8 @@ async def start_local_chain(request: Request):
 
     # 解析可选参数，缺省时使用 start_node 的内置默认值
     kwargs = {}
+    if "chain_type" in body and body["chain_type"]:
+        kwargs["chain_type"] = str(body["chain_type"]).strip().lower()
     if "host" in body and body["host"]:
         kwargs["host"] = str(body["host"]).strip()
     if "port" in body and body["port"]:
@@ -689,7 +715,7 @@ async def start_local_chain(request: Request):
     if "deterministic" in body:
         kwargs["deterministic"] = bool(body["deterministic"])
 
-    result = service.start_node(**kwargs)
+    result = await _run_chain_async(service.start_node, **kwargs)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "启动失败"))
     return result
@@ -701,7 +727,7 @@ async def stop_local_chain():
     """停止本地链（开发环境功能，无需权限）"""
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
-    result = service.stop_node()
+    result = await _run_chain_async(service.stop_node)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "停止失败"))
     return result
@@ -725,6 +751,7 @@ async def set_keep_alive(request: Request):
     开启保活后，如果节点意外退出，后台巡检会自动重启。
     请求体：
     - enabled: bool 是否开启保活
+    - chain_type: 链类型，可选 "ganache" | "hardhat"，默认 ganache
     - 其余参数同 start_node（host, port, chain_id 等，可选，用于首次启动或重启时使用）
     """
     try:
@@ -738,9 +765,11 @@ async def set_keep_alive(request: Request):
     service = get_local_chain_service()
 
     kwargs = {}
-    for key in ["host", "port", "chain_id", "accounts_count", "default_balance", "symbol", "deterministic"]:
+    for key in ["chain_type", "host", "port", "chain_id", "accounts_count", "default_balance", "symbol", "deterministic"]:
         if key in body and body[key] is not None:
-            if key in ("port", "chain_id", "accounts_count"):
+            if key == "chain_type":
+                kwargs[key] = str(body[key]).strip().lower()
+            elif key in ("port", "chain_id", "accounts_count"):
                 kwargs[key] = int(body[key])
             elif key == "default_balance":
                 kwargs[key] = float(body[key])
@@ -749,7 +778,7 @@ async def set_keep_alive(request: Request):
             else:
                 kwargs[key] = str(body[key])
 
-    result = service.set_keep_alive(enabled, **kwargs)
+    result = await _run_chain_async(service.set_keep_alive, enabled, **kwargs)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "操作失败"))
     return result
@@ -761,9 +790,13 @@ async def get_local_chain_accounts():
     """获取本地链账户列表（含余额，开发环境功能）"""
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
-    if not service.is_running():
-        raise HTTPException(status_code=400, detail="本地链未运行")
-    return {"accounts": service.get_accounts()}
+    # is_running() 和 get_accounts() 都会进行 RPC 调用，可能阻塞，放到线程池执行
+    def _get_accounts():
+        if not service.is_running():
+            return []
+        return service.get_accounts()
+    accounts = await _run_chain_async(_get_accounts)
+    return {"accounts": accounts}
 
 
 # 从本地链转账 ETH
@@ -776,16 +809,20 @@ async def send_eth_from_local_chain(request: Request):
     amount = body.get("amount", 1.0)
 
     if not to_address:
-        raise HTTPException(status_code=400, detail="接收地址必填")
+        return {"success": False, "message": "接收地址必填"}
 
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
-    if not service.is_running():
-        raise HTTPException(status_code=400, detail="本地链未运行")
 
-    result = service.send_eth(from_index, to_address, float(amount))
+    # 将 is_running 检查与 send_eth 一并放到线程池，避免阻塞事件循环
+    def _do_send():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        return service.send_eth(from_index, to_address, float(amount))
+
+    result = await _run_chain_async(_do_send)
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("message", "转账失败"))
+        return {"success": False, "message": result.get("message", "转账失败")}
     return result
 
 
@@ -795,9 +832,13 @@ async def get_local_chain_tokens():
     """获取本地链已部署的测试代币列表（开发环境功能）"""
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
-    if not service.is_running():
-        raise HTTPException(status_code=400, detail="本地链未运行")
-    return {"tokens": service.get_tokens()}
+    # is_running() 会进行 HTTP 健康检测，可能阻塞，放到线程池执行
+    def _get_tokens():
+        if not service.is_running():
+            return []
+        return service.get_tokens()
+    tokens = await _run_chain_async(_get_tokens)
+    return {"tokens": tokens}
 
 
 # 部署测试代币
@@ -813,18 +854,22 @@ async def deploy_local_token(request: Request):
 
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
-    if not service.is_running():
-        raise HTTPException(status_code=400, detail="本地链未运行")
 
-    result = service.deploy_mock_erc20(
-        from_index=from_index,
-        name=name,
-        symbol=symbol,
-        decimals=decimals,
-        initial_supply=initial_supply,
-    )
+    # 部署合约涉及多次 RPC 调用和等待交易确认，必须放到线程池
+    def _do_deploy():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        return service.deploy_mock_erc20(
+            from_index=from_index,
+            name=name,
+            symbol=symbol,
+            decimals=decimals,
+            initial_supply=initial_supply,
+        )
+
+    result = await _run_chain_async(_do_deploy)
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("message", "部署失败"))
+        return {"success": False, "message": result.get("message", "部署失败")}
     return result
 
 
@@ -839,17 +884,115 @@ async def mint_local_token(request: Request):
     from_index = int(body.get("from_index", 0))
 
     if not token_symbol or not to_address:
-        raise HTTPException(status_code=400, detail="代币符号和接收地址必填")
+        return {"success": False, "message": "代币符号和接收地址必填"}
 
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
-    if not service.is_running():
-        raise HTTPException(status_code=400, detail="本地链未运行")
 
-    result = service.mint_tokens(token_symbol, to_address, float(amount), from_index)
+    # Mint 涉及多次 RPC 调用和等待交易确认，必须放到线程池
+    def _do_mint():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        return service.mint_tokens(token_symbol, to_address, float(amount), from_index)
+
+    result = await _run_chain_async(_do_mint)
     if not result.get("success"):
-        raise HTTPException(status_code=500, detail=result.get("message", "Mint 失败"))
+        return {"success": False, "message": result.get("message", "Mint 失败")}
     return result
+
+
+# ==================== 本地链浏览器 ====================
+
+# 统一查询接口（自动识别区块号/交易哈希/地址）
+@router.get("/local-chain/explorer/query/{query}")
+async def explorer_query(query: str):
+    """本地链浏览器统一查询接口
+
+    自动识别查询类型：
+    - 纯数字 → 按区块号查询区块
+    - 0x开头 + 64位十六进制 → 按交易哈希查询交易
+    - 0x开头 + 40位十六进制 → 按地址查询余额
+    """
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    q = query.strip()
+    if not q:
+        return {"success": False, "message": "查询内容为空", "type": None, "data": None}
+
+    # 所有 RPC 调用都放到线程池，避免阻塞事件循环
+    def _do_query():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行", "type": None, "data": None}
+
+        # 交易哈希：0x + 64 hex
+        if q.startswith("0x") and len(q) == 66:
+            data = service.get_transaction(q)
+            if data:
+                return {"success": True, "type": "transaction", "data": data}
+            return {"success": False, "message": "未找到该交易", "type": "transaction", "data": None}
+
+        # 地址：0x + 40 hex
+        if q.startswith("0x") and len(q) == 42:
+            data = service.get_address_info(q)
+            if data:
+                return {"success": True, "type": "address", "data": data}
+            return {"success": False, "message": "地址无效或查询失败", "type": "address", "data": None}
+
+        # 区块号：纯数字
+        if q.isdigit():
+            block_num = int(q)
+            data = service.get_block(block_num)
+            if data:
+                return {"success": True, "type": "block", "data": data}
+            return {"success": False, "message": "未找到该区块", "type": "block", "data": None}
+
+        return {"success": False, "message": "无法识别查询类型（支持区块号、交易哈希、钱包地址）", "type": None, "data": None}
+
+    return await _run_chain_async(_do_query)
+
+
+# 查询最新区块信息
+@router.get("/local-chain/explorer/latest-block")
+async def explorer_latest_block():
+    """获取本地链最新区块号和区块信息"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    # RPC 调用放到线程池执行
+    def _do_latest():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行", "block_number": None}
+        block_num = service.get_latest_block_number()
+        if block_num is None:
+            return {"success": False, "message": "查询失败", "block_number": None}
+        block = service.get_block(block_num)
+        return {"success": True, "block_number": block_num, "block": block}
+
+    return await _run_chain_async(_do_latest)
+
+
+# 查询地址的交易记录
+@router.get("/local-chain/explorer/address/{address}/transactions")
+async def explorer_address_transactions(address: str, scan_blocks: int = 100, limit: int = 50):
+    """查询本地链上指定地址的交易记录（扫描最近 N 个区块）"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    # 限制扫描范围，避免性能问题：默认 100，最大 500
+    scan_blocks = min(max(scan_blocks, 10), 500)
+    limit = min(max(limit, 1), 200)
+
+    # 扫描区块是耗时的 RPC 操作，必须放到线程池执行
+    def _do_scan():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行", "transactions": []}
+        data = service.get_address_transactions(address, scan_blocks, limit)
+        if data is None:
+            return {"success": False, "message": "查询失败", "transactions": []}
+        return {"success": True, **data}
+
+    return await _run_chain_async(_do_scan)
 
 
 # ==================== Redis 管理 ====================
@@ -861,7 +1004,8 @@ async def get_redis_status(request: Request):
     _verify_admin(None, request)
     from rps_backend.service.redis_admin_service import get_redis_admin_service
     service = get_redis_admin_service()
-    return service.get_status()
+    # get_status 内部会调用 redis ping()，可能阻塞，放到线程池
+    return await _run_chain_async(service.get_status)
 
 
 # 启动 Redis
@@ -871,7 +1015,8 @@ async def start_redis(request: Request):
     _verify_admin(None, request)
     from rps_backend.service.redis_admin_service import get_redis_admin_service
     service = get_redis_admin_service()
-    result = service.start_node()
+    # start_node 内部有 subprocess + time.sleep 循环，必须放到线程池
+    result = await _run_chain_async(service.start_node)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "启动失败"))
     return result
@@ -884,7 +1029,8 @@ async def stop_redis(request: Request):
     _verify_admin(None, request)
     from rps_backend.service.redis_admin_service import get_redis_admin_service
     service = get_redis_admin_service()
-    result = service.stop_node()
+    # stop_node 内部有 subprocess + time.sleep，必须放到线程池
+    result = await _run_chain_async(service.stop_node)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "停止失败"))
     return result
@@ -897,7 +1043,7 @@ async def get_redis_config(request: Request):
     _verify_admin(None, request)
     from rps_backend.service.redis_admin_service import get_redis_admin_service
     service = get_redis_admin_service()
-    result = service.get_config()
+    result = await _run_chain_async(service.get_config)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "获取配置失败"))
     return result
@@ -915,7 +1061,8 @@ async def get_redis_keys(
     _verify_admin(None, request)
     from rps_backend.service.redis_admin_service import get_redis_admin_service
     service = get_redis_admin_service()
-    result = service.get_keys(pattern=pattern, db=db, limit=limit)
+    # Redis KEYS 命令在大库上会阻塞，放到线程池
+    result = await _run_chain_async(service.get_keys, pattern=pattern, db=db, limit=limit)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "获取键列表失败"))
     return result
@@ -934,7 +1081,7 @@ async def flush_redis_db(request: Request):
 
     from rps_backend.service.redis_admin_service import get_redis_admin_service
     service = get_redis_admin_service()
-    result = service.flush_db(db=db)
+    result = await _run_chain_async(service.flush_db, db=db)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "清空失败"))
     return result
@@ -952,7 +1099,7 @@ async def delete_redis_key(request: Request):
 
     from rps_backend.service.redis_admin_service import get_redis_admin_service
     service = get_redis_admin_service()
-    result = service.delete_key(key)
+    result = await _run_chain_async(service.delete_key, key)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "删除失败"))
     return result

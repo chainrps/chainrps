@@ -21,9 +21,30 @@
 import asyncio
 import json
 import os
+from functools import partial
 from typing import List, Optional
 
 from rps_backend.config import CONTRACT_ADDRESS, RPC_URL
+
+
+# RPC 调用超时配置（避免 HTTPProvider 默认无超时导致事件循环卡死）
+_RPC_TIMEOUT = 15        # 连接超时（秒）
+_RPC_READ_TIMEOUT = 30   # 读取超时（秒）
+
+
+def _create_web3_with_timeout(rpc_url: str = RPC_URL):
+    """创建带超时配置的 Web3 实例，避免 RPC 节点无响应时永久阻塞"""
+    from web3 import Web3
+    return Web3(Web3.HTTPProvider(
+        rpc_url,
+        request_kwargs={"timeout": (_RPC_TIMEOUT, _RPC_READ_TIMEOUT)},
+    ))
+
+
+async def _run_sync(func, *args, **kwargs):
+    """将同步的 web3 调用放到线程池执行，避免阻塞事件循环"""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
 # ==================== 合约 ABI 加载 ====================
@@ -93,10 +114,11 @@ class ContractService:
                 print(f"⚠️  无效的合约地址格式: {self._contract_address}")
                 return
 
-            # 验证 RPC 连接
-            self.w3 = Web3(Web3.HTTPProvider(RPC_URL))
+            # 验证 RPC 连接（使用带超时的 provider，避免永久阻塞）
+            self.w3 = _create_web3_with_timeout()
             if not self.w3.is_connected():
-                print(f"⚠️  无法连接到 RPC 节点: {RPC_URL}")
+                print(f"ℹ️  无法连接到 RPC 节点: {RPC_URL}，正在自动启动本地链...")
+                self._auto_start_local_chain()
                 self.w3 = None
                 return
 
@@ -111,6 +133,39 @@ class ContractService:
             print(f"⚠️  Web3 初始化失败: {e}")
             self.w3 = None
             self.contract = None
+
+    # 自动启动本地链节点
+    def _auto_start_local_chain(self):
+        """当 RPC 不可用时自动启动本地链节点"""
+        try:
+            from rps_backend.service.local_chain_service import get_local_chain_service
+            from rps_backend.config import RPC_CHAIN_ID
+            import time
+
+            chain_svc = get_local_chain_service()
+            if chain_svc.is_running():
+                print("ℹ️  本地链已在运行")
+                return
+
+            print("ℹ️  正在启动本地链节点...")
+            result = chain_svc.start_node(
+                deterministic=True,
+                chain_id=RPC_CHAIN_ID,
+            )
+
+            if result.get("success"):
+                print("✅ 本地链启动成功，等待就绪...")
+                for _ in range(10):
+                    time.sleep(1)
+                    if chain_svc.is_running():
+                        print("✅ 本地链已就绪")
+                        break
+                else:
+                    print("⚠️  本地链启动超时，请稍后检查")
+            else:
+                print(f"⚠️  本地链启动失败: {result.get('message', '未知错误')}")
+        except Exception as e:
+            print(f"⚠️  自动启动本地链异常: {e}")
 
     # 从数据库加载合约地址
     def _load_contract_from_db(self) -> Optional[str]:
@@ -155,9 +210,10 @@ class ContractService:
             self._contract_address = new_address
 
             if not self.w3:
-                self.w3 = Web3(Web3.HTTPProvider(RPC_URL))
+                self.w3 = _create_web3_with_timeout()
                 if not self.w3.is_connected():
-                    print(f"⚠️  无法连接到 RPC 节点: {RPC_URL}")
+                    print(f"ℹ️  无法连接到 RPC 节点: {RPC_URL}，正在自动启动本地链...")
+                    self._auto_start_local_chain()
                     self.w3 = None
                     return False
 
@@ -165,7 +221,8 @@ class ContractService:
                 address=new_address,
                 abi=CONTRACT_ABI,
             )
-            self._last_block = self.w3.eth.block_number
+            # 同步 web3 调用放到线程池，避免阻塞事件循环
+            self._last_block = await _run_sync(lambda: self.w3.eth.block_number)
 
             print(f"✅ 合约地址已更新: {new_address[:10]}..., 链 ID: {self.w3.eth.chain_id}")
 
@@ -214,13 +271,15 @@ class ContractService:
 
         通过轮询合约事件日志实现事件订阅。
         每 5 秒拉取一次新增区块中的合约事件。
+        所有 web3 同步调用都通过线程池执行，避免阻塞事件循环。
         """
         poll_interval = 5  # 轮询间隔（秒）
 
         try:
             while self.listening:
                 try:
-                    current_block = self.w3.eth.block_number
+                    # 同步 RPC 调用放到线程池，避免阻塞事件循环
+                    current_block = await _run_sync(lambda: self.w3.eth.block_number)
 
                     # 增量同步：从上次处理的区块+1 到当前区块
                     from_block = self._last_block + 1
@@ -269,8 +328,10 @@ class ContractService:
                 if event_obj is None:
                     continue
 
-                # 查询事件日志
-                logs = event_obj.get_logs(from_block=from_block, to_block=to_block)
+                # 查询事件日志（同步 RPC 调用放到线程池，避免阻塞事件循环）
+                logs = await _run_sync(
+                    event_obj.get_logs, from_block=from_block, to_block=to_block
+                )
 
                 for log in logs:
                     try:
@@ -575,8 +636,10 @@ class ContractService:
             return []
 
         try:
-            # 查询玩家参与的所有对局 ID
-            game_ids = self.contract.functions.getPlayerGames(address).call()
+            # 同步 RPC 调用放到线程池，避免阻塞事件循环
+            game_ids = await _run_sync(
+                self.contract.functions.getPlayerGames(address).call
+            )
 
             # 分页
             total = len(game_ids)
@@ -587,8 +650,10 @@ class ContractService:
             results = []
             for gid in page_ids:
                 try:
-                    game_data = self.contract.functions.getGame(gid).call()
-                    
+                    game_data = await _run_sync(
+                        self.contract.functions.getGame(gid).call
+                    )
+
                     token_address = str(game_data[3]).lower()
                     if token_address == "0x0000000000000000000000000000000000000000":
                         token_symbol = "ETH"
@@ -596,7 +661,7 @@ class ContractService:
                     else:
                         token_symbol = "USDC"
                         decimals = 6
-                    
+
                     results.append({
                         "chain_game_id": gid,
                         "player1": game_data[0],

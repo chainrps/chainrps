@@ -4,14 +4,19 @@ const CONFIG = {
     _serverIp: null,
     _serverPort: null,
 
+    // 本地链 RPC 端口（统一维护点，修改此处即全局生效）
+    RPC_PORT: 8686,
+    RPC_HOST: '127.0.0.1',
+    RPC_CHAIN_ID: 5208888,
+
     commitTimeout: 66,
     revealTimeout: 88,
 
     networks: {
         localhost: {
-            name: 'Localhost 8545',
-            rpcUrl: 'http://127.0.0.1:8545',
-            chainId: 1337,
+            get name() { return 'Localhost ' + CONFIG.RPC_PORT; },
+            get rpcUrl() { return 'http://' + CONFIG.RPC_HOST + ':' + CONFIG.RPC_PORT; },
+            get chainId() { return CONFIG.RPC_CHAIN_ID; },
             nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
             supportedTokens: [
                 {symbol: 'ETH', name: 'Ether', decimals: 18, address: '0x0000000000000000000000000000000000000000'}
@@ -47,6 +52,20 @@ const CONFIG = {
                 'USDC': '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
                 'USDT': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'
             }
+        },
+        base: {
+            name: 'Base Mainnet',
+            rpcUrl: 'https://mainnet.base.org/',
+            chainId: 8453,
+            nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
+            supportedTokens: [
+                {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'},
+                {symbol: 'ETH', name: 'Ether', decimals: 18, address: '0x0000000000000000000000000000000000000000'}
+            ],
+            tokenAddresses: {
+                'USDC': '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+                'ETH': '0x0000000000000000000000000000000000000000'
+            }
         }
     },
 
@@ -63,7 +82,7 @@ const CONFIG = {
 
     enableDebugMode: true,
     debugWalletAddress: '0x1234567890abcdef1234567890abcdef12345678',
-    debugBalance: 1000,
+    debugBalance: 100000,      // 每个账户的默认原生代币余额
 
     // 根据链ID获取网络配置
     getNetwork(chainId) {
@@ -98,6 +117,21 @@ const CONFIG = {
     // 获取当前网络的 RPC 地址
     getRpcUrl() {
         return this.getCurrentNetwork().rpcUrl;
+    },
+
+    // 获取本地链 RPC 端口
+    getLocalRpcPort() {
+        return this.RPC_PORT;
+    },
+
+    // 获取本地链 RPC URL
+    getLocalRpcUrl() {
+        return 'http://' + this.RPC_HOST + ':' + this.RPC_PORT;
+    },
+
+    // 获取本地链 Chain ID
+    getLocalChainId() {
+        return this.RPC_CHAIN_ID;
     },
 
     getChainId() {

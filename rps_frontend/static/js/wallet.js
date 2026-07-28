@@ -181,7 +181,7 @@ const Wallet = (function() {
         isDebugMode = true;
         currentAddress = CONFIG.debugWalletAddress;
         walletType = 'debug';
-        currentChainId = CONFIG.getChainId ? CONFIG.getChainId() : 31337;
+        currentChainId = CONFIG.getChainId ? CONFIG.getChainId() : 5208888;
 
         emit('accountChanged', currentAddress);
         emit('chainChanged', currentChainId);
@@ -527,6 +527,12 @@ const Wallet = (function() {
         }
 
         const hexChainId = '0x' + chainConfig.chainId.toString(16);
+        const rpcUrl = (chainConfig.rpcUrls && chainConfig.rpcUrls[0]) || '';
+        const isLocalHttp = rpcUrl.startsWith('http://') && (
+            rpcUrl.includes('127.0.0.1') ||
+            rpcUrl.includes('localhost') ||
+            rpcUrl.includes('0.0.0.0')
+        );
 
         const params = {
             chainId: hexChainId,
@@ -543,6 +549,51 @@ const Wallet = (function() {
             params.blockExplorerUrls = chainConfig.blockExplorerUrls;
         }
 
+        if (isLocalHttp) {
+            console.log('本地链 HTTP RPC  detected, 跳过 wallet_addEthereumChain，提示用户手动添加');
+            const displayParams = {
+                chainId: chainConfig.chainId,
+                chainIdHex: hexChainId,
+                chainName: params.chainName,
+                rpcUrl: rpcUrl,
+                nativeCurrency: params.nativeCurrency,
+                blockExplorerUrls: params.blockExplorerUrls || [],
+            };
+            if (typeof FWUI !== 'undefined' && FWUI && FWUI.Modal) {
+                FWUI.Modal({
+                    title: '添加本地测试网络',
+                    content: `
+                        <div style="line-height:1.8;">
+                            <p>您正在使用本地测试链（HTTP RPC），钱包出于安全考虑不允许通过 <code>wallet_addEthereumChain</code> 添加 HTTP 网络。</p>
+                            <p>请手动在钱包中添加以下网络配置：</p>
+                            <div style="background:#f5f5f5;padding:12px;border-radius:6px;font-family:monospace;font-size:13px;margin:12px 0;">
+                                <div><b>Network Name:</b> ${displayParams.chainName}</div>
+                                <div><b>New RPC URL:</b> ${displayParams.rpcUrl}</div>
+                                <div><b>Chain ID:</b> ${displayParams.chainId} (${displayParams.chainIdHex})</div>
+                                <div><b>Currency Symbol:</b> ${displayParams.nativeCurrency.symbol}</div>
+                                <div><b>Decimals:</b> ${displayParams.nativeCurrency.decimals}</div>
+                            </div>
+                            <p style="color:#888;font-size:12px;">操作路径：钱包 -> 网络 -> 添加自定义网络 -> 填入以上信息</p>
+                        </div>
+                    `,
+                    onConfirm: () => {
+                        FWUI.Toast.success('请在钱包中手动添加网络后刷新页面');
+                    }
+                });
+            } else {
+                alert(
+                    '请手动在钱包中添加以下本地测试网络：\n\n' +
+                    `Network Name: ${displayParams.chainName}\n` +
+                    `RPC URL: ${displayParams.rpcUrl}\n` +
+                    `Chain ID: ${displayParams.chainId} (${displayParams.chainIdHex})\n` +
+                    `Symbol: ${displayParams.nativeCurrency.symbol}\n` +
+                    `Decimals: ${displayParams.nativeCurrency.decimals}\n\n` +
+                    '操作：钱包 -> 网络 -> 添加自定义网络'
+                );
+            }
+            throw new Error('本地链 HTTP RPC 需手动添加到钱包，已显示指引');
+        }
+
         console.log('调用 wallet_addEthereumChain, params:', params);
 
         try {
@@ -551,8 +602,6 @@ const Wallet = (function() {
                 params: [params]
             });
             console.log('wallet_addEthereumChain 返回:', result);
-            // 某些钱包在添加成功后会自动切换，返回 null
-            // 某些钱包需要用户手动确认后切换
             return true;
         } catch (addError) {
             console.error('wallet_addEthereumChain 失败:', addError);
@@ -588,6 +637,17 @@ const Wallet = (function() {
                 } catch (addError) {
                     const addMsg = (addError.message || '').toLowerCase();
                     console.error('switchOrAddChain: 添加网络失败:', addMsg);
+
+                    if (addMsg.indexOf('手动添加') !== -1 || addMsg.indexOf('manual') !== -1) {
+                        try {
+                            await switchChain(chainConfig.chainId);
+                            console.log('switchOrAddChain: 手动添加后切换成功');
+                            return true;
+                        } catch (e2) {
+                            console.log('switchOrAddChain: 尚未添加网络，等待用户手动添加');
+                            return false;
+                        }
+                    }
 
                     // 特殊处理：同 RPC 不同 chain ID
                     // MetaMask 等钱包在添加已存在的 RPC 节点但 chainId 不同时会报错

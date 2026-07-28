@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter
 
 from rps_backend.repository import get_all_system_config, list_contracts, get_system_config_value
-from rps_backend.config import RPC_URL, CHAIN_ID, CONTRACT_ADDRESS
+from rps_backend.config import RPC_URL, RPC_CHAIN_ID, CONTRACT_ADDRESS
 
 router = APIRouter(prefix="/ext", tags=["extension"])
 
@@ -35,7 +35,7 @@ async def get_chain_config():
     db_contract = contracts[0]["address"] if contracts else ""
 
     # 优先从系统配置读取，其次从环境变量/默认配置读取
-    chain_id = int(config_dict.get("chain_id") or CHAIN_ID)
+    chain_id = int(config_dict.get("chain_id") or RPC_CHAIN_ID)
     network_name = config_dict.get("network_name") or _get_default_network_name(chain_id)
     rpc_url = config_dict.get("rpc_url") or RPC_URL
     contract_address = config_dict.get("contract_address") or db_contract or CONTRACT_ADDRESS
@@ -83,7 +83,7 @@ async def get_chain_status():
     contracts = list_contracts(status="active")
     db_contract = contracts[0]["address"] if contracts else ""
 
-    chain_id_cfg = int(config_dict.get("chain_id") or CHAIN_ID)
+    chain_id_cfg = int(config_dict.get("chain_id") or RPC_CHAIN_ID)
     rpc_url = config_dict.get("rpc_url") or RPC_URL
     contract_address = config_dict.get("contract_address") or db_contract or CONTRACT_ADDRESS
 
@@ -145,8 +145,7 @@ def _get_default_network_name(chain_id: int) -> str:
         1: "Ethereum Mainnet",
         137: "Polygon Mainnet",
         80002: "Polygon Amoy",
-        31337: "Hardhat Network",
-        1337: "Localhost 8545",
+        f"{RPC_CHAIN_ID}": "ChainRPS Local",
         56: "BNB Chain",
         42161: "Arbitrum One",
         10: "Optimism",
@@ -161,8 +160,7 @@ def _get_default_native_symbol(chain_id: int) -> str:
         1: "ETH",
         137: "POL",
         80002: "POL",
-        31337: "ETH",
-        1337: "ETH",
+        f"{RPC_CHAIN_ID}": "CRPS",
         56: "BNB",
         42161: "ETH",
         10: "ETH",

@@ -6,7 +6,7 @@
 - 加入房间
 - 准备/取消准备
 - 双方准备后倒计时15秒开始游戏
-- 交易大厅：查看所有已创建的房间
+- 游戏大厅：查看所有已创建的房间
 - 房间超时自动关闭（最长10分钟）
 
 房间状态流转：
@@ -96,7 +96,7 @@ class RoomManager:
         self._player_rooms[creator_lower] = room_id
         redis_client.cache_room_state(room_id, room)
 
-        # 广播房间列表变更，让交易大厅实时刷新
+        # 广播房间列表变更，让游戏大厅实时刷新
         self._broadcast_room_list_changed("room_created", room_id)
 
         return {
@@ -611,10 +611,10 @@ class RoomManager:
         """获取房间信息"""
         return self._rooms.get(room_id)
 
-    # 获取交易大厅房间列表
+    # 获取游戏大厅房间列表
     def get_room_list(self) -> List[dict]:
         """
-        获取交易大厅的房间列表
+        获取游戏大厅的房间列表
 
         返回所有未开始游戏的房间（CREATED 和 JOINED 状态）
         """
@@ -708,7 +708,7 @@ class RoomManager:
 
             return {"success": True, "action": "dissolved", "message": "房间已解散"}
 
-        # player2 退出 → 重置房间为 CREATED 状态，保留在交易大厅
+        # player2 退出 → 重置房间为 CREATED 状态，保留在游戏大厅
         room["player2"] = None
         room["status"] = ROOM_STATUS["CREATED"]
         room["creator_ready"] = False
@@ -748,7 +748,7 @@ class RoomManager:
         """
         广播房间列表变更事件给所有已连接客户端
 
-        交易大厅的客户端收到此事件后，应主动拉取一次房间列表，
+        游戏大厅的客户端收到此事件后，应主动拉取一次房间列表，
         以获取最新状态（新增/消失/状态变化的房间）。
 
         Args:

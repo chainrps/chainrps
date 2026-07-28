@@ -13,15 +13,20 @@ const AdminApp = {
         'localChain': '#/local-chain',
         'redis': '#/redis',
         'config': '#/config',
-        'chainConfig': '#/chain-config',
         'audit': '#/audit',
+        'stageDemo': '#/stage-demo',
     },
+
+    _currentConfigTab: 'backend',
 
     // 初始化管理后台
     init() {
         this.loadTheme();
         this._initSidebar();
         this._initHashRouter();
+        this._initLocalChainDefaults();
+        // 初始化忽略代码触发变更标志
+        this._ignoreKeepAliveChange = false;
         // 优先检查登录状态，未登录则显示登录页，已登录才初始化后台
         this._checkAuthAndInit();
     },
@@ -209,8 +214,12 @@ const AdminApp = {
     _initAfterAuth() {
         this.autoConnectWallet();
         // 根据初始 hash 决定加载哪个 tab，默认 dashboard
-        const startTab = this._tabFromHash() || 'dashboard';
-        this.switchTab(startTab, false);
+        const result = this._tabFromHash();
+        if (result) {
+            this.switchTab(result.tab, false, result.subTab);
+        } else {
+            this.switchTab('dashboard', false);
+        }
     },
 
     // ==================== 侧边栏交互 ====================
@@ -250,9 +259,43 @@ const AdminApp = {
     // 初始化 hash 路由
     _initHashRouter() {
         window.addEventListener('hashchange', () => {
-            const tab = this._tabFromHash();
-            if (tab && tab !== this.currentTab) {
-                this.switchTab(tab, false);
+            const result = this._tabFromHash();
+            if (result && result.tab !== this.currentTab) {
+                this.switchTab(result.tab, false, result.subTab);
+            } else if (result && result.tab === 'config' && result.subTab) {
+                this.switchConfigTab(result.subTab, false);
+            }
+        });
+    },
+
+    // 初始化本地链默认端口配置（统一从 CONFIG 读取）
+    _initLocalChainDefaults() {
+        const port = CONFIG.RPC_PORT;
+        const host = CONFIG.RPC_HOST;
+        const rpcUrl = 'http://' + host + ':' + port;
+
+        // 设置端口输入框默认值和占位符
+        const portEl = document.getElementById('nodeConfigPort');
+        if (portEl) {
+            portEl.value = String(port);
+            portEl.placeholder = String(port);
+        }
+
+        // 设置 RPC URL 输入框占位符
+        const rpcEl = document.getElementById('mainRpcUrl');
+        if (rpcEl) {
+            rpcEl.placeholder = rpcUrl;
+        }
+
+        // 更新网络下拉框中的 Localhost 选项文字
+        document.querySelectorAll('option[value="localhost"]').forEach(el => {
+            const isFilter = el.textContent.includes('全部网络') === false && el.closest('#networkFilter');
+            const isContractModal = el.closest('#modalContractNetwork');
+            const isDeploy = el.closest('#deployNetwork');
+            if (isFilter) {
+                el.textContent = 'Localhost ' + port;
+            } else if (isContractModal || isDeploy) {
+                el.textContent = 'Localhost ' + port + ' (本地测试网)';
             }
         });
     },
@@ -316,7 +359,7 @@ const AdminApp = {
     },
 
     // 切换标签页
-    switchTab(tabName, updateHash) {
+    switchTab(tabName, updateHash, subTab) {
         // updateHash 默认为 true（由用户点击触发时需要更新 URL）
         if (typeof updateHash === 'undefined') updateHash = true;
         this.currentTab = tabName;
@@ -334,16 +377,57 @@ const AdminApp = {
         if (tabName === 'dashboard') this.loadDashboard();
         if (tabName === 'contracts') this.loadContracts();
         if (tabName === 'config') {
+            if (subTab && (subTab === 'backend' || subTab === 'chain')) {
+                this.switchConfigTab(subTab, false);
+            } else {
+                this.switchConfigTab('backend', false);
+            }
             this.loadConfig();
-            this.loadMainChainConfig();
         }
         if (tabName === 'audit') this.loadAuditLogs();
         if (tabName === 'localChain') {
             this._applyNodeConfigToForm();
             this._initKeepAliveToggle();
+            this._initLocalChainFeatureSelector();
             this.refreshNodeStatus();
         }
         if (tabName === 'redis') this.refreshRedisStatus();
+        if (tabName === 'stageDemo') this._renderStageDemo();
+        if (tabName === 'chainExplorer') {
+            // 进入链浏览器页面时自动加载最新区块
+            if (document.getElementById('explorerResult')) {
+                this.explorerQueryLatest();
+            }
+        }
+    },
+
+    // 切换配置页的子 tab（后端配置 / 链上合约配置）
+    switchConfigTab(tabName, updateHash) {
+        if (typeof updateHash === 'undefined') updateHash = true;
+        this._currentConfigTab = tabName;
+
+        document.querySelectorAll('.config-tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.configTab === tabName);
+            if (btn.dataset.configTab === tabName) {
+                btn.style.color = 'var(--text-primary)';
+                btn.style.borderBottomColor = 'var(--primary-color)';
+            } else {
+                btn.style.color = 'var(--text-secondary)';
+                btn.style.borderBottomColor = 'transparent';
+            }
+        });
+
+        const backendPanel = document.getElementById('configPanel-backend');
+        const chainPanel = document.getElementById('configPanel-chain');
+        if (backendPanel) backendPanel.style.display = tabName === 'backend' ? '' : 'none';
+        if (chainPanel) chainPanel.style.display = tabName === 'chain' ? '' : 'none';
+
+        if (updateHash) {
+            const hash = tabName === 'backend' ? '#/config' : '#/config/' + tabName;
+            if (window.location.hash !== hash) {
+                history.replaceState(null, '', hash);
+            }
+        }
     },
 
     // 发起带认证的 API 请求
@@ -365,7 +449,18 @@ const AdminApp = {
             this._showLogin();
             throw new Error('未登录或登录已过期，请重新登录');
         }
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        if (!res.ok) {
+            // 解析后端返回的 detail 字段，展示真实错误信息
+            let detail = '';
+            try {
+                const errBody = await res.json();
+                detail = errBody.detail || errBody.message || '';
+            } catch (_) { /* 忽略解析失败 */ }
+            const err = new Error(detail || `API error: ${res.status}`);
+            err.status = res.status;
+            err.detail = detail;
+            throw err;
+        }
         return res.json();
     },
 
@@ -512,8 +607,7 @@ const AdminApp = {
             1: 'Ethereum Mainnet',
             137: 'Polygon Mainnet',
             80002: 'Polygon Amoy',
-            31337: 'Hardhat Network',
-            1337: 'Localhost 8545',
+            5208888: 'ChainRPS Local',
             56: 'BNB Chain',
             42161: 'Arbitrum One',
             10: 'Optimism',
@@ -744,7 +838,7 @@ const AdminApp = {
             { test: /replacement transaction underpriced/, zh: '替换交易的价格太低' },
             { test: /contract factory.*not defined|bytecode.*not/, zh: '未找到合约编译产物(Bytecode)，请检查后端编译是否成功' },
             { test: /timeout|timed out/, zh: '请求超时，请检查节点是否正常运行' },
-            { test: /connect.*failed|econnrefused|fetch failed/, zh: '无法连接到 RPC 节点，请确认本地链(8545)已启动' },
+            { test: /connect.*failed|econnrefused|fetch failed/, zh: '无法连接到 RPC 节点，请确认本地链(' + CONFIG.RPC_PORT + ')已启动' },
         ];
 
         for (const p of patterns) {
@@ -814,7 +908,7 @@ const AdminApp = {
             const chainId = Number(ethersNetwork.chainId);
             const deployOptions = { gasLimit };
 
-            const isLocalNet = chainId === 31337 || chainId === 1337;
+            const isLocalNet = chainId === 5208888;
 
             // 本地链(Ganache)兼容性处理：
             // Ganache 旧版本不支持 eth_maxPriorityFeePerGas，调用 getFeeData() 会报错
@@ -1370,6 +1464,7 @@ const AdminApp = {
     // 从表单读取配置并保存到本地存储
     _saveNodeConfigFromForm() {
         const config = {};
+        const chain_type = document.getElementById('nodeConfigChainType')?.value;
         const host = document.getElementById('nodeConfigHost')?.value?.trim();
         const port = document.getElementById('nodeConfigPort')?.value?.trim();
         const chain_id = document.getElementById('nodeConfigChainId')?.value?.trim();
@@ -1378,6 +1473,7 @@ const AdminApp = {
         const symbol = document.getElementById('nodeConfigSymbol')?.value?.trim();
         const deterministic = document.getElementById('nodeConfigDeterministic')?.checked;
 
+        if (chain_type != null) config.chain_type = chain_type;
         if (host != null) config.host = host;
         if (port != null) config.port = port;
         if (chain_id != null) config.chain_id = chain_id;
@@ -1404,6 +1500,10 @@ const AdminApp = {
     _applyNodeConfigToForm() {
         const cfg = this._loadNodeConfig();
         if (!cfg) return;
+        if (cfg.chain_type != null) {
+            const el = document.getElementById('nodeConfigChainType');
+            if (el) el.value = cfg.chain_type;
+        }
         if (cfg.host != null) {
             const el = document.getElementById('nodeConfigHost');
             if (el) el.value = cfg.host;
@@ -1434,6 +1534,38 @@ const AdminApp = {
         }
     },
 
+    // ==================== 阶段模拟演示 ====================
+
+    // 渲染阶段演示卡片
+    _renderStageDemo() {
+        const grid = document.getElementById('stageDemoGrid');
+        if (!grid) return;
+
+        const stages = [
+            { mock: 'lobby',        icon: '🏠', title: '游戏大厅',     desc: '大厅房间列表，展示已创建的房间，支持创建/加入房间' },
+            { mock: 'room_wait',    icon: '⏳', title: '房间等待',     desc: '玩家进入房间后的等待界面，显示双方准备状态' },
+            { mock: 'countdown',    icon: '🔢', title: '倒计时',       desc: '双方准备就绪后的倒计时阶段，即将开始对局' },
+            { mock: 'game_commit',  icon: '✊', title: '出拳提交',     desc: '游戏进行中的出拳阶段，可选择石头/剪刀/布' },
+            { mock: 'game_reveal',  icon: '🔓', title: '揭晓出拳',     desc: '双方已提交，等待揭晓出拳结果' },
+            { mock: 'result_win',   icon: '🏆', title: '游戏结果 - 胜利', desc: '对局结束，我方获胜，展示奖金和手续费' },
+            { mock: 'result_lose',  icon: '💔', title: '游戏结果 - 失败', desc: '对局结束，我方失败' },
+            { mock: 'result_draw',  icon: '🤝', title: '游戏结果 - 平局', desc: '对局结束，双方平局退回本金' },
+        ];
+
+        const baseUrl = window.location.origin + '/';
+
+        grid.innerHTML = stages.map(s => `
+            <div class="stage-demo-card" onclick="window.open('${baseUrl}?mock=${s.mock}', '_blank')">
+                <div class="stage-demo-icon">${s.icon}</div>
+                <div class="stage-demo-body">
+                    <div class="stage-demo-title">${s.title}</div>
+                    <div class="stage-demo-desc">${s.desc}</div>
+                </div>
+                <div class="stage-demo-arrow">↗</div>
+            </div>
+        `).join('');
+    },
+
     // 刷新本地节点状态
     async refreshNodeStatus() {
         try {
@@ -1446,13 +1578,32 @@ const AdminApp = {
                     fundToAddr.value = this.adminAddress;
                 }
             }
-            if (status.running) {
+            // 仅在节点运行状态变化时刷新账户和代币列表，避免高频轮询
+            if (status.running && this._lastNodeRunning !== true) {
                 this.refreshAccounts();
                 this.refreshTokenList();
             }
+            this._lastNodeRunning = status.running;
         } catch (e) {
             document.getElementById('nodeStatusText').textContent = '未运行';
             document.getElementById('nodeStatusText').style.color = '#ef4444';
+            const dotEl = document.getElementById('nodeStatusDot');
+            if (dotEl) {
+                dotEl.classList.remove('lc-dot-running');
+                dotEl.classList.add('lc-dot-stopped');
+            }
+            // 失败时也更新保活开关的 sub 文字
+            const sub = document.getElementById('nodeKeepAliveSub');
+            const title = document.getElementById('nodeKeepAliveTitle');
+            const checkbox = document.getElementById('nodeKeepAliveToggle');
+            if (checkbox && checkbox.checked) {
+                if (title) title.textContent = '停止节点';
+                if (sub) sub.textContent = '连接中...';
+            } else {
+                if (title) title.textContent = '开启节点';
+                if (sub) sub.textContent = '节点已停止';
+            }
+            this._lastNodeRunning = false;
         }
     },
 
@@ -1467,52 +1618,113 @@ const AdminApp = {
                 if (this.currentTab === 'localChain') {
                     this.refreshNodeStatus();
                 }
-            }, 5000);
+            }, 15000);
+        }
+    },
+
+    // 立即更新保活开关的 UI 文字（乐观更新）
+    _updateKeepAliveUI(enabled, running) {
+        const title = document.getElementById('nodeKeepAliveTitle');
+        const sub = document.getElementById('nodeKeepAliveSub');
+        const checkbox = document.getElementById('nodeKeepAliveToggle');
+        const toggle = checkbox ? checkbox.closest('.node-keepalive-toggle') : null;
+        if (enabled) {
+            if (title) title.textContent = '停止节点';
+            if (running) {
+                if (sub) sub.textContent = '运行中';
+                if (toggle) {
+                    toggle.classList.remove('keep-alive-error');
+                    toggle.classList.add('keep-alive-active');
+                }
+            } else {
+                if (sub) sub.textContent = '正在启动...';
+                if (toggle) {
+                    toggle.classList.remove('keep-alive-active');
+                    toggle.classList.add('keep-alive-error');
+                }
+            }
+        } else {
+            if (title) title.textContent = '开启节点';
+            if (sub) sub.textContent = running ? '运行中 · 未保活' : '节点已停止';
+            if (toggle) {
+                toggle.classList.remove('keep-alive-active', 'keep-alive-error');
+            }
         }
     },
 
     // 渲染节点状态
     _renderNodeStatus(status) {
         const statusEl = document.getElementById('nodeStatusText');
+        const dotEl = document.getElementById('nodeStatusDot');
         if (status.running) {
             statusEl.textContent = '运行中';
             statusEl.style.color = '#22c55e';
+            if (dotEl) {
+                dotEl.classList.remove('lc-dot-stopped');
+                dotEl.classList.add('lc-dot-running');
+            }
         } else {
             statusEl.textContent = '未运行';
             statusEl.style.color = '#ef4444';
+            if (dotEl) {
+                dotEl.classList.remove('lc-dot-running');
+                dotEl.classList.add('lc-dot-stopped');
+            }
         }
+
+        // 链引擎显示（ganache / hardhat / unknown）
+        const chainType = (status.chain_type || '').toLowerCase();
+        const engineLabel = chainType === 'ganache' ? 'Ganache'
+            : chainType === 'hardhat' ? 'Hardhat'
+            : (status.chain_type || '未知');
+        const engineEl = document.getElementById('nodeEngine');
+        if (engineEl) engineEl.textContent = engineLabel;
+        const engineBadge = document.getElementById('nodeEngineBadge');
+        if (engineBadge) {
+            engineBadge.textContent = engineLabel;
+            engineBadge.classList.toggle('engine-unknown', !chainType);
+        }
+
         document.getElementById('nodeRpcUrl').textContent = status.rpc_url || '-';
         document.getElementById('nodeChainId').textContent = status.chain_id || '-';
         document.getElementById('nodeBlockNumber').textContent = status.block_number != null ? status.block_number.toLocaleString() : '-';
         document.getElementById('nodeGasPrice').textContent = status.gas_price != null ? status.gas_price + ' Gwei' : '-';
         document.getElementById('nodeAccountsCount').textContent = status.accounts_count != null ? status.accounts_count : '-';
+        document.getElementById('nodeSymbol').textContent = status.symbol || '-';
 
-        const keepAliveToggle = document.getElementById('nodeKeepAliveToggle');
-        const keepAliveCheckbox = document.getElementById('nodeKeepAliveCheckbox') ||
-            document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
+        const keepAliveCheckbox = document.getElementById('nodeKeepAliveToggle');
+        const keepAliveToggle = keepAliveCheckbox ? keepAliveCheckbox.closest('.node-keepalive-toggle') : null;
         const keepAliveSub = document.getElementById('nodeKeepAliveSub');
 
         if (keepAliveToggle && keepAliveCheckbox) {
             const keepAlive = !!status.keep_alive;
             if (keepAliveCheckbox.checked !== keepAlive) {
+                // 忽略代码修改触发的 change 事件
+                this._ignoreKeepAliveChange = true;
                 keepAliveCheckbox.checked = keepAlive;
+                this._ignoreKeepAliveChange = false;
             }
+
+            const keepAliveTitle = document.getElementById('nodeKeepAliveTitle');
 
             if (keepAliveToggle.classList) {
                 keepAliveToggle.classList.remove('keep-alive-active', 'keep-alive-error');
                 if (keepAlive) {
+                    if (keepAliveTitle) keepAliveTitle.textContent = '停止节点';
                     if (status.running) {
                         keepAliveToggle.classList.add('keep-alive-active');
                         if (keepAliveSub) {
                             const count = status.keep_alive_restart_count || 0;
-                            keepAliveSub.textContent = count > 0 ? `运行中 · 已重启 ${count} 次` : '运行中 · 保活正常';
+                            const chainType = status.chain_type === 'hardhat' ? 'Hardhat' : 'Ganache';
+                            keepAliveSub.textContent = count > 0 ? `${chainType} · 已重启 ${count} 次` : `${chainType} · 运行中`;
                         }
                     } else {
                         keepAliveToggle.classList.add('keep-alive-error');
-                        if (keepAliveSub) keepAliveSub.textContent = '启动中...';
+                        if (keepAliveSub) keepAliveSub.textContent = '正在启动...';
                     }
                 } else {
-                    if (keepAliveSub) keepAliveSub.textContent = '未开启';
+                    if (keepAliveTitle) keepAliveTitle.textContent = '开启节点';
+                    if (keepAliveSub) keepAliveSub.textContent = status.running ? '运行中 · 未保活' : '节点已停止';
                 }
             }
 
@@ -1522,17 +1734,76 @@ const AdminApp = {
 
     // 初始化保活开关事件
     _initKeepAliveToggle() {
-        const checkbox = document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
+        const checkbox = document.getElementById('nodeKeepAliveToggle');
         if (!checkbox) return;
         if (checkbox._keepAliveBound) return;
         checkbox._keepAliveBound = true;
-        checkbox.addEventListener('change', (e) => this._onKeepAliveToggle(e.target.checked));
+        checkbox.addEventListener('change', (e) => {
+            if (this._ignoreKeepAliveChange) return;
+            this._onKeepAliveToggle(e.target.checked);
+        });
+    },
+
+    // 初始化本地链功能选择下拉框
+    _initLocalChainFeatureSelector() {
+        const selector = document.getElementById('localChainFeatureSelector');
+        if (!selector) return;
+        // 从 localStorage 恢复上次选择的功能
+        let saved = 'accounts';
+        try {
+            saved = localStorage.getItem('rps_local_chain_feature') || 'accounts';
+        } catch (e) { /* ignore */ }
+        if (selector.value !== saved) {
+            selector.value = saved;
+        }
+        // 初始化时仅切换面板显示，不触发数据刷新（refreshNodeStatus 会按需刷新）
+        this.switchLocalChainFeature(selector.value, true);
+    },
+
+    // 切换本地链功能面板显示
+    switchLocalChainFeature(feature, skipRefresh) {
+        const validFeatures = ['accounts', 'fund', 'tokens', 'mint', 'config'];
+        const target = validFeatures.indexOf(feature) >= 0 ? feature : 'accounts';
+
+        // 切换面板 active 状态
+        validFeatures.forEach(f => {
+            const panel = document.getElementById('feature-' + f);
+            if (panel) {
+                panel.classList.toggle('active', f === target);
+            }
+        });
+
+        // 同步下拉框值（防止外部调用时下拉框未更新）
+        const selector = document.getElementById('localChainFeatureSelector');
+        if (selector && selector.value !== target) {
+            selector.value = target;
+        }
+
+        // 持久化选择到 localStorage
+        try {
+            localStorage.setItem('rps_local_chain_feature', target);
+        } catch (e) { /* ignore */ }
+
+        // 切换到对应面板时按需刷新数据（初始化时跳过，避免与 refreshNodeStatus 重复请求）
+        if (skipRefresh) return;
+        if (target === 'accounts') {
+            this.refreshAccounts();
+        } else if (target === 'tokens') {
+            this.refreshTokenList();
+        }
     },
 
     // 保活开关切换处理
     async _onKeepAliveToggle(enabled) {
+        // 乐观更新：点击后立即刷新 UI
+        this._updateKeepAliveUI(enabled, false);
+        this._startNodeStatusAutoRefresh(enabled);
+
         try {
             const payload = { enabled };
+            const chain_type = document.getElementById('nodeConfigChainType')?.value;
+            if (chain_type) payload.chain_type = chain_type;
+
             if (enabled) {
                 const host = document.getElementById('nodeConfigHost')?.value?.trim();
                 const port = document.getElementById('nodeConfigPort')?.value?.trim();
@@ -1552,16 +1823,16 @@ const AdminApp = {
             }
 
             if (enabled) {
-                FWUI.Toast.info('正在启动节点并开启保活...');
+                FWUI.Toast.info('正在启动节点...');
             } else {
-                FWUI.Toast.info('正在关闭保活...');
+                FWUI.Toast.info('正在停止节点...');
             }
 
             const result = await this.apiRequest('/api/admin/local-chain/keep-alive', 'POST', payload);
 
             if (result.success) {
                 if (enabled) {
-                    FWUI.Toast.success('节点保活已开启');
+                    FWUI.Toast.success('节点已启动，保活已开启');
                 } else {
                     FWUI.Toast.success('节点保活已关闭');
                 }
@@ -1569,13 +1840,23 @@ const AdminApp = {
                 this.refreshNodeStatus();
             } else {
                 FWUI.Toast.error(result.message || '操作失败');
-                const checkbox = document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
-                if (checkbox) checkbox.checked = !enabled;
+                const checkbox = document.getElementById('nodeKeepAliveToggle');
+                if (checkbox) {
+                    this._ignoreKeepAliveChange = true;
+                    checkbox.checked = !enabled;
+                    this._ignoreKeepAliveChange = false;
+                }
+                this._updateKeepAliveUI(!enabled, false);
             }
         } catch (e) {
-            FWUI.Toast.error('保活操作失败: ' + (e.message || e));
-            const checkbox = document.getElementById('nodeKeepAliveToggle')?.querySelector('input');
-            if (checkbox) checkbox.checked = !enabled;
+            FWUI.Toast.error('操作失败: ' + (e.message || e));
+            const checkbox = document.getElementById('nodeKeepAliveToggle');
+            if (checkbox) {
+                this._ignoreKeepAliveChange = true;
+                checkbox.checked = !enabled;
+                this._ignoreKeepAliveChange = false;
+            }
+            this._updateKeepAliveUI(!enabled, false);
         }
     },
 
@@ -1586,8 +1867,8 @@ const AdminApp = {
             return;
         }
 
-        const port = (document.getElementById('nodeConfigPort')?.value || '8545').trim();
-        const chainId = (document.getElementById('nodeConfigChainId')?.value || '1337').trim();
+        const port = (document.getElementById('nodeConfigPort')?.value || String(CONFIG.RPC_PORT)).trim();
+        const chainId = (document.getElementById('nodeConfigChainId')?.value || '5208888').trim();
         const symbol = (document.getElementById('nodeConfigSymbol')?.value || 'ETH').trim();
         const host = (document.getElementById('nodeConfigHost')?.value || '127.0.0.1').trim();
 
@@ -1619,6 +1900,36 @@ const AdminApp = {
             }
 
             // 2. 配置的 chain ID 不存在，尝试添加
+            const isLocalHttp = rpcUrl.startsWith('http://') && (
+                rpcUrl.includes('127.0.0.1') ||
+                rpcUrl.includes('localhost') ||
+                rpcUrl.includes('0.0.0.0')
+            );
+
+            if (isLocalHttp) {
+                FWUI.Modal({
+                    title: '添加本地测试网络到钱包',
+                    content: `
+                        <div style="line-height:1.8;">
+                            <p>钱包出于安全考虑不允许通过 <code>wallet_addEthereumChain</code> 添加 HTTP 网络。</p>
+                            <p>请手动在钱包中添加以下网络配置：</p>
+                            <div style="background:#f5f5f5;padding:12px;border-radius:6px;font-family:monospace;font-size:13px;margin:12px 0;">
+                                <div><b>Network Name:</b> Localhost ${port}</div>
+                                <div><b>New RPC URL:</b> ${rpcUrl}</div>
+                                <div><b>Chain ID:</b> ${chainId} (${hexChainId})</div>
+                                <div><b>Currency Symbol:</b> ${symbol}</div>
+                                <div><b>Decimals:</b> 18</div>
+                            </div>
+                            <p style="color:#888;font-size:12px;">操作路径：钱包 -> 网络 -> 添加自定义网络 -> 填入以上信息</p>
+                        </div>
+                    `,
+                    onConfirm: () => {
+                        FWUI.Toast.success('请在钱包中添加网络后，再点击「切换钱包网络」');
+                    }
+                });
+                return;
+            }
+
             try {
                 await window.ethereum.request({
                     method: 'wallet_addEthereumChain',
@@ -1757,10 +2068,14 @@ const AdminApp = {
                 </tr>
             `).join('');
 
-            // 更新充值账户选择下拉框
+            // 更新充值账户选择下拉框（保留当前选择）
+            const preservedValue = fundSelect.value;
             fundSelect.innerHTML = accounts.map(acc => `
                 <option value="${acc.index}">账户 ${acc.index} (${parseFloat(acc.balance_eth).toFixed(2)} ETH)</option>
             `).join('');
+            if (preservedValue && accounts.some(acc => String(acc.index) === preservedValue)) {
+                fundSelect.value = preservedValue;
+            }
         } catch (e) {
             console.warn('加载账户失败:', e);
         }
@@ -1792,6 +2107,13 @@ const AdminApp = {
             return;
         }
 
+        const btn = event?.target;
+        const originalText = btn?.textContent;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '转账中...';
+        }
+
         try {
             FWUI.Toast.info('正在转账...');
             const result = await this.apiRequest('/api/admin/local-chain/send-eth', 'POST', {
@@ -1799,6 +2121,12 @@ const AdminApp = {
                 amount: amount,
                 from_index: fromIndex,
             });
+
+            if (result.success === false) {
+                FWUI.Toast.error(result.message || '转账失败');
+                return;
+            }
+
             const newBal = result.new_balance_eth ? `，当前余额: ${result.new_balance_eth} ETH` : '';
             const txHash = result.tx_hash ? ` (区块 #${result.block_number || '?'})` : '';
             FWUI.Toast.success(`成功发送 ${amount} ETH${newBal}${txHash}`);
@@ -1806,6 +2134,11 @@ const AdminApp = {
             this.refreshNodeStatus();
         } catch (e) {
             FWUI.Toast.error('转账失败: ' + e.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = originalText || `💰 发送 ${result.symbol}`;
+            }
         }
     },
 
@@ -1860,6 +2193,8 @@ const AdminApp = {
 
     // 设置待铸造代币
     setMintToken(symbol) {
+        // 切换到 Mint 面板，提升交互体验
+        this.switchLocalChainFeature('mint');
         document.getElementById('mintTokenSelect').value = symbol;
     },
 
@@ -1893,6 +2228,10 @@ const AdminApp = {
                 initial_supply: supply,
                 from_index: 0,
             });
+            if (result.success === false) {
+                FWUI.Toast.error(result.message || '部署失败');
+                return;
+            }
             FWUI.Toast.success(`${symbol} 部署成功!`);
             document.getElementById('deployLocalTokenModal').classList.remove('show');
             this.refreshTokenList();
@@ -1902,6 +2241,192 @@ const AdminApp = {
             btn.disabled = false;
             btn.textContent = '部署';
         }
+    },
+
+    // ==================== 链浏览器 ====================
+
+    // 链浏览器查询（自动识别类型）
+    async explorerSearch() {
+        const input = document.getElementById('explorerQueryInput');
+        const query = (input?.value || '').trim();
+        const resultEl = document.getElementById('explorerResult');
+
+        if (!query) {
+            FWUI.Toast.warning('请输入查询内容');
+            return;
+        }
+
+        resultEl.innerHTML = '<span style="color: var(--text-secondary);">⏳ 查询中...</span>';
+
+        try {
+            const result = await this.apiRequest('/api/admin/local-chain/explorer/query/' + encodeURIComponent(query));
+
+            if (!result.success) {
+                resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ ${result.message || '查询失败'}</span>`;
+                return;
+            }
+
+            this._renderExplorerResult(result.type, result.data);
+        } catch (e) {
+            resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ 查询失败: ${e.message}</span>`;
+        }
+    },
+
+    // 查询最新区块
+    async explorerQueryLatest() {
+        const resultEl = document.getElementById('explorerResult');
+        resultEl.innerHTML = '<span style="color: var(--text-secondary);">⏳ 查询中...</span>';
+
+        try {
+            const result = await this.apiRequest('/api/admin/local-chain/explorer/latest-block');
+
+            if (!result.success) {
+                resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ ${result.message || '查询失败'}</span>`;
+                return;
+            }
+
+            // 显示最新区块号 + 区块详情
+            const block = result.block;
+            if (!block) {
+                resultEl.innerHTML = `<span style="color: var(--text-secondary);">最新区块号: ${result.block_number}</span>`;
+                return;
+            }
+
+            this._renderExplorerResult('block', block);
+            // 同步填充输入框
+            document.getElementById('explorerQueryInput').value = String(result.block_number);
+        } catch (e) {
+            resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ 查询失败: ${e.message}</span>`;
+        }
+    },
+
+    // 渲染链浏览器查询结果
+    _renderExplorerResult(type, data) {
+        const resultEl = document.getElementById('explorerResult');
+        if (!data) {
+            resultEl.innerHTML = '<span style="color: var(--text-secondary);">无数据</span>';
+            return;
+        }
+
+        const formatTime = (ts) => {
+            if (!ts) return '-';
+            return new Date(ts * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) + ' (UTC+8)';
+        };
+        const shortHash = (h) => h ? h.slice(0, 12) + '...' + h.slice(-8) : '-';
+        const linkStyle = 'color: var(--primary-color); cursor: pointer; text-decoration: underline;';
+
+        if (type === 'block') {
+            const txList = (data.transactions || []).slice(0, 10).map(tx => {
+                const txStr = typeof tx === 'string' ? tx : (tx.hash || String(tx));
+                return `<span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${txStr}')" title="${txStr}">${shortHash(txStr)}</span>`;
+            }).join('、') || '<span style="color: var(--text-secondary);">无交易</span>';
+
+            resultEl.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
+                    <div><strong>区块号:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.number}')">${data.number}</span></div>
+                    <div><strong>区块哈希:</strong> <span title="${data.hash}">${shortHash(data.hash)}</span></div>
+                    <div><strong>时间:</strong> ${formatTime(data.timestamp)}</div>
+                    <div><strong>矿工:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.miner}')" title="${data.miner}">${data.miner ? data.miner.slice(0, 10) + '...' : '-'}</span></div>
+                    <div><strong>交易数:</strong> ${data.tx_count}</div>
+                    <div><strong>Gas 使用:</strong> ${data.gas_used} / ${data.gas_limit}</div>
+                    <div><strong>大小:</strong> ${data.size} bytes</div>
+                </div>
+                <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color);">
+                    <strong>交易列表:</strong> ${txList}
+                    ${data.tx_count > 10 ? `<span style="color: var(--text-secondary);">（仅显示前10笔）</span>` : ''}
+                </div>
+            `;
+        } else if (type === 'transaction') {
+            const statusText = data.status === 1 ? '<span style="color: var(--success-color);">✅ 成功</span>' :
+                               data.status === 0 ? '<span style="color: var(--danger-color);">❌ 失败</span>' : '⏳ 待确认';
+            resultEl.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
+                    <div><strong>交易哈希:</strong> <span title="${data.hash}">${shortHash(data.hash)}</span></div>
+                    <div><strong>状态:</strong> ${statusText}</div>
+                    <div><strong>区块:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.block_number}')">${data.block_number}</span></div>
+                    <div><strong>发送方:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.from}')" title="${data.from}">${data.from ? data.from.slice(0, 10) + '...' : '-'}</span></div>
+                    <div><strong>接收方:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.to}')" title="${data.to}">${data.to ? data.to.slice(0, 10) + '...' : '-'}</span></div>
+                    <div><strong>金额:</strong> ${data.value} ETH</div>
+                    <div><strong>Gas:</strong> ${data.gas} (实际 ${data.gas_used || '-'})</div>
+                    <div><strong>Gas 价格:</strong> ${data.gas_price} gwei</div>
+                    <div><strong>Nonce:</strong> ${data.nonce}</div>
+                    ${data.contract_address ? `<div><strong>合约地址:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.contract_address}')" title="${data.contract_address}">${data.contract_address.slice(0, 10) + '...'}</span> <span style="color: var(--success-color);">📋 合约部署</span></div>` : ''}
+                </div>
+            `;
+        } else if (type === 'address') {
+            resultEl.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
+                    <div><strong>地址:</strong> <span title="${data.address}">${data.address.slice(0, 12) + '...' + data.address.slice(-8)}</span></div>
+                    <div><strong>余额:</strong> <span style="color: var(--success-color); font-weight: 600;">${data.balance} ETH</span></div>
+                    <div><strong>交易数:</strong> ${data.nonce}</div>
+                    <div><strong>类型:</strong> ${data.is_contract ? '📄 合约 (code size: ' + data.code_size + ')' : '👤 普通账户'}</div>
+                </div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-outline" onclick="AdminApp.explorerQueryAddressTxs('${data.address}')" title="扫描最近区块查询该地址的交易记录">📜 查看交易记录</button>
+                </div>
+                <div id="explorerAddressTxs" style="margin-top: 12px;"></div>
+            `;
+        }
+    },
+
+    // 查询地址的交易记录
+    async explorerQueryAddressTxs(address) {
+        const txsContainer = document.getElementById('explorerAddressTxs');
+        if (!txsContainer) return;
+        txsContainer.innerHTML = '<span style="color: var(--text-secondary);">⏳ 正在扫描区块查询交易记录...</span>';
+
+        try {
+            const result = await this.apiRequest('/api/admin/local-chain/explorer/address/' + encodeURIComponent(address) + '/transactions?scan_blocks=100&limit=50');
+
+            if (!result.success) {
+                txsContainer.innerHTML = `<span style="color: var(--danger-color);">❌ ${result.message || '查询失败'}</span>`;
+                return;
+            }
+
+            const txs = result.transactions || [];
+            if (txs.length === 0) {
+                txsContainer.innerHTML = `<span style="color: var(--text-secondary);">📝 最近 ${result.scanned_to_block - result.scanned_from_block + 1} 个区块内未找到该地址的交易记录</span>`;
+                return;
+            }
+
+            const formatTime = (ts) => {
+                if (!ts) return '-';
+                return new Date(ts * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+            };
+            const shortHash = (h) => h ? h.slice(0, 10) + '...' + h.slice(-6) : '-';
+            const linkStyle = 'color: var(--primary-color); cursor: pointer; text-decoration: underline;';
+            const direction = (tx) => tx.from && tx.from.toLowerCase() === address.toLowerCase() ? '发送' : '接收';
+
+            const rows = txs.map(tx => `
+                <tr>
+                    <td><span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${tx.hash}')" title="${tx.hash}">${shortHash(tx.hash)}</span></td>
+                    <td><span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${tx.block_number}')">${tx.block_number}</span></td>
+                    <td>${formatTime(tx.timestamp)}</td>
+                    <td>${direction(tx)} ${tx.from ? tx.from.slice(0, 8) + '...' : '-'}</td>
+                    <td>${tx.to ? tx.to.slice(0, 8) + '...' : '合约创建'}</td>
+                    <td>${tx.value} ETH</td>
+                </tr>
+            `).join('');
+
+            txsContainer.innerHTML = `
+                <div style="margin-bottom: 8px; font-size: 12px; color: var(--text-secondary);">
+                    共 ${result.count} 笔交易（扫描区块 #${result.scanned_from_block} - #${result.scanned_to_block}）
+                    ${result.truncated ? '<span style="color: var(--warning-color);">· 已截断，仅显示前 50 笔</span>' : ''}
+                </div>
+                <table class="data-table" style="font-size: 12px;">
+                    <thead><tr><th>交易哈希</th><th>区块</th><th>时间</th><th>方向/发送方</th><th>接收方</th><th>金额</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        } catch (e) {
+            txsContainer.innerHTML = `<span style="color: var(--danger-color);">❌ 查询失败: ${e.message}</span>`;
+        }
+    },
+
+    // 填充查询框并自动查询
+    _explorerQueryFill(value) {
+        document.getElementById('explorerQueryInput').value = value;
+        this.explorerSearch();
     },
 
     // 铸造本地代币
@@ -1923,6 +2448,10 @@ const AdminApp = {
             return;
         }
 
+        const btn = event?.target;
+        const originalText = btn?.textContent;
+        if (btn) { btn.disabled = true; btn.textContent = 'Mint中...'; }
+
         try {
             FWUI.Toast.info('正在 Mint...');
             const result = await this.apiRequest('/api/admin/local-chain/mint-token', 'POST', {
@@ -1931,9 +2460,15 @@ const AdminApp = {
                 amount,
                 from_index: 0,
             });
+            if (result.success === false) {
+                FWUI.Toast.error(result.message || 'Mint 失败');
+                return;
+            }
             FWUI.Toast.success(result.message || `Mint 成功 ${amount} ${symbol}`);
         } catch (e) {
             FWUI.Toast.error('Mint 失败: ' + e.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = originalText || '铸造'; }
         }
     },
 
@@ -2126,25 +2661,44 @@ const AdminApp = {
             const configs = await this.apiRequest(path);
             const container = document.getElementById('configList');
 
-            if (configs.length === 0) {
-                container.innerHTML = '<div style="padding:40px; text-align:center; color:#475569;">暂无配置项</div>';
+            if (!configs || configs.length === 0) {
+                container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-secondary);">暂无配置项</div>';
                 return;
             }
 
+            // 分类标签颜色映射
+            const categoryBadge = (cat) => {
+                const map = {
+                    'chain':   '<span style="background:#dbeafe; color:#1e40af; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">主链</span>',
+                    'game':    '<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">游戏</span>',
+                    'contract':'<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">合约</span>',
+                    'system':  '<span style="background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">系统</span>',
+                };
+                return map[cat] || `<span style="background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:4px; font-size:11px;">${cat || '未分类'}</span>`;
+            };
+
             container.innerHTML = configs.map(c => `
-                <div class="config-item">
-                    <div>
-                        <div class="config-key">${c.config_key}</div>
-                        <div class="config-desc">${c.description || '-'}</div>
+                <div class="config-item" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border-color);">
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                            ${categoryBadge(c.category)}
+                            <span style="font-family:monospace; font-size:13px; font-weight:600; color:var(--text-primary);">${c.config_key}</span>
+                        </div>
+                        <div style="font-size:12px; color:var(--text-secondary);">${c.description || '-'}</div>
                     </div>
-                    <div class="config-value">
-                        <input type="text" id="config-${c.config_key}" value="${c.config_value}" data-key="${c.config_key}">
-                        <button class="btn btn-primary" style="padding:4px 12px; font-size:12px;" onclick="AdminApp.updateConfig('${c.config_key}')">保存</button>
+                    <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                        <input type="text" id="config-${c.config_key}" value="${c.config_value || ''}" data-key="${c.config_key}"
+                            style="width:${c.config_key === 'contract_address' ? '320px' : '200px'}; padding:6px 10px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-input); color:var(--text-primary); font-family:monospace; font-size:13px;">
+                        <button class="btn btn-primary" style="padding:6px 14px; font-size:12px; white-space:nowrap;" onclick="AdminApp.updateConfig('${c.config_key}')">保存</button>
                     </div>
                 </div>
             `).join('');
         } catch (e) {
             console.error('Failed to load config:', e);
+            const container = document.getElementById('configList');
+            if (container) {
+                container.innerHTML = '<div style="padding:40px; text-align:center; color:#ef4444;">加载失败: ' + e.message + '</div>';
+            }
         }
     },
 
@@ -2154,87 +2708,14 @@ const AdminApp = {
         const value = input.value;
         try {
             await this.apiRequest(`/api/admin/config/${key}`, 'PUT', { value, admin_address: this.adminAddress });
-            FWUI.Toast.success('配置更新成功');
+            FWUI.Toast.success(`配置 ${key} 更新成功`);
             this.loadAuditLogs();
         } catch (e) {
             FWUI.Toast.error('更新失败: ' + e.message);
         }
     },
 
-    // 加载主链配置
-    async loadMainChainConfig() {
-        try {
-            const data = await this.apiRequest('/api/ext/chain-config');
-            if (data && data.success) {
-                const chainIdEl = document.getElementById('mainChainId');
-                const networkNameEl = document.getElementById('mainNetworkName');
-                const rpcUrlEl = document.getElementById('mainRpcUrl');
-                const blockExplorerEl = document.getElementById('mainBlockExplorer');
-                const contractAddrEl = document.getElementById('mainContractAddress');
-                const nativeSymbolEl = document.getElementById('mainNativeSymbol');
-
-                if (chainIdEl) chainIdEl.value = data.chain_id || '';
-                if (networkNameEl) networkNameEl.value = data.network_name || '';
-                if (rpcUrlEl) rpcUrlEl.value = data.rpc_url || '';
-                if (blockExplorerEl) blockExplorerEl.value = data.block_explorer || '';
-                if (contractAddrEl) contractAddrEl.value = data.contract_address || '';
-                if (nativeSymbolEl && data.native_currency) {
-                    nativeSymbolEl.value = data.native_currency.symbol || '';
-                }
-            }
-        } catch (e) {
-            console.error('Failed to load main chain config:', e);
-            FWUI.Toast.error('加载主链配置失败: ' + e.message);
-        }
-    },
-
-    // 保存主链配置
-    async saveMainChainConfig() {
-        try {
-            const chainId = document.getElementById('mainChainId').value.trim();
-            const networkName = document.getElementById('mainNetworkName').value.trim();
-            const rpcUrl = document.getElementById('mainRpcUrl').value.trim();
-            const blockExplorer = document.getElementById('mainBlockExplorer').value.trim();
-            const contractAddress = document.getElementById('mainContractAddress').value.trim();
-            const nativeSymbol = document.getElementById('mainNativeSymbol').value.trim();
-
-            if (!chainId) {
-                FWUI.Toast.error('请输入 Chain ID');
-                return;
-            }
-            if (!rpcUrl) {
-                FWUI.Toast.error('请输入 RPC URL');
-                return;
-            }
-
-            const items = {
-                'chain_id': chainId,
-                'network_name': networkName,
-                'rpc_url': rpcUrl,
-                'block_explorer': blockExplorer,
-                'contract_address': contractAddress,
-                'native_symbol': nativeSymbol,
-            };
-
-            await this.apiRequest('/api/admin/config/batch', 'POST', {
-                items,
-                admin_address: this.adminAddress
-            });
-
-            FWUI.Toast.success('ChainRPS 主链配置保存成功');
-            this.loadAuditLogs();
-
-            // 刷新配置列表
-            if (document.getElementById('configCategory')) {
-                this.loadConfig();
-            }
-        } catch (e) {
-            console.error('Failed to save main chain config:', e);
-            FWUI.Toast.error('保存主链配置失败: ' + e.message);
-        }
-    },
-
-    // 使用当前链作为主链
+    // 使用当前钱包网络 Chain ID 填入配置
     async useCurrentChainAsMain() {
         try {
             if (!window.ethereum) {
@@ -2245,11 +2726,17 @@ const AdminApp = {
             const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
             const chainId = parseInt(chainIdHex, 16);
 
-            document.getElementById('mainChainId').value = chainId;
+            // 直接通过 API 更新 chain_id 配置项
+            await this.apiRequest('/api/admin/config/chain_id', 'PUT', {
+                value: String(chainId),
+                admin_address: this.adminAddress
+            });
 
-            FWUI.Toast.info(`已填入当前网络 Chain ID: ${chainId}，请补充其他信息后保存`);
+            FWUI.Toast.success(`已将 chain_id 更新为当前网络: ${chainId}`);
+            this.loadConfig();
+            this.loadAuditLogs();
         } catch (e) {
-            console.error('Failed to get current chain:', e);
+            console.error('Failed to set current chain:', e);
             FWUI.Toast.error('获取当前网络失败: ' + e.message);
         }
     },
@@ -2321,6 +2808,24 @@ const AdminApp = {
         } catch (e) {
             FWUI.Toast.error('JSON 格式错误: ' + e.message);
         }
+    },
+
+    // 重置配置为默认值
+    resetConfig() {
+        FWUI.Modal.confirm({
+            title: '重置为默认值',
+            content: '此操作将把所有系统配置项恢复为默认值，且不可逆。确定要继续吗？',
+            onOk: async () => {
+                try {
+                    const result = await this.apiRequest('/api/admin/config/reset', 'POST', { admin_address: this.adminAddress });
+                    FWUI.Toast.success(result.message || '配置已重置');
+                    this.loadConfig();
+                    this.loadAuditLogs();
+                } catch (e) {
+                    FWUI.Toast.error('重置失败: ' + e.message);
+                }
+            }
+        });
     },
 
     // 加载审计日志

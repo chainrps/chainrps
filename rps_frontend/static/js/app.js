@@ -30,8 +30,7 @@ const App = (function() {
             1: 'Ethereum Mainnet',
             137: 'Polygon Mainnet',
             80002: 'Polygon Amoy',
-            31337: 'Hardhat Network',
-            1337: 'Localhost 8545',
+            5208888: 'ChainRPS Local',
             56: 'BNB Chain',
             42161: 'Arbitrum One',
             10: 'Optimism',
@@ -71,11 +70,13 @@ const App = (function() {
 
         await autoConnectWallet();
 
-        // 处理 URL 路由
-        handleRoute();
+        // 检查 MOCK 参数（调试用，优先于路由处理）
+        await checkMockParams();
 
-        // 检查 MOCK 参数（调试用）
-        checkMockParams();
+        // 处理 URL 路由（mock 模式下跳过）
+        if (!isMockMode) {
+            handleRoute();
+        }
 
         // 监听 URL 变化
         window.addEventListener('popstate', handleRoute);
@@ -265,6 +266,7 @@ const App = (function() {
 
         if (!mockStage) return;
 
+        isMockMode = true;
         console.log('[MOCK] 检测到 mock 参数:', mockStage);
 
         try {
@@ -283,20 +285,9 @@ const App = (function() {
                 case 'lobby':
                     // 大厅列表 MOCK
                     UI.showStage('stageLobby');
+                    UI.setRoomListView(UI.getPreferredRoomListView());
                     if (data.rooms && Array.isArray(data.rooms)) {
-                        const roomList = document.getElementById('roomList');
-                        if (roomList) {
-                            roomList.innerHTML = data.rooms.map(r => `
-                                <div class="room-card" data-room-id="${r.room_id}">
-                                    <div class="room-info">
-                                        <span class="room-id">#${r.room_id}</span>
-                                        <span class="room-creator">创建者: ${r.creator.substring(0, 10)}...</span>
-                                        <span class="room-bet">下注: ${r.bet_amount} ${r.token}</span>
-                                    </div>
-                                    <button class="btn btn-primary btn-join-room" data-room-id="${r.room_id}">加入</button>
-                                </div>
-                            `).join('');
-                        }
+                        UI.renderRoomList(data.rooms);
                     }
                     FWUI.Toast.success('已进入 MOCK 大厅（共 ' + (data.total || 0) + ' 个房间）');
                     break;
@@ -406,42 +397,29 @@ const App = (function() {
                     const resultType = mockStage === 'result_win' ? 'win' :
                                       mockStage === 'result_lose' ? 'lose' : 'draw';
 
-                    resetGameState();
-                    UI.showStage('stageGame');
-                    UI.setGameId('MOCK-RESULT');
-                    UI.setGameStatus('对局结果（MOCK模式）');
-                    UI.setMyChoice(data.my_choice, true);
-                    UI.setOpponentChoice(data.opponent_choice, true);
-                    UI.setChoiceButtonsEnabled(false);
-                    UI.showRevealButton(false);
-                    UI.showTimeoutButton(false);
-
-                    // 显示结果弹窗
-                    const titleMap = { win: '🎉 你赢了！', lose: '😢 你输了', draw: '🤝 平局' };
-                    const descMap = {
-                        win: `赢得 ${data.prize} ${data.token}（含 ${data.fee} 手续费）`,
-                        lose: '下注金额已扣除',
-                        draw: '本金已退还'
+                    // 使用 stageResult 展示完整的结果界面（含动画）
+                    UI.showStage('stageResult');
+                    const mockResult = {
+                        type: resultType,
+                        myChoice: data.my_choice,
+                        opponentChoice: data.opponent_choice,
                     };
+                    UI.showResult(mockResult);
 
-                    // 尝试用 FWUI.Modal，如果不存在则用 alert
-                    const resultModalEl = document.getElementById('resultModal');
-                    if (resultModalEl && FWUI.Modal) {
-                        try {
-                            const modal = new FWUI.Modal('#resultModal');
-                            const resultTitle = document.getElementById('resultTitle');
-                            const resultDesc = document.getElementById('resultDesc');
-
-                            if (resultTitle) resultTitle.textContent = titleMap[resultType];
-                            if (resultDesc) resultDesc.textContent = descMap[resultType];
-
-                            modal.show();
-                        } catch (e) {
-                            console.warn('[MOCK] 结果弹窗显示失败，使用 Toast 替代:', e);
-                            FWUI.Toast.success(titleMap[resultType] + ' ' + descMap[resultType]);
-                        }
+                    // 填充结果详情
+                    const resultAmount = document.getElementById('resultAmount');
+                    const resultPrize = document.getElementById('resultPrize');
+                    const resultFee = document.getElementById('resultFee');
+                    if (resultAmount) resultAmount.textContent = (data.bet_amount || 100) + ' ' + (data.token || 'USDC');
+                    if (resultType === 'win') {
+                        if (resultPrize) resultPrize.textContent = '+' + (data.prize || '98') + ' ' + (data.token || 'USDC');
+                        if (resultFee) resultFee.textContent = '-' + (data.fee || '2') + ' ' + (data.token || 'USDC');
+                    } else if (resultType === 'lose') {
+                        if (resultPrize) resultPrize.textContent = '-' + (data.bet_amount || 100) + ' ' + (data.token || 'USDC');
+                        if (resultFee) resultFee.textContent = '-';
                     } else {
-                        FWUI.Toast.success(titleMap[resultType] + ' ' + descMap[resultType]);
+                        if (resultPrize) resultPrize.textContent = '0 ' + (data.token || 'USDC');
+                        if (resultFee) resultFee.textContent = '-';
                     }
 
                     console.log('[MOCK] 结果:', resultType, data);
@@ -460,6 +438,8 @@ const App = (function() {
 
     // 处理URL路由
     function handleRoute() {
+        if (isMockMode) return;
+
         const path = window.location.pathname;
         const params = new URLSearchParams(window.location.search);
 
@@ -744,6 +724,136 @@ const App = (function() {
         if (verifyContractBtn) {
             verifyContractBtn.addEventListener('click', verifyContractAddress);
         }
+
+        initNetworkDropdown();
+    }
+
+    let networkDropdownInitialized = false;
+
+    function initNetworkDropdown() {
+        if (networkDropdownInitialized) return;
+        networkDropdownInitialized = true;
+
+        const avatarContainer = document.querySelector('.wallet-avatar-container');
+        const avatar = document.getElementById('walletAvatar');
+        const networkDisplay = document.getElementById('walletNetwork');
+        const dropdown = document.getElementById('networkDropdown');
+
+        const toggleDropdown = (e) => {
+            e.stopPropagation();
+            if (!Wallet.isConnected()) {
+                FWUI.Toast.warning('请先连接钱包');
+                return;
+            }
+            populateNetworkDropdown();
+            dropdown.classList.toggle('hidden');
+        };
+
+        if (avatarContainer) avatarContainer.addEventListener('click', toggleDropdown);
+        else if (avatar) avatar.addEventListener('click', toggleDropdown);
+        if (networkDisplay) networkDisplay.addEventListener('click', toggleDropdown);
+
+        document.addEventListener('click', (e) => {
+            if (!dropdown || dropdown.classList.contains('hidden')) return;
+            if (dropdown.contains(e.target)) return;
+            if (avatarContainer && avatarContainer.contains(e.target)) return;
+            if (avatar && avatar.contains(e.target)) return;
+            if (networkDisplay && networkDisplay.contains(e.target)) return;
+            dropdown.classList.add('hidden');
+        });
+    }
+
+    function populateNetworkDropdown() {
+        const container = document.getElementById('networkDropdownItems');
+        if (!container) return;
+
+        const currentChainId = Wallet.getChainId();
+        const networks = CONFIG.networks || {};
+        const entries = Object.entries(networks);
+
+        const icons = {
+            5208888: '🔧',
+            137: '🟣',
+            80002: '🟣',
+            8453: '🔵',
+        };
+
+        container.innerHTML = '';
+        entries.forEach(([key, net]) => {
+            const chainId = net.chainId;
+            const isActive = chainId === currentChainId;
+            const icon = icons[chainId] || '🔗';
+            const item = document.createElement('div');
+            item.className = 'dropdown-item' + (isActive ? ' active' : '');
+            item.dataset.chainId = chainId;
+            item.innerHTML = `
+                <span class="network-icon">${icon}</span>
+                <span class="network-name">${net.name}</span>
+                <span class="network-chain-id">${chainId}</span>
+            `;
+            item.addEventListener('click', async () => {
+                await switchToNetwork(key, chainId);
+            });
+            container.appendChild(item);
+        });
+    }
+
+    async function switchToNetwork(networkKey, chainId) {
+        const networks = CONFIG.networks || {};
+        const net = networks[networkKey];
+        if (!net) return;
+
+        const dropdown = document.getElementById('networkDropdown');
+        if (dropdown) dropdown.classList.add('hidden');
+
+        const isLocalHttp = net.rpcUrl && net.rpcUrl.startsWith('http://') && (
+            net.rpcUrl.includes('127.0.0.1') ||
+            net.rpcUrl.includes('localhost') ||
+            net.rpcUrl.includes('0.0.0.0')
+        );
+
+        if (isLocalHttp) {
+            FWUI.Modal({
+                title: '切换到本地测试链',
+                content: `
+                    <div style="line-height:1.8;">
+                        <p>正在切换到 <b>${net.name}</b>（HTTP RPC 本地测试链）。</p>
+                        <p>钱包出于安全考虑不允许通过 <code>wallet_addEthereumChain</code> 添加 HTTP 网络。</p>
+                        <p>请手动在钱包中添加以下网络配置：</p>
+                        <div style="background:#f5f5f5;padding:12px;border-radius:6px;font-family:monospace;font-size:13px;margin:12px 0;">
+                            <div><b>Network Name:</b> ${net.name}</div>
+                            <div><b>New RPC URL:</b> ${net.rpcUrl}</div>
+                            <div><b>Chain ID:</b> ${chainId}</div>
+                            <div><b>Currency Symbol:</b> ${net.nativeCurrency.symbol}</div>
+                            <div><b>Decimals:</b> ${net.nativeCurrency.decimals}</div>
+                        </div>
+                        <p style="color:#888;font-size:12px;">操作路径：钱包 -> 网络 -> 添加自定义网络 -> 填入以上信息</p>
+                    </div>
+                `,
+                onConfirm: () => {
+                    FWUI.Toast.success('请在钱包中添加网络后刷新页面');
+                }
+            });
+            return;
+        }
+
+        try {
+            FWUI.Toast.info(`正在切换到 ${net.name}...`);
+            const switched = await Wallet.switchOrAddChain({
+                chainId: chainId,
+                chainName: net.name,
+                rpcUrls: [net.rpcUrl],
+                nativeCurrency: net.nativeCurrency,
+            });
+
+            if (switched) {
+                FWUI.Toast.success(`已切换到 ${net.name}`);
+            } else {
+                FWUI.Toast.warning(`请在钱包中手动添加 ${net.name} 网络后重试`);
+            }
+        } catch (e) {
+            FWUI.Toast.error(`切换网络失败: ${e.message}`);
+        }
     }
 
     // 验证合约地址
@@ -970,7 +1080,12 @@ const App = (function() {
                             nativeCurrency: mainChainConfig.native_currency,
                             blockExplorerUrls: mainChainConfig.block_explorer ? [mainChainConfig.block_explorer] : undefined,
                         });
-                        if (switched && !silentMode) {
+                        if (switched === false) {
+                            if (!silentMode) {
+                                FWUI.Toast.warning(`请先在钱包中手动添加 ${mainChainConfig.network_name} 网络（配置已弹出显示），添加后刷新页面`);
+                            }
+                            isSwitchingChain = false;
+                        } else if (switched && !silentMode) {
                             FWUI.Toast.success(`已切换到 ChainRPS 主链: ${mainChainConfig.network_name}`);
                         }
                     } catch (switchError) {
@@ -1140,6 +1255,7 @@ const App = (function() {
 
     // 进入交易大厅
     async function enterLobby() {
+        if (isMockMode) return;
         UI.showStage('stageLobby');
         UI.setRoomListView(UI.getPreferredRoomListView());
         loadRoomList();
@@ -1147,6 +1263,7 @@ const App = (function() {
         startLobbyRefresh();
     }
 
+    let isMockMode = false;
     let lobbyRefreshInterval = null;
     let lobbyWsConnected = false;
     let roomWsConnected = false;
@@ -1154,7 +1271,7 @@ const App = (function() {
     let roomListLoading = false;
     let roomListTimeout = null;
 
-    // 开始大厅定时刷新
+    // 开始大厅定时刷新（WS 未连接时的降级轮询）
     function startLobbyRefresh() {
         stopLobbyRefresh();
         lobbyRefreshInterval = setInterval(() => {
@@ -1180,11 +1297,28 @@ const App = (function() {
     /**
      * 连接交易大厅 WebSocket，监听房间列表变更事件
      * 收到 room_list_changed 事件后立即拉取最新房间列表
+     * 未连接钱包时使用匿名地址连接，确保大厅实时更新
      */
     function connectLobbySocket() {
-        if (!CONFIG.wsUrl || !Wallet.getAddress()) return;
+        if (!CONFIG.wsUrl) return;
+
+        // 未连接钱包时生成随机匿名地址，避免多用户连接冲突
+        let address = Wallet.getAddress();
+        if (!address) {
+            // 生成随机匿名地址（仅用于 WS 连接标识，不涉及链上操作）
+            const randomHex = Math.floor(Math.random() * 1e16).toString(16).padStart(14, '0');
+            address = '0xanon' + randomHex;
+        }
 
         if (!GameSocket.isConnected()) {
+            // 监听 WS 关闭事件，重置连接状态以便恢复轮询
+            GameSocket.on('close', () => {
+                if (lobbyWsConnected) {
+                    console.log('[Lobby] WebSocket 断开，恢复轮询模式');
+                    lobbyWsConnected = false;
+                }
+            });
+
             // 连接 WebSocket，等待连接成功后再注册事件并刷新列表
             GameSocket.once('open', () => {
                 registerLobbyListeners();
@@ -1194,7 +1328,7 @@ const App = (function() {
                     loadRoomList();
                 }
             });
-            GameSocket.connect(CONFIG.wsUrl, Wallet.getAddress());
+            GameSocket.connect(CONFIG.wsUrl, address);
         } else {
             // 已连接，直接注册事件
             registerLobbyListeners();
@@ -1205,7 +1339,7 @@ const App = (function() {
     function registerLobbyListeners() {
         if (!lobbyWsConnected) {
             lobbyWsConnected = true;
-            
+
             // 房间列表变更：实时刷新
             GameSocket.on('room_list_changed', (data) => {
                 console.log('[Lobby] 收到房间列表变更:', data);

@@ -10,6 +10,7 @@ WebSocket 连接管理器
 """
 import asyncio
 import json
+from functools import partial
 from typing import Dict, Set
 from datetime import datetime
 
@@ -18,6 +19,12 @@ from fastapi import WebSocket
 from rps_backend.models import WSMessage
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.config import WS_PREFIX, REDIS_BROADCAST_CHANNEL
+
+
+async def _run_sync(func, *args, **kwargs):
+    """将同步的 Redis 调用放到线程池执行，避免阻塞事件循环"""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
 # WebSocket连接管理器
@@ -49,7 +56,8 @@ class WebSocketManager:
 
         # 注册到 Redis（用于跨进程通信），连接 ID 使用 WS_PREFIX 前缀
         connection_id = f"{WS_PREFIX}{addr_lower}_{datetime.utcnow().timestamp()}"
-        redis_client.register_ws_connection(addr_lower, connection_id)
+        # 同步 Redis 调用放到线程池，避免阻塞事件循环
+        await _run_sync(redis_client.register_ws_connection, addr_lower, connection_id)
 
         # 发送欢迎消息
         await self.send_to_player(player_address, WSMessage(
@@ -73,8 +81,8 @@ class WebSocketManager:
             if not subscribers:
                 del self.game_subscriptions[game_id]
 
-        # 注销 Redis 中的连接记录
-        redis_client.unregister_ws_connection(addr_lower)
+        # 注销 Redis 中的连接记录（同步 Redis 调用放到线程池）
+        await _run_sync(redis_client.unregister_ws_connection, addr_lower)
 
     # 发送消息给指定玩家
     async def send_to_player(self, player_address: str, message: WSMessage):
@@ -124,8 +132,10 @@ class WebSocketManager:
                             data = json.loads(message['data'])
                             msg_type = data.get('type')
                             msg_data = data.get('data', {})
-                            
-                            print(f"[WS Pub/Sub] 收到消息: {msg_type}, 当前连接数: {len(self.active_connections)}")
+
+                            # heartbeat 类型降低日志级别，避免刷屏
+                            if msg_type != "heartbeat":
+                                print(f"[WS Pub/Sub] 收到消息: {msg_type}, 当前连接数: {len(self.active_connections)}")
                             
                             ws_message = WSMessage(type=msg_type, data=msg_data)
                             # 广播给当前进程的所有连接
@@ -144,17 +154,27 @@ class WebSocketManager:
     # 广播消息给所有玩家
     async def broadcast(self, message: WSMessage):
         """广播消息给所有已连接的玩家（通过 Redis Pub/Sub 实现跨进程）"""
-        print(f"[WS Broadcast] 发送消息类型: {message.type}, 连接数: {len(self.active_connections)}")
-        
+        # heartbeat 类型降低日志级别，避免每 30 秒刷屏
+        if message.type != "heartbeat":
+            print(f"[WS Broadcast] 发送消息类型: {message.type}, 连接数: {len(self.active_connections)}")
+
         # 通过 Redis Pub/Sub 广播到所有进程
-        if not redis_client._memory_mode and redis_client.is_connected():
-            await self._start_pubsub_listener()
-            message_data = {
-                'type': message.type,
-                'data': message.data
-            }
-            redis_client.client.publish(REDIS_BROADCAST_CHANNEL, json.dumps(message_data))
-        
+        # 同步 Redis 调用（is_connected + publish）放到线程池，避免阻塞事件循环
+        if not redis_client._memory_mode:
+            def _publish():
+                if not redis_client.is_connected():
+                    return False
+                message_data = {
+                    'type': message.type,
+                    'data': message.data
+                }
+                redis_client.client.publish(REDIS_BROADCAST_CHANNEL, json.dumps(message_data))
+                return True
+
+            published = await _run_sync(_publish)
+            if published:
+                await self._start_pubsub_listener()
+
         # 同时广播给当前进程的所有连接
         for addr_lower in list(self.active_connections.keys()):
             original_addr = self._original_addresses.get(addr_lower, addr_lower)
