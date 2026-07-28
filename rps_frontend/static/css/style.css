@@ -1762,6 +1762,16 @@ input:checked + .slider:before {
     color: var(--success-color);
 }
 
+.room-status.status-countdown {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.room-status.status-started {
+    background: #dbeafe;
+    color: #2563eb;
+}
+
 .room-card-body {
     margin-bottom: 16px;
 }

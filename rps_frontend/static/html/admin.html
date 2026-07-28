@@ -936,7 +936,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         <option value="">全部网络</option>
                         <option value="localhost">ChainRPS_Sim</option>
                         <option value="amoy">Polygon Amoy</option>
-                        <option value="polygon">Polygon 主网</option>
+                        <option value="polygon">Polygon (主网)</option>
                     </select>
                 </div>
             </div>
@@ -1852,50 +1852,71 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
 
         <!-- 阶段演示页面 -->
         <div id="tab-stageDemo" class="admin-section">
-            <h2 class="section-title">🎮 游戏流程动画演示</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 13px;">
-                自动播放 ChainRPS 完整对局流程：大厅 → 创建/加入房间 → 准备 → 倒计时 → 出拳 → 揭晓 → 结算 →
-                结束。无需连接钱包即可预览。
-            </p>
+            <h2 class="section-title">🎮 演示中心</h2>
 
-            <!-- 阶段进度条 -->
-            <div class="sd-progress-bar" id="sdProgressBar"></div>
+            <div class="config-tab-bar" style="display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border-color);">
+                <button class="config-tab-btn active" data-demo-tab="cards" onclick="AdminApp.switchDemoTab('cards')" style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
+                    🎴 阶段模拟卡片
+                </button>
+                <button class="config-tab-btn" data-demo-tab="animation" onclick="AdminApp.switchDemoTab('animation')" style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
+                    🎬 游戏流程动画演示
+                </button>
+            </div>
 
-            <!-- 演示舞台 -->
-            <div class="sd-stage-wrap">
-                <div class="sd-stage" id="sdStage">
-                    <!-- 场景内容由 JS 渲染 -->
-                </div>
+            <!-- 面板：阶段模拟卡片 -->
+            <div id="demoPanel-cards">
+                <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 13px;">
+                    点击下方卡片可在新窗口中打开对应游戏阶段的模拟界面，无需连接链上即可预览各环节 UI 效果。
+                </p>
+                <div id="stageDemoGrid" class="stage-demo-grid"></div>
+            </div>
 
-                <!-- 阶段说明角标 -->
-                <div class="sd-stage-info" id="sdStageInfo">
-                    <div class="sd-stage-info-icon" id="sdInfoIcon">🏠</div>
-                    <div class="sd-stage-info-text">
-                        <div class="sd-stage-info-title" id="sdInfoTitle">游戏大厅</div>
-                        <div class="sd-stage-info-desc" id="sdInfoDesc">浏览房间列表，创建或加入房间</div>
+            <!-- 面板：游戏流程动画演示 -->
+            <div id="demoPanel-animation" style="display:none;">
+                <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 13px;">
+                    自动播放 ChainRPS 完整对局流程：大厅 → 创建/加入房间 → 准备 → 倒计时 → 出拳 → 揭晓 → 结算 →
+                    结束。无需连接钱包即可预览。
+                </p>
+
+                <!-- 阶段进度条 -->
+                <div class="sd-progress-bar" id="sdProgressBar"></div>
+
+                <!-- 演示舞台 -->
+                <div class="sd-stage-wrap">
+                    <div class="sd-stage" id="sdStage">
+                        <!-- 场景内容由 JS 渲染 -->
+                    </div>
+
+                    <!-- 阶段说明角标 -->
+                    <div class="sd-stage-info" id="sdStageInfo">
+                        <div class="sd-stage-info-icon" id="sdInfoIcon">🏠</div>
+                        <div class="sd-stage-info-text">
+                            <div class="sd-stage-info-title" id="sdInfoTitle">游戏大厅</div>
+                            <div class="sd-stage-info-desc" id="sdInfoDesc">浏览房间列表，创建或加入房间</div>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- 控制台 -->
-            <div class="sd-controls">
-                <button class="btn btn-primary" id="sdPlayBtn" onclick="AdminApp.sdTogglePlay()">▶ 播放</button>
-                <button class="btn btn-outline" onclick="AdminApp.sdRestart()">⏮ 重新开始</button>
-                <button class="btn btn-outline" onclick="AdminApp.sdPrev()">⏪ 上一步</button>
-                <button class="btn btn-outline" onclick="AdminApp.sdNext()">⏩ 下一步</button>
-                <div class="sd-speed-group">
-                    <label>速度</label>
-                    <select id="sdSpeed" onchange="AdminApp.sdChangeSpeed(this.value)">
-                        <option value="2000">慢</option>
-                        <option value="1200" selected>正常</option>
-                        <option value="700">快</option>
-                        <option value="350">极速</option>
-                    </select>
+                <!-- 控制台 -->
+                <div class="sd-controls">
+                    <button class="btn btn-primary" id="sdPlayBtn" onclick="AdminApp.sdTogglePlay()">▶ 播放</button>
+                    <button class="btn btn-outline" onclick="AdminApp.sdRestart()">⏮ 重新开始</button>
+                    <button class="btn btn-outline" onclick="AdminApp.sdPrev()">⏪ 上一步</button>
+                    <button class="btn btn-outline" onclick="AdminApp.sdNext()">⏩ 下一步</button>
+                    <div class="sd-speed-group">
+                        <label>速度</label>
+                        <select id="sdSpeed" onchange="AdminApp.sdChangeSpeed(this.value)">
+                            <option value="2000">慢</option>
+                            <option value="1200" selected>正常</option>
+                            <option value="700">快</option>
+                            <option value="350">极速</option>
+                        </select>
+                    </div>
                 </div>
-            </div>
 
-            <!-- 阶段快捷跳转 -->
-            <div class="sd-jumps" id="sdJumps"></div>
+                <!-- 阶段快捷跳转 -->
+                <div class="sd-jumps" id="sdJumps"></div>
+            </div>
         </div>
     </main>
 </div>
@@ -1925,7 +1946,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 <select id="modalContractNetwork">
                     <option value="localhost">本地ChainRPS测试网</option>
                     <option value="amoy">Polygon Amoy (测试网)</option>
-                    <option value="polygon">Polygon 主网</option>
+                    <option value="polygon">Polygon (主网)</option>
                 </select>
             </div>
             <div class="form-group" style="margin-bottom:14px;">
@@ -1961,7 +1982,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 <select id="deployNetwork">
                     <option value="localhost">本地ChainRPS测试网</option>
                     <option value="amoy">Polygon Amoy (测试网)</option>
-                    <option value="polygon">Polygon 主网</option>
+                    <option value="polygon">Polygon (主网)</option>
                 </select>
             </div>
 

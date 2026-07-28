@@ -155,7 +155,7 @@ def deploy_contract():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("ChainRPS 本地测试网部署")
+    print("ChainRPS_Sim 本地测试网部署")
     print("=" * 60)
 
     ensure_compiled()

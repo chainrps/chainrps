@@ -267,6 +267,8 @@ const AdminApp = {
                 this.switchTab(result.tab, false, result.subTab);
             } else if (result && result.tab === 'config' && result.subTab) {
                 this.switchConfigTab(result.subTab, false);
+            } else if (result && result.tab === 'stageDemo' && result.subTab) {
+                this.switchDemoTab(result.subTab);
             }
         });
     },
@@ -298,7 +300,7 @@ const AdminApp = {
             if (isFilter) {
                 el.textContent = 'Localhost ' + port;
             } else if (isContractModal || isDeploy) {
-                el.textContent = 'Localhost ' + port + ' (本地测试网)';
+                el.textContent = 'ChainRPS_Sim (本地测试网)';
             }
         });
     },
@@ -316,6 +318,11 @@ const AdminApp = {
             '#/config/node': 'node',
         };
         if (configSubMap[hash]) return {tab: 'config', subTab: configSubMap[hash]};
+        // 3. 匹配 stage-demo 子路由: #/stage-demo/animation
+        if (hash.startsWith('#/stage-demo/')) {
+            const sub = hash.split('/')[2];
+            return {tab: 'stageDemo', subTab: sub};
+        }
         return null;
     },
 
@@ -331,6 +338,9 @@ const AdminApp = {
     // 自动连接管理员钱包
     async autoConnectWallet() {
         if (!window.ethereum) return;
+
+        // 用户之前主动断开过，则不自动重连（与主页 Wallet 模块共用同一标记）
+        if (localStorage.getItem('rps_wallet_disconnected') === '1') return;
 
         try {
             // 尝试获取已授权的账户列表
@@ -404,7 +414,13 @@ const AdminApp = {
             this.refreshNodeStatus();
         }
         if (tabName === 'redis') this.refreshRedisStatus();
-        if (tabName === 'stageDemo') this._renderStageDemo();
+        if (tabName === 'stageDemo') {
+            if (subTab && (subTab === 'cards' || subTab === 'animation')) {
+                this.switchDemoTab(subTab);
+            } else {
+                this.switchDemoTab(this._currentDemoTab || 'cards');
+            }
+        }
         if (tabName === 'chainExplorer') {
             this._initChainExplorerFeatureSelector();
             // 进入链浏览器页面时，如果当前是通用链浏览器，自动加载最新区块
@@ -1838,9 +1854,71 @@ const AdminApp = {
     _sdPlaying: false,
     _sdTimer: null,
     _sdSpeed: 1200,
+    _currentDemoTab: 'cards',
 
-    // 渲染阶段演示（入口）
-    _renderStageDemo() {
+    // 切换演示页的子 tab（阶段模拟卡片 / 流程动画演示）
+    switchDemoTab(tabName) {
+        this._currentDemoTab = tabName;
+        document.querySelectorAll('[data-demo-tab]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.demoTab === tabName);
+            if (btn.dataset.demoTab === tabName) {
+                btn.style.color = 'var(--text-primary)';
+                btn.style.borderBottomColor = 'var(--primary-color)';
+            } else {
+                btn.style.color = 'var(--text-secondary)';
+                btn.style.borderBottomColor = 'transparent';
+            }
+        });
+        const cardsPanel = document.getElementById('demoPanel-cards');
+        const animPanel = document.getElementById('demoPanel-animation');
+        if (cardsPanel) cardsPanel.style.display = tabName === 'cards' ? '' : 'none';
+        if (animPanel) animPanel.style.display = tabName === 'animation' ? '' : 'none';
+
+        if (tabName === 'cards') {
+            this._renderDemoCards();
+        } else {
+            this._renderDemoAnimation();
+        }
+
+        // 更新 URL hash
+        const hash = tabName === 'cards' ? '#/stage-demo' : '#/stage-demo/' + tabName;
+        if (window.location.hash !== hash) {
+            history.replaceState(null, '', hash);
+        }
+    },
+
+    // 渲染阶段模拟卡片入口
+    _renderDemoCards() {
+        const grid = document.getElementById('stageDemoGrid');
+        if (!grid) return;
+
+        const stages = [
+            { mock: 'lobby',        icon: '🏠', title: '游戏大厅',     desc: '大厅房间列表，展示已创建的房间，支持创建/加入房间' },
+            { mock: 'room_wait',    icon: '⏳', title: '房间等待',     desc: '玩家进入房间后的等待界面，显示双方准备状态' },
+            { mock: 'countdown',    icon: '🔢', title: '倒计时',       desc: '双方准备就绪后的倒计时阶段，即将开始对局' },
+            { mock: 'game_commit',  icon: '✊', title: '出拳提交',     desc: '游戏进行中的出拳阶段，可选择石头/剪刀/布' },
+            { mock: 'game_reveal',  icon: '🔓', title: '揭晓出拳',     desc: '双方已提交，等待揭晓出拳结果' },
+            { mock: 'result_win',   icon: '🏆', title: '游戏结果 - 胜利', desc: '对局结束，我方获胜，展示奖金和手续费' },
+            { mock: 'result_lose',  icon: '💔', title: '游戏结果 - 失败', desc: '对局结束，我方失败' },
+            { mock: 'result_draw',  icon: '🤝', title: '游戏结果 - 平局', desc: '对局结束，双方平局退回本金' },
+        ];
+
+        const baseUrl = window.location.origin + '/';
+
+        grid.innerHTML = stages.map(s => `
+            <div class="stage-demo-card" onclick="window.open('${baseUrl}?mock=${s.mock}', '_blank')">
+                <div class="stage-demo-icon">${s.icon}</div>
+                <div class="stage-demo-body">
+                    <div class="stage-demo-title">${s.title}</div>
+                    <div class="stage-demo-desc">${s.desc}</div>
+                </div>
+                <div class="stage-demo-arrow">↗</div>
+            </div>
+        `).join('');
+    },
+
+    // 渲染动画演示面板
+    _renderDemoAnimation() {
         // 渲染进度条
         const bar = document.getElementById('sdProgressBar');
         if (bar) {
@@ -1856,6 +1934,15 @@ const AdminApp = {
             ).join('');
         }
         this._sdRenderStage();
+    },
+
+    // 渲染阶段演示（入口，根据当前子 tab 决定渲染哪个面板）
+    _renderStageDemo() {
+        if (this._currentDemoTab === 'animation') {
+            this._renderDemoAnimation();
+        } else {
+            this._renderDemoCards();
+        }
     },
 
     // 渲染当前阶段场景
@@ -2098,7 +2185,7 @@ const AdminApp = {
         document.getElementById('nodeAccountsCount').textContent = status.accounts_count != null ? status.accounts_count : '-';
         document.getElementById('nodeSymbol').textContent = status.symbol || '-';
         const recNameEl = document.getElementById('nodeRecommendedChainName');
-        if (recNameEl) recNameEl.textContent = status.recommended_chain_name || 'ChainRPS Chain';
+        if (recNameEl) recNameEl.textContent = status.recommended_chain_name || 'ChainRPS_Sim';
 
         // 持久化状态显示：仅 Ganache 支持，Hardhat 始终显示"不支持"
         const persistStatusEl = document.getElementById('nodePersistStatus');
@@ -3452,6 +3539,8 @@ const AdminApp = {
             FWUI.Toast.warning('请安装 MetaMask 钱包');
             return;
         }
+        // 用户主动连接，清除"已主动断开"标记
+        try { localStorage.removeItem('rps_wallet_disconnected'); } catch (e) {}
         try {
             const accounts = await window.ethereum.request({method: 'eth_requestAccounts'});
             this.adminAddress = accounts[0];
@@ -3476,6 +3565,10 @@ const AdminApp = {
 
     // 断开管理员钱包
     async disconnectAdminWallet() {
+        // 设置"已主动断开"标记：刷新页面后 autoConnectWallet 检查此标记跳过自动重连
+        // 必须先设置标记，确保即使钱包不支持 revoke 也能阻止重连
+        try { localStorage.setItem('rps_wallet_disconnected', '1'); } catch (e) {}
+
         // 真正与钱包断开：撤销 EIP-1193 权限
         if (window.ethereum && window.ethereum.request) {
             try {
@@ -3484,7 +3577,7 @@ const AdminApp = {
                     params: [{eth_accounts: {}}]
                 });
             } catch (e) {
-                console.warn('钱包不支持 wallet_revokePermissions，仅清理本地状态');
+                console.warn('钱包不支持 wallet_revokePermissions，已设置本地断开标记');
             }
         }
 

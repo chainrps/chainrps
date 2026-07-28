@@ -596,9 +596,9 @@ class LocalChainService:
         # 读取推荐主链名称
         try:
             from rps_backend.repository import get_system_config_value
-            recommended_chain_name = get_system_config_value("recommended_chain_name") or "ChainRPS Chain"
+            recommended_chain_name = get_system_config_value("recommended_chain_name") or "ChainRPS_Sim"
         except Exception:
-            recommended_chain_name = "ChainRPS Chain"
+            recommended_chain_name = f"Localhost {RPC_LOCAL_PORT}"
 
         result = {
             "running": running,

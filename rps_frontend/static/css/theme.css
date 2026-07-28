@@ -70,41 +70,41 @@ body {
 
 /* 全局样式 end -------------------*/
 
-/* 淗黑模式 */
+/* 暗紫模式 */
 [data-theme="dark"] {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --bg-tertiary: #334155;
-    --bg-card: #1e293b;
-    --bg-hover: #334155;
-    --bg-success: #064e3b;
-    --bg-warning: #78350f;
+    --bg-primary: #1a0b2e;
+    --bg-secondary: #2d1b4e;
+    --bg-tertiary: #3d2966;
+    --bg-card: #251342;
+    --bg-hover: #3d2966;
+    --bg-success: #1a3d2e;
+    --bg-warning: #4d3a0f;
 
     /* 兼容别名 */
     --card-bg: var(--bg-card);
     --input-bg: var(--bg-tertiary);
 
-    --text-primary: #f8fafc;
-    --text-secondary: #cbd5e1;
-    --text-tertiary: #64748b;
-    --text-muted: #475569;
-    --text-inverse: #0f172a;
+    --text-primary: #e8d5f5;
+    --text-secondary: #c4a8e0;
+    --text-tertiary: #8b6db5;
+    --text-muted: #6b4d8a;
+    --text-inverse: #1a0b2e;
 
-    --border-color: #334155;
-    --border-light: #1e293b;
+    --border-color: #3d2966;
+    --border-light: #2d1b4e;
 
-    --primary-color: #818cf8;
-    --primary-hover: #6366f1;
-    --primary-light: #312e81;
-    --primary-lighter: #1e1b4b;
-    --primary-rgb: 129, 140, 248;
+    --primary-color: #a855f7;
+    --primary-hover: #9333ea;
+    --primary-light: #4c1d95;
+    --primary-lighter: #2e1065;
+    --primary-rgb: 168, 85, 247;
 
     --success-color: #34d399;
-    --success-light: #064e3b;
+    --success-light: #1a3d2e;
     --danger-color: #f87171;
-    --danger-light: #7f1d1d;
+    --danger-light: #4c1d1d;
     --warning-color: #fbbf24;
-    --warning-light: #78350f;
+    --warning-light: #4d3a0f;
     --info-color: #60a5fa;
     --info-light: #1e3a5f;
 

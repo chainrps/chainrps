@@ -19,6 +19,7 @@ from rps_backend.repository import (
     update_game_record,
     update_player_stats,
 )
+from rps_backend.service.room_service import room_manager, ROOM_STATUS
 from rps_backend.utils.helpers import calculate_deadline, deadline_to_iso
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
@@ -188,6 +189,19 @@ class GameManager:
             cached_state[salt_field] = salt
             redis_client.cache_game_state(game_id, cached_state)
 
+        # 房间标记：进入揭晓阶段（资金流程状态更新）
+        try:
+            room_info = room_manager.get_player_room(game.get("player1") or "")
+            if not room_info:
+                room_info = room_manager.get_player_room(game.get("player2") or "")
+            if room_info and room_info.get("game_id") == game_id:
+                r = room_manager._rooms.get(room_info["room_id"])
+                if r:
+                    r["fund_stage"] = "revealing"
+                    redis_client.cache_room_state(room_info["room_id"], r)
+        except Exception:
+            pass
+
         # 通知对手已揭晓
         opponent = game.get("player2") if is_player1 else game.get("player1")
         if opponent:
@@ -285,6 +299,28 @@ class GameManager:
 
         # 清理对局缓存
         redis_client.delete_cached_game_state(game_id)
+
+        # 同步：关联房间标记为已完成，停止所有计时器
+        try:
+            room_info = room_manager.get_player_room(player1 or "")
+            if not room_info:
+                room_info = room_manager.get_player_room(player2 or "")
+            if room_info and room_info.get("game_id") == game_id:
+                rid = room_info["room_id"]
+                # 将房间标记为 FINISHED（已完成），生命周期计时器会自动跳过
+                r = room_manager._rooms.get(rid)
+                if r:
+                    r["status"] = ROOM_STATUS["FINISHED"]
+                    r["fund_stage"] = "settled"
+                    r["finished_at"] = datetime.utcnow().isoformat()
+                    redis_client.cache_room_state(rid, r)
+                    # 停止计时器
+                    room_manager._stop_game_timer(rid)
+                    room_manager._stop_lifetime_timer(rid)
+                    # 广播房间列表变更（从大厅移除）
+                    room_manager._broadcast_room_list_changed("game_finished", rid)
+        except Exception:
+            pass
 
         return {"success": True, "game_id": game_id}
 

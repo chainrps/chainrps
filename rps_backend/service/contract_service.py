@@ -409,10 +409,14 @@ class ContractService:
         """
         处理 PlayerJoined 事件
 
-        当玩家加入对局时，更新本地对局记录。
+        当玩家加入对局时：
+        1. 更新本地对局记录
+        2. 通知创建者：玩家已加入链上对局（创建者可进入"等待出拳"状态）
         """
-        from rps_backend.repository import update_game_from_chain_event
-        from rps_backend.models import GameState
+        from rps_backend.repository import update_game_from_chain_event, get_game_by_chain_id
+        from rps_backend.models import GameState, WSMessage
+        from rps_backend.websocket import ws_manager
+        from rps_backend.utils.helpers import now_timestamp
 
         args = event_data.get("args", {})
         chain_game_id = args.get("gameId")
@@ -428,14 +432,38 @@ class ContractService:
         update_game_from_chain_event(chain_game_id, updates)
         print(f"[PlayerJoined] gameId={chain_game_id}, player={player}")
 
+        # 通知创建者：player2 已加入链上对局，可以开始提交哈希
+        game = get_game_by_chain_id(chain_game_id)
+        if game:
+            creator = game.get("player1")
+            if creator and creator.lower() != player.lower():
+                await ws_manager.send_to_player(creator, WSMessage(
+                    type="chain_game_player_joined",
+                    data={
+                        "game_id": game.get("id"),
+                        "chain_game_id": chain_game_id,
+                        "player": player,
+                        "message": "对手已加入链上对局，请提交出拳",
+                        "timestamp": now_timestamp(),
+                    }
+                ))
+
     # 处理CommitSubmitted事件
     async def _on_commit_submitted(self, event_data: dict):
         """
         处理 CommitSubmitted 事件
 
-        当玩家提交哈希承诺时，更新本地对局记录。
+        当玩家提交哈希承诺时：
+        1. 更新本地对局记录
+        2. 通知对手对方已提交（opponent_commit）
+        3. 双方都提交后：通知双方进入揭晓阶段（reveal_start）
         """
-        from rps_backend.repository import get_game_by_chain_id, update_game_record
+        from rps_backend.repository import get_game_by_chain_id, update_game_record, get_game_record
+        from rps_backend.models import WSMessage, GameState
+        from rps_backend.websocket import ws_manager
+        from rps_backend.utils.helpers import now_timestamp
+        from rps_backend.config import REVEAL_TIMEOUT
+        from rps_backend.utils.helpers import calculate_deadline, deadline_to_iso
 
         args = event_data.get("args", {})
         chain_game_id = args.get("gameId")
@@ -450,10 +478,60 @@ class ContractService:
             return
 
         # 判断是哪一方玩家
-        if player == game.get("player1"):
-            update_game_record(game["id"], {"commit1": str(commit) if commit else None})
-        elif player == game.get("player2"):
-            update_game_record(game["id"], {"commit2": str(commit) if commit else None})
+        is_player1 = player == game.get("player1")
+        is_player2 = player == game.get("player2")
+        if not (is_player1 or is_player2):
+            return
+
+        commit_field = "commit1" if is_player1 else "commit2"
+        update_game_record(game["id"], {commit_field: str(commit) if commit else None})
+
+        # 通知对手：对方已提交哈希
+        opponent = game.get("player2") if is_player1 else game.get("player1")
+        if opponent:
+            await ws_manager.send_to_player(opponent, WSMessage(
+                type="opponent_commit",
+                data={
+                    "game_id": game["id"],
+                    "chain_game_id": chain_game_id,
+                    "player": player,
+                    "message": "对手已提交出拳哈希",
+                    "timestamp": now_timestamp(),
+                }
+            ))
+
+        # 检查双方是否都已提交
+        latest_game = get_game_record(game["id"])
+        if latest_game and latest_game.get("commit1") and latest_game.get("commit2"):
+            # 双方都已提交，进入揭晓阶段
+            reveal_deadline_ts = calculate_deadline(REVEAL_TIMEOUT)
+            reveal_deadline_iso = deadline_to_iso(reveal_deadline_ts)
+
+            update_game_record(game["id"], {
+                "state": GameState.REVEAL_PHASE.value,
+                "reveal_deadline": reveal_deadline_iso,
+            })
+
+            # 通知双方进入揭晓阶段
+            reveal_start_data = {
+                "game_id": game["id"],
+                "chain_game_id": chain_game_id,
+                "reveal_deadline": reveal_deadline_ts,
+                "message": "双方都已提交，请揭晓出拳",
+                "timestamp": now_timestamp(),
+            }
+            player1 = latest_game.get("player1")
+            player2 = latest_game.get("player2")
+            if player1:
+                await ws_manager.send_to_player(player1, WSMessage(
+                    type="reveal_start",
+                    data=reveal_start_data,
+                ))
+            if player2:
+                await ws_manager.send_to_player(player2, WSMessage(
+                    type="reveal_start",
+                    data=reveal_start_data,
+                ))
 
         print(f"[CommitSubmitted] gameId={chain_game_id}, player={player}")
 
@@ -462,9 +540,15 @@ class ContractService:
         """
         处理 ChoiceRevealed 事件
 
-        当玩家揭晓出拳时，更新本地对局记录。
+        当玩家揭晓出拳时：
+        1. 更新本地对局记录
+        2. 通知对手对方已揭晓及出拳内容（opponent_reveal）
+        3. 双方都揭晓后：通知双方揭晓完成（reveal_complete），等待链上结算
         """
-        from rps_backend.repository import get_game_by_chain_id, update_game_record
+        from rps_backend.repository import get_game_by_chain_id, update_game_record, get_game_record
+        from rps_backend.models import WSMessage
+        from rps_backend.websocket import ws_manager
+        from rps_backend.utils.helpers import now_timestamp
 
         args = event_data.get("args", {})
         chain_game_id = args.get("gameId")
@@ -482,10 +566,53 @@ class ContractService:
         if not game:
             return
 
-        if player == game.get("player1"):
-            update_game_record(game["id"], {"choice1": choice_str})
-        elif player == game.get("player2"):
-            update_game_record(game["id"], {"choice2": choice_str})
+        is_player1 = player == game.get("player1")
+        is_player2 = player == game.get("player2")
+        if not (is_player1 or is_player2):
+            return
+
+        choice_field = "choice1" if is_player1 else "choice2"
+        update_game_record(game["id"], {choice_field: choice_str})
+
+        # 通知对手：对方已揭晓，包含出拳内容（揭晓阶段双方同时获取对方出拳）
+        opponent = game.get("player2") if is_player1 else game.get("player1")
+        if opponent:
+            await ws_manager.send_to_player(opponent, WSMessage(
+                type="opponent_reveal",
+                data={
+                    "game_id": game["id"],
+                    "chain_game_id": chain_game_id,
+                    "player": player,
+                    "choice": choice_str,
+                    "message": "对手已揭晓出拳",
+                    "timestamp": now_timestamp(),
+                }
+            ))
+
+        # 检查双方是否都已揭晓
+        latest_game = get_game_record(game["id"])
+        if latest_game and latest_game.get("choice1") and latest_game.get("choice2"):
+            # 双方都已揭晓，通知双方揭晓完成，等待链上结算
+            reveal_complete_data = {
+                "game_id": game["id"],
+                "chain_game_id": chain_game_id,
+                "choice1": latest_game.get("choice1"),
+                "choice2": latest_game.get("choice2"),
+                "message": "双方都已揭晓，等待链上结算",
+                "timestamp": now_timestamp(),
+            }
+            player1 = latest_game.get("player1")
+            player2 = latest_game.get("player2")
+            if player1:
+                await ws_manager.send_to_player(player1, WSMessage(
+                    type="reveal_complete",
+                    data=reveal_complete_data,
+                ))
+            if player2:
+                await ws_manager.send_to_player(player2, WSMessage(
+                    type="reveal_complete",
+                    data=reveal_complete_data,
+                ))
 
         print(f"[ChoiceRevealed] gameId={chain_game_id}, player={player}, choice={choice_str}")
 
@@ -596,10 +723,14 @@ class ContractService:
         """
         处理 MatchCancelled 事件
 
-        当 Owner 取消对局时，更新本地对局状态为已取消。
+        当 Owner 取消对局时：
+        1. 更新本地对局状态为已取消
+        2. 通知双方对局已被取消
         """
         from rps_backend.repository import get_game_by_chain_id, update_game_record
-        from rps_backend.models import GameState
+        from rps_backend.models import GameState, WSMessage
+        from rps_backend.websocket import ws_manager
+        from rps_backend.utils.helpers import now_timestamp
 
         args = event_data.get("args", {})
         chain_game_id = args.get("gameId")
@@ -614,6 +745,27 @@ class ContractService:
         update_game_record(game["id"], {
             "state": GameState.CANCELLED.value,
         })
+
+        # 通知双方对局已被取消
+        cancel_data = {
+            "game_id": game["id"],
+            "chain_game_id": chain_game_id,
+            "message": "对局已被取消",
+            "timestamp": now_timestamp(),
+        }
+        player1 = game.get("player1")
+        player2 = game.get("player2")
+        if player1:
+            await ws_manager.send_to_player(player1, WSMessage(
+                type="match_cancelled",
+                data=cancel_data,
+            ))
+        if player2:
+            await ws_manager.send_to_player(player2, WSMessage(
+                type="match_cancelled",
+                data=cancel_data,
+            ))
+
         print(f"[MatchCancelled] gameId={chain_game_id}")
 
     # 从链上同步玩家历史记录

@@ -537,22 +537,34 @@ const UI = (function() {
         const statusText = (status) => {
             const map = {
                 'created': '等待对手',
-                'joined': '已加入',
+                'joined': '准备中',
                 'ready': '已准备',
-                'countdown': '倒计时',
-                'game_started': '已开始',
+                'countdown': '倒计时中',
+                'game_started': '游戏中',
                 'finished': '已结束'
             };
             return map[status] || status;
         };
 
+        // 状态样式映射
+        const statusClass = (status) => {
+            const map = {
+                'created': 'status-waiting',
+                'joined': 'status-joined',
+                'countdown': 'status-countdown',
+                'game_started': 'status-started',
+            };
+            return map[status] || 'status-joined';
+        };
+
         elements.roomList.innerHTML = rooms.map(room => {
             const isAvailable = room.status === 'created';
+            const inProgress = room.status === 'game_started' || room.status === 'countdown';
             return `
                 <div class="room-card">
                     <div class="room-card-header">
                         <span class="room-id">#${room.room_id}</span>
-                        <span class="room-status ${isAvailable ? 'status-waiting' : 'status-joined'}">
+                        <span class="room-status ${statusClass(room.status)}">
                             ${statusText(room.status)}
                         </span>
                     </div>
@@ -576,9 +588,13 @@ const UI = (function() {
                         <button class="btn btn-primary btn-block btn-join-room" data-room-id="${room.room_id}">
                             加入房间
                         </button>
+                    ` : inProgress ? `
+                        <button class="btn btn-outline btn-block btn-enter-room" data-room-id="${room.room_id}">
+                            ${room.status === 'game_started' ? '🎮 进入游戏' : '⏱ 进入房间'}
+                        </button>
                     ` : `
                         <button class="btn btn-default btn-block" disabled>
-                            ${room.status === 'game_started' ? '游戏中' : '不可加入'}
+                            不可加入
                         </button>
                     `}
                 </div>
@@ -586,21 +602,38 @@ const UI = (function() {
         }).join('');
     }
 
+    // 资金阶段 → 显示文案（中文，用户可理解的资金状态）
+    const FUND_STAGE_TEXT = {
+        'local_frozen': '🔒 资金：本地冻结（准备阶段，未上链）',
+        'chain_frozen': '⛓️ 资金：链上冻结（已通过 createMatch/joinMatch 锁定）',
+        'revealing':   '🔓 资金：揭晓中（出拳已提交，等待结算）',
+        'settled':     '✅ 资金：已结算',
+        'cancelled':   '❌ 资金：已解冻（房间关闭，本地冻结解除）',
+    };
+
     // 设置房间信息
     function setRoomInfo(room, isCreator = false) {
         if (elements.roomIdDisplay) elements.roomIdDisplay.textContent = room.room_id;
         if (elements.roomToken) elements.roomToken.textContent = room.token;
         if (elements.roomBetAmount) elements.roomBetAmount.textContent = room.bet_amount;
-        
+
         const statusText = {
             'created': '等待对手',
             'joined': '对手已加入',
             'ready': '双方准备',
             'countdown': '倒计时中',
             'game_started': '游戏进行中',
+            'closed': '已关闭',
+            'finished': '已完成',
         };
         if (elements.roomStatusBadge) {
-            elements.roomStatusBadge.textContent = statusText[room.status] || room.status;
+            let badge = statusText[room.status] || room.status;
+            // 附加资金阶段说明（准备阶段显示本地冻结，让用户知道未上链）
+            const fundText = FUND_STAGE_TEXT[room.fund_stage];
+            if (fundText && room.status !== 'game_started') {
+                badge = badge + ' · ' + fundText;
+            }
+            elements.roomStatusBadge.textContent = badge;
         }
 
         if (elements.roomCreatorAddress) {
@@ -703,6 +736,7 @@ const UI = (function() {
         setReadyButtonText,
         showCountdown,
         updateCountdown,
-        updateNetworkInfo
+        updateNetworkInfo,
+        FUND_STAGE_TEXT,
     };
 })();

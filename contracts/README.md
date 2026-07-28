@@ -29,7 +29,7 @@ contracts/
 
 - Solidity ^0.8.20
 - OpenZeppelin Contracts（Ownable、ReentrancyGuard、Pausable）
-- 部署网络：Polygon Amoy 测试网 → Polygon 主网 / 本地 Ganache（chainId 5208888）
+- 部署网络：Polygon Amoy 测试网 → Polygon (主网) / 本地 Ganache（chainId 5208888）
 
 ---
 
@@ -305,7 +305,7 @@ v1.1.0 已定义占位 mapping，便于二期平滑升级：
 - 区块浏览器: `https://www.oklink.com/amoy`
 - 水龙头: `https://www.alchemy.com/faucets/polygon-amoy`
 
-### Polygon 主网
+### Polygon (主网)
 - RPC: `https://polygon-rpc.com`
 - Chain ID: `137`
 - 区块浏览器: `https://polygonscan.com`

@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Dict, Optional, List
 
 from rps_backend.models import GameState, WSMessage
-from rps_backend.repository import create_game_record, update_game_record
+from rps_backend.repository import create_game_record, update_game_record, get_system_config_value
 from rps_backend.utils.helpers import now_timestamp, calculate_deadline, deadline_to_iso
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
@@ -39,6 +39,20 @@ UNREADY_TIMEOUT = 60
 # 房间游戏总超时时间（秒）：游戏开始后 10 分钟未结束则自动关闭房间
 ROOM_GAME_TIMEOUT = 600
 
+# 房间默认最大生命周期（秒）：1 小时（可通过配置 room_max_lifetime 覆盖）
+DEFAULT_ROOM_MAX_LIFETIME = 3600
+
+
+def _get_room_max_lifetime() -> int:
+    """获取房间最大生命周期（秒），优先使用系统配置，失败则回退默认值"""
+    try:
+        val = get_system_config_value("room_max_lifetime")
+        if val:
+            return max(60, int(val))
+    except Exception:
+        pass
+    return DEFAULT_ROOM_MAX_LIFETIME
+
 
 # 房间管理器
 class RoomManager:
@@ -52,6 +66,8 @@ class RoomManager:
         self._unready_timers: Dict[str, asyncio.Task] = {}
         # 房间游戏超时任务：room_id -> asyncio.Task
         self._game_timers: Dict[str, asyncio.Task] = {}
+        # 房间生命周期超时任务（总最大存在时间）
+        self._lifetime_timers: Dict[str, asyncio.Task] = {}
 
     # 创建房间
     def create_room(self, creator_address: str, token: str, bet_amount: float) -> dict:
@@ -90,11 +106,21 @@ class RoomManager:
             "created_at": now_timestamp(),
             "countdown_start": None,
             "game_id": None,
+            # 资金状态标记
+            # fund_stage:
+            #   local_frozen:  准备阶段，资金仅本地冻结（未上链）
+            #   chain_frozen:  游戏启动，资金已通过 createMatch/joinMatch 上链冻结
+            #   revealing:     揭晓中，至少 1 人已揭晓
+            #   settled:       已结算
+            "fund_stage": "local_frozen",
         }
 
         self._rooms[room_id] = room
         self._player_rooms[creator_lower] = room_id
         redis_client.cache_room_state(room_id, room)
+
+        # 启动房间生命周期总超时计时器
+        self._start_lifetime_timer(room_id)
 
         # 广播房间列表变更，让游戏大厅实时刷新
         self._broadcast_room_list_changed("room_created", room_id)
@@ -190,6 +216,9 @@ class RoomManager:
         if room["status"] not in [ROOM_STATUS["CREATED"], ROOM_STATUS["JOINED"], ROOM_STATUS["COUNTDOWN"]]:
             return {"success": False, "message": "当前阶段不能准备"}
 
+        # 记录准备前的状态，用于判断是否需要回退 COUNTDOWN
+        was_countdown = room["status"] == ROOM_STATUS["COUNTDOWN"]
+
         if is_creator:
             room["creator_ready"] = not room["creator_ready"]
             # 准备/取消准备时更新未准备超时计时器
@@ -204,6 +233,32 @@ class RoomManager:
             else:
                 self._start_unready_timer(player_address, room_id)
 
+        # 关键修复：如果在 COUNTDOWN 阶段任一方取消准备，状态回退到 JOINED
+        # _start_countdown 协程会检测到状态变化自动退出（并发送 countdown_cancelled）
+        if was_countdown and not (room["creator_ready"] and room["player2_ready"]):
+            room["status"] = ROOM_STATUS["JOINED"]
+            room["countdown_start"] = None
+            # 通知双方倒计时已取消
+            cancel_data = {
+                "room_id": room_id,
+                "reason": "player_unready",
+                "player": player_address,
+                "message": "对手取消了准备，倒计时已停止",
+                "timestamp": now_timestamp(),
+            }
+            creator = room["creator"]
+            player2 = room.get("player2")
+            if creator:
+                asyncio.create_task(ws_manager.send_to_player(creator, WSMessage(
+                    type="countdown_cancelled",
+                    data=cancel_data
+                )))
+            if player2:
+                asyncio.create_task(ws_manager.send_to_player(player2, WSMessage(
+                    type="countdown_cancelled",
+                    data=cancel_data
+                )))
+
         self._rooms[room_id] = room
         redis_client.cache_room_state(room_id, room)
 
@@ -217,6 +272,9 @@ class RoomManager:
             }
         )))
 
+        # 准备状态变化也通知大厅（房间卡片上的准备标记需要同步）
+        self._broadcast_room_list_changed("ready_changed", room_id)
+
         if room["creator_ready"] and room["player2_ready"]:
             # 双方都准备了，停止双方的未准备超时
             self._stop_unready_timer(room["creator"])
@@ -225,6 +283,9 @@ class RoomManager:
             room["countdown_start"] = now_timestamp()
             self._rooms[room_id] = room
             redis_client.cache_room_state(room_id, room)
+
+            # 倒计时开始也通知大厅（房间卡片状态变为 countdown）
+            self._broadcast_room_list_changed("countdown_start", room_id)
 
             asyncio.create_task(self._start_countdown(room_id))
 
@@ -320,10 +381,90 @@ class RoomManager:
         if task:
             task.cancel()
 
+    # 启动房间生命周期总超时计时器
+    def _start_lifetime_timer(self, room_id: str):
+        """
+        启动房间生命周期总超时计时器（根据配置 room_max_lifetime 决定）
+
+        超时处理逻辑：
+        - 房间处于 CREATED/JOINED/COUNTDOWN：立即关闭
+        - 房间处于 GAME_STARTED 且未到揭晓阶段（commit_phase 或 无 commit/reveal 数据）：立即关闭
+        - 房间处于 GAME_STARTED 且已进入揭晓/结算阶段（至少 1 人揭晓 或 已写入结果）：不关闭，继续完成
+        """
+        self._stop_lifetime_timer(room_id)
+
+        lifetime = _get_room_max_lifetime()
+
+        async def timeout_task():
+            await asyncio.sleep(lifetime)
+            room = self._rooms.get(room_id)
+            if not room:
+                return
+
+            # 如果已 FINISHED / CLOSED，不处理
+            if room["status"] in [ROOM_STATUS["FINISHED"], ROOM_STATUS["CLOSED"]]:
+                return
+
+            # 准备/倒计时阶段：直接关闭
+            if room["status"] in [ROOM_STATUS["CREATED"], ROOM_STATUS["JOINED"], ROOM_STATUS["COUNTDOWN"]]:
+                self._close_room(
+                    room_id,
+                    "room_lifetime_expired",
+                    f"房间已超过最长存在时间（{lifetime // 60}分钟），已关闭",
+                )
+                return
+
+            # GAME_STARTED 阶段：判断是否进入了揭晓/结算
+            if room["status"] == ROOM_STATUS["GAME_STARTED"]:
+                game_id = room.get("game_id")
+                force_close = True
+                if game_id:
+                    try:
+                        game_state = redis_client.get_cached_game_state(game_id)
+                        if game_state:
+                            state = game_state.get("state")
+                            commit1 = game_state.get("commit1")
+                            commit2 = game_state.get("commit2")
+                            reveal1 = game_state.get("reveal1")
+                            reveal2 = game_state.get("reveal2")
+                            # 已揭晓至少 1 人，或 state 已越过 reveal_phase → 等待结算完成
+                            if (
+                                reveal1 is not None
+                                or reveal2 is not None
+                                or state in ["reveal_phase", "finished", "settled"]
+                            ):
+                                force_close = False
+                    except Exception:
+                        pass
+                if force_close:
+                    self._close_room(
+                        room_id,
+                        "room_lifetime_expired",
+                        f"房间存在超时（{lifetime // 60}分钟，仍未进入揭晓阶段），已关闭",
+                    )
+                # else: 已在揭晓/结算中，不强制关闭，等待其自行结束
+
+        task = asyncio.create_task(timeout_task())
+        self._lifetime_timers[room_id] = task
+
+    # 停止房间生命周期总超时计时器
+    def _stop_lifetime_timer(self, room_id: str):
+        """停止房间生命周期总超时计时器"""
+        if not room_id:
+            return
+        task = self._lifetime_timers.pop(room_id, None)
+        if task:
+            task.cancel()
+
     # 关闭房间
     def _close_room(self, room_id: str, reason: str, message: str):
         """
         关闭房间（超时、异常等情况）
+
+        资金状态处理：
+        - local_frozen 阶段关闭：本地冻结已解除（fund_stage 标记为 cancelled）
+        - chain_frozen 阶段关闭：需要玩家自行在链上申请退款（超时自动退款机制）
+        - revealing / settled 阶段：通常不会被强制关闭（在生命周期超时判断中已跳过）
 
         Args:
             room_id: 房间ID
@@ -337,11 +478,17 @@ class RoomManager:
         room["status"] = ROOM_STATUS["CLOSED"]
         room["close_reason"] = reason
         room["closed_at"] = now_timestamp()
+        # 同步资金状态：本地冻结阶段关闭 → 标记为 cancelled（本地冻结解除）
+        # 链上冻结阶段关闭 → 保留 chain_frozen 标记，提醒用户在链上处理超时退款
+        current_fund = room.get("fund_stage", "local_frozen")
+        if current_fund in ("local_frozen",):
+            room["fund_stage"] = "cancelled"
         self._rooms[room_id] = room
         redis_client.cache_room_state(room_id, room)
 
-        # 停止游戏超时计时器
+        # 停止所有计时器
         self._stop_game_timer(room_id)
+        self._stop_lifetime_timer(room_id)
 
         # 清理玩家房间映射
         creator_lower = room["creator"].lower()
@@ -388,11 +535,15 @@ class RoomManager:
         - 开始时发送 countdown_start 事件（包含结束时间戳），前端基于此本地计算剩余时间
         - 每3秒发送一次 countdown_tick 作为同步校准
         - 最后5秒每秒发送一次，确保危险阶段同步
-        - 如果任一方取消准备，倒计时取消
+        - 如果任一方取消准备，倒计时取消（toggle_ready 已发送 countdown_cancelled）
         - 倒计时结束后创建对局，进入提交阶段
         """
         room = self._rooms.get(room_id)
         if not room:
+            return
+
+        # 协程启动时再次校验状态（防止在 create_task 调度间隙状态已被回退）
+        if room["status"] != ROOM_STATUS["COUNTDOWN"]:
             return
 
         countdown_total = 15
@@ -560,6 +711,9 @@ class RoomManager:
                 },
             ))
 
+        # 广播房间列表变更（房间状态变为 game_started，大厅卡片需要更新）
+        self._broadcast_room_list_changed("game_started", room_id)
+
     # 上报链上对局ID
     async def report_chain_game(self, room_id: str, creator_address: str, chain_game_id: int) -> dict:
         """
@@ -582,6 +736,8 @@ class RoomManager:
             return {"success": False, "message": "仅创建者可上报链上对局 ID"}
 
         room["chain_game_id"] = chain_game_id
+        # 双方资金已通过 createMatch + joinMatch 上链锁定
+        room["fund_stage"] = "chain_frozen"
         self._rooms[room_id] = room
         redis_client.cache_room_state(room_id, room)
 
@@ -604,6 +760,19 @@ class RoomManager:
                 },
             ))
 
+        # 同时通知创建者：上报已成功接收，后端已通知 player2 加入
+        creator = room["creator"]
+        if creator:
+            await ws_manager.send_to_player(creator, WSMessage(
+                type="chain_game_reported",
+                data={
+                    "room_id": room_id,
+                    "chain_game_id": chain_game_id,
+                    "message": "链上对局 ID 已上报，等待对手加入",
+                    "timestamp": now_timestamp(),
+                },
+            ))
+
         return {"success": True, "chain_game_id": chain_game_id}
 
     # 获取房间信息
@@ -616,14 +785,23 @@ class RoomManager:
         """
         获取游戏大厅的房间列表
 
-        返回所有未开始游戏的房间（CREATED 和 JOINED 状态）
+        返回所有活跃房间（准备中、倒计时中、游戏中），供大厅展示完整状态
         """
         now = now_timestamp()
         active_rooms = []
+        lifetime = _get_room_max_lifetime()
+
+        # 大厅展示的状态：准备中(created/joined)、倒计时中(countdown)、游戏中(game_started)
+        visible_statuses = {
+            ROOM_STATUS["CREATED"],
+            ROOM_STATUS["JOINED"],
+            ROOM_STATUS["COUNTDOWN"],
+            ROOM_STATUS["GAME_STARTED"],
+        }
 
         for room_id, room in self._rooms.items():
-            if room["status"] in [ROOM_STATUS["CREATED"], ROOM_STATUS["JOINED"]]:
-                if now - room["created_at"] < 3600:
+            if room["status"] in visible_statuses:
+                if now - room["created_at"] < lifetime:
                     active_rooms.append({
                         "room_id": room_id,
                         "creator": room["creator"],
@@ -680,6 +858,9 @@ class RoomManager:
             # 创建者退出 → 解散房间
             player2 = room.get("player2")
             self._rooms.pop(room_id, None)
+            # 清理所有计时器
+            self._stop_game_timer(room_id)
+            self._stop_lifetime_timer(room_id)
             redis_client.delete_cached_room_state(room_id)
 
             # 清理玩家房间映射
@@ -791,6 +972,9 @@ class RoomManager:
         """移除房间"""
         room = self._rooms.pop(room_id, None)
         if room:
+            # 清理所有计时器
+            self._stop_game_timer(room_id)
+            self._stop_lifetime_timer(room_id)
             # 清理玩家房间映射
             creator = room.get("creator")
             player2 = room.get("player2")

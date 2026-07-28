@@ -1,5 +1,10 @@
 // 钱包管理模块
 const Wallet = (function() {
+    // 主动断开标记的 localStorage key
+    // 作用：解决 wallet_revokePermissions 在 OKX/MetaMask 等钱包中不被支持或行为不一致
+    // 导致刷新页面后 eth_accounts 仍返回账户、autoConnect 自动重连的问题
+    const DISCONNECT_FLAG_KEY = 'rps_wallet_disconnected';
+
     let provider = null;
     let signer = null;
     let currentAddress = null;
@@ -113,6 +118,9 @@ const Wallet = (function() {
         }
         isConnecting = true;
 
+        // 用户主动连接，清除"已主动断开"标记
+        try { localStorage.removeItem(DISCONNECT_FLAG_KEY); } catch (e) {}
+
         try {
         const availableWallets = getAvailableWallets();
         
@@ -198,6 +206,11 @@ const Wallet = (function() {
     // 自动连接钱包（无需用户手动点击）
     async function autoConnect() {
         if (!window.ethereum) {
+            return null;
+        }
+        // 用户之前主动断开过，则不自动重连（需用户再次手动点击连接）
+        // 这是解决 wallet_revokePermissions 不被 OKX/MetaMask 等钱包支持的关键
+        if (localStorage.getItem(DISCONNECT_FLAG_KEY) === '1') {
             return null;
         }
         if (isConnected()) {
@@ -378,6 +391,10 @@ const Wallet = (function() {
         // 移除事件监听器
         removeEventListeners(providerObj);
 
+        // 设置"已主动断开"标记：刷新页面后 autoConnect 检查此标记跳过自动重连
+        // 必须在调用 wallet_revokePermissions 之前设置，确保即使钱包不支持 revoke 也能阻止重连
+        try { localStorage.setItem(DISCONNECT_FLAG_KEY, '1'); } catch (e) {}
+
         // 真正与钱包断开：撤销 EIP-1193 权限（MetaMask 等支持 wallet_revokePermissions）
         if (wasConnected && providerObj && providerObj.request) {
             try {
@@ -386,18 +403,9 @@ const Wallet = (function() {
                     params: [{ eth_accounts: {} }]
                 });
             } catch (e) {
-                // 部分钱包不支持 wallet_revokePermissions，回退到清理 permissions
-                try {
-                    await providerObj.request({
-                        method: 'wallet_requestPermissions',
-                        params: [{ eth_accounts: {} }]
-                    }).then(() => {
-                        // 重新请求时用户会看到连接弹窗，相当于断开
-                    });
-                } catch (e2) {
-                    // 完全不支持，仅本地清理
-                    console.warn('钱包不支持主动断开，仅清理本地状态');
-                }
+                // 部分钱包不支持 wallet_revokePermissions，仅清理本地状态
+                // 因为已设置 DISCONNECT_FLAG_KEY，刷新后不会自动重连
+                console.warn('钱包不支持 wallet_revokePermissions，已设置本地断开标记');
             }
         }
 

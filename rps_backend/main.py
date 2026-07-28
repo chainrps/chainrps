@@ -16,6 +16,7 @@ from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL, RPC_CHAIN_ID
 from rps_backend.api.routes import router
 from rps_backend.websocket import ws_manager, websocket_endpoint, heartbeat_loop
 from rps_backend.websocket.heartbeat import check_connections
+from rps_backend.websocket.signaling_endpoint import signaling_endpoint
 from rps_backend.repository import init_database
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.service import contract_service
@@ -52,6 +53,8 @@ async def lifespan(app: FastAPI):
 
     # 启动 WebSocket Pub/Sub 监听器（用于跨进程广播）
     await ws_manager._start_pubsub_listener()
+    # 启动 WebSocket 点对点路由监听器（用于跨进程点对点消息）
+    await ws_manager._start_direct_pubsub_listener()
 
     # 初始化本地链服务并启用保活
     try:
@@ -153,6 +156,18 @@ async def ws_endpoint(websocket: WebSocket, player_address: str):
     通过玩家地址建立 WebSocket 连接，用于实时推送对局状态。
     """
     await websocket_endpoint(websocket, player_address)
+
+
+# WebSocket 信令端点（P2P 私密通信方案）
+@app.websocket("/ws/signaling/{room_id}/{player_address}")
+async def ws_signaling_endpoint(websocket: WebSocket, room_id: str, player_address: str):
+    """
+    WebSocket 信令端点
+
+    用于房间内两个玩家之间交换 WebRTC 信令（SDP/ICE）。
+    后端仅作信令中转，不转发游戏数据。
+    """
+    await signaling_endpoint(websocket, room_id, player_address)
 
 
 # 健康检查

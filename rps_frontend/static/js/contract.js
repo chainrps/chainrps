@@ -4,6 +4,48 @@ const Contract = (function() {
     let provider = null;
     let signer = null;
 
+    // 钱包交互操作的总超时（秒）：用户签名 + 链上打包都算入，超时后给出明确错误避免永久卡住
+    const DEFAULT_TX_TIMEOUT = 120 * 1000;
+
+    /**
+     * 为钱包交互操作包裹超时 + 用户拒绝签名识别
+     * @param {string} actionDesc 动作描述，用于错误提示，例如"授权代币"、"创建对局"、"加入对局"
+     * @param {Function<Promise>} fn 要执行的异步函数
+     * @param {number} [timeoutMs] 超时时间，默认 120s
+     */
+    async function withWalletTimeout(actionDesc, fn, timeoutMs = DEFAULT_TX_TIMEOUT) {
+        let timeoutId = null;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(new Error(
+                    `${actionDesc}超时（${timeoutMs / 1000}s）。` +
+                    `请检查钱包是否已弹出签名请求、或当前链节点是否正常响应，然后重试。`
+                ));
+            }, timeoutMs);
+        });
+        try {
+            return await Promise.race([fn(), timeoutPromise]);
+        } catch (e) {
+            const msg = (e && e.message) ? e.message : String(e);
+            const code = e && e.code != null ? e.code : null;
+            // 识别用户拒绝/取消（code 4001 是 EIP-1193 标准）
+            if (code === 4001 || /user rejected|user cancelled|用户拒绝|用户取消/i.test(msg)) {
+                const err = new Error(`您已在钱包中取消了「${actionDesc}」的签名请求`);
+                err.code = 4001;
+                err.userCancelled = true;
+                throw err;
+            }
+            // 不吞其他错误，但补齐动作描述
+            if (msg.indexOf(actionDesc) === 0) throw e;
+            const err = new Error(`${actionDesc}失败：${msg}`);
+            if (code != null) err.code = code;
+            if (e && e.data != null) err.data = e.data;
+            throw err;
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+        }
+    }
+
     // 合约 ABI 定义
     const CHAinRPS_ABI = [
         'function createMatch(uint256 amount, address token) external returns (uint256)',
@@ -163,12 +205,17 @@ const Contract = (function() {
         if (!signer) {
             throw new Error('钱包未连接');
         }
-        const tokenContract = getTokenContract(tokenAddress);
-        const decimals = await tokenContract.decimals();
-        const amountWei = ethers.parseUnits(amount.toString(), decimals);
-        const tx = await tokenContract.approve(contractAddress, amountWei);
-        await tx.wait();
-        return tx;
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「代币授权」的签名请求');
+        }
+        return withWalletTimeout('授权代币', async () => {
+            const tokenContract = getTokenContract(tokenAddress);
+            const decimals = await tokenContract.decimals();
+            const amountWei = ethers.parseUnits(amount.toString(), decimals);
+            const tx = await tokenContract.approve(contractAddress, amountWei);
+            await tx.wait();
+            return tx;
+        });
     }
 
     // 确保代币授权额度充足（不足则发起授权）
@@ -191,10 +238,13 @@ const Contract = (function() {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
-        
+
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「创建对局」的签名请求');
+        }
+
         let amountWei;
         let txOptions = {};
-        
         if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
             amountWei = ethers.parseEther(amount.toString());
             txOptions.value = amountWei;
@@ -203,21 +253,46 @@ const Contract = (function() {
             const decimals = await tokenContract.decimals();
             amountWei = ethers.parseUnits(amount.toString(), decimals);
         }
-        
-        const tx = await contract.createMatch(amountWei, tokenAddress, txOptions);
-        const receipt = await tx.wait();
-        
+
+        let tx;
+        let receipt;
         let gameId = null;
-        for (const log of receipt.logs) {
-            try {
-                const parsed = contract.interface.parseLog(log);
-                if (parsed.name === 'GameCreated') {
-                    gameId = Number(parsed.args.gameId);
-                    break;
+
+        try {
+            ({ tx, receipt, gameId } = await withWalletTimeout('创建对局', async () => {
+                const _tx = await contract.createMatch(amountWei, tokenAddress, txOptions);
+                const _receipt = await _tx.wait();
+                let _gameId = null;
+                // 优先从 receipt 的日志解析（最准确）
+                if (_receipt && _receipt.logs) {
+                    for (const log of _receipt.logs) {
+                        try {
+                            const parsed = contract.interface.parseLog(log);
+                            if (parsed && parsed.name === 'GameCreated' && parsed.args) {
+                                _gameId = Number(parsed.args.gameId);
+                                break;
+                            }
+                        } catch (_) {}
+                    }
                 }
-            } catch (e) {}
+                // receipt 解析兜底：gameCount - 1（因为刚加 1）
+                if (_gameId == null || Number.isNaN(_gameId)) {
+                    try {
+                        const cnt = await contract.gameCount();
+                        _gameId = Math.max(1, Number(cnt));
+                    } catch (_) {}
+                }
+                return { tx: _tx, receipt: _receipt, gameId: _gameId };
+            }));
+        } catch (e) {
+            // 若用户取消，直接抛出不额外处理
+            throw e;
         }
-        
+
+        if (!gameId || Number.isNaN(gameId)) {
+            throw new Error('交易已上链，但未能从日志解析出 gameId，请重试或联系管理员');
+        }
+
         return { tx, gameId };
     }
 
@@ -226,19 +301,25 @@ const Contract = (function() {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
-        
-        const game = await contract.games(gameId);
-        const tokenAddress = game.token;
-        const amount = game.amount;
-        
-        let txOptions = {};
-        if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
-            txOptions.value = amount;
+
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「加入对局」的签名请求');
         }
-        
-        const tx = await contract.joinMatch(gameId, txOptions);
-        await tx.wait();
-        return tx;
+
+        return withWalletTimeout('加入对局', async () => {
+            const game = await contract.games(gameId);
+            const tokenAddress = game.token;
+            const amount = game.amount;
+
+            let txOptions = {};
+            if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
+                txOptions.value = amount;
+            }
+
+            const tx = await contract.joinMatch(gameId, txOptions);
+            await tx.wait();
+            return tx;
+        });
     }
 
     // 提交对局哈希值
@@ -246,9 +327,14 @@ const Contract = (function() {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
-        const tx = await contract.submitCommit(gameId, commitHash);
-        await tx.wait();
-        return tx;
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「提交出拳」的签名请求');
+        }
+        return withWalletTimeout('提交出拳', async () => {
+            const tx = await contract.submitCommit(gameId, commitHash);
+            await tx.wait();
+            return tx;
+        });
     }
 
     // 揭露选择
@@ -256,9 +342,14 @@ const Contract = (function() {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
-        const tx = await contract.revealChoice(gameId, choice, salt);
-        await tx.wait();
-        return tx;
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「揭晓出拳」的签名请求');
+        }
+        return withWalletTimeout('揭晓出拳', async () => {
+            const tx = await contract.revealChoice(gameId, choice, salt);
+            await tx.wait();
+            return tx;
+        });
     }
 
     // 申领超时胜利
@@ -266,9 +357,14 @@ const Contract = (function() {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
-        const tx = await contract.claimTimeout(gameId);
-        await tx.wait();
-        return tx;
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「申领超时胜利」的签名请求');
+        }
+        return withWalletTimeout('申领超时胜利', async () => {
+            const tx = await contract.claimTimeout(gameId);
+            await tx.wait();
+            return tx;
+        });
     }
 
     // 处理平局
@@ -276,9 +372,14 @@ const Contract = (function() {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
-        const tx = await contract.handleDraw(gameId);
-        await tx.wait();
-        return tx;
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「处理平局」的签名请求');
+        }
+        return withWalletTimeout('处理平局', async () => {
+            const tx = await contract.handleDraw(gameId);
+            await tx.wait();
+            return tx;
+        });
     }
 
     // 获取对局详情

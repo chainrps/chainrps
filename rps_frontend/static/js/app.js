@@ -1,5 +1,5 @@
 // 应用主模块（立即执行函数）
-const App = (function() {
+const App = (function () {
     let currentMode = 'A';
     let currentToken = 'ETH';
     let currentAmount = 100;
@@ -151,7 +151,7 @@ const App = (function() {
             const t0 = Date.now();
             const res = await fetch(`${CONFIG.backendUrl}/api/ext/chain-status`, {
                 method: 'GET',
-                headers: { 'Cache-Control': 'no-cache' },
+                headers: {'Cache-Control': 'no-cache'},
                 signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
             });
             const clientLatency = Date.now() - t0;
@@ -234,7 +234,9 @@ const App = (function() {
                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                     hour12: false,
                 });
-            } catch (e) { return iso; }
+            } catch (e) {
+                return iso;
+            }
         };
 
         setVal('csCheckStatus', status === 'ok' ? '✓ 正常' : (status === 'warning' ? '⚠ 异常' : '✗ 故障'),
@@ -244,7 +246,7 @@ const App = (function() {
             rpcReachable ? 'ok' : 'err');
         setVal('csLatency', data.latency_ms != null ? `${data.latency_ms} ms` : '-');
         setVal('csChainId', data.chain_id != null ?
-            `${data.chain_id}${data.expected_chain_id && data.chain_id !== data.expected_chain_id ? ' (期望 ' + data.expected_chain_id + ')' : ''}` : '-',
+                `${data.chain_id}${data.expected_chain_id && data.chain_id !== data.expected_chain_id ? ' (期望 ' + data.expected_chain_id + ')' : ''}` : '-',
             data.expected_chain_id && data.chain_id !== data.expected_chain_id ? 'warn' : 'ok');
         setVal('csBlockNumber', data.block_number != null ? Number(data.block_number).toLocaleString() : '-');
         setVal('csContractAddress', data.contract_address || '未配置');
@@ -395,7 +397,7 @@ const App = (function() {
                 case 'result_draw':
                     // 结果展示
                     const resultType = mockStage === 'result_win' ? 'win' :
-                                      mockStage === 'result_lose' ? 'lose' : 'draw';
+                        mockStage === 'result_lose' ? 'lose' : 'draw';
 
                     // 使用 stageResult 展示完整的结果界面（含动画）
                     UI.showStage('stageResult');
@@ -441,23 +443,102 @@ const App = (function() {
         if (isMockMode) return;
 
         const path = window.location.pathname;
-        const params = new URLSearchParams(window.location.search);
 
         if (path === '/' || path === '/lobby') {
             enterLobby();
         } else if (path.startsWith('/room/')) {
-            const roomId = path.replace('/room/', '');
-            if (roomId && currentRoomId === roomId && currentRoom) {
-                enterRoomWait();
-            } else {
+            // 同时支持 /room/{id} 和 /room/{id}/game
+            const rest = path.substring('/room/'.length);
+            const slashIdx = rest.indexOf('/');
+            const roomId = slashIdx >= 0 ? rest.substring(0, slashIdx) : rest;
+            const subPath = slashIdx >= 0 ? rest.substring(slashIdx + 1) : '';
+
+            if (!roomId) {
                 enterLobby();
+                return;
+            }
+
+            if (subPath === 'game') {
+                // /room/{id}/game：游戏进行中路由恢复
+                handleGameRoute(roomId);
+            } else {
+                // /room/{id}：房间等待
+                currentRoomId = roomId;
+                roomGameStartedHandled = false;
+                enterRoomWait();
             }
         } else if (path === '/game' || path.startsWith('/game/')) {
+            // 兼容旧路由 /game
             if (!currentGameId) {
                 enterLobby();
             }
         } else {
             enterLobby();
+        }
+    }
+
+    // 处理 /room/{id}/game 路由：从后端恢复房间与游戏状态
+    // 关键：刷新页面后能根据房间状态自动恢复到正确阶段，避免用户被踢回大厅；
+    // 同时传递已有的 chain_game_id，避免重复签名 createMatch/joinMatch
+    async function handleGameRoute(roomId) {
+        // 已在游戏中且房间匹配：直接显示游戏界面
+        if (currentGameId && currentRoomId === roomId) {
+            UI.showStage('stageGame');
+            return;
+        }
+
+        // 需要钱包已连接才能恢复（否则无法判断角色、无法签名）
+        if (!Wallet.isConnected()) {
+            FWUI.Toast.warning('请先连接钱包以恢复游戏');
+            navigateTo('/');
+            return;
+        }
+
+        try {
+            const resp = await fetch(`${CONFIG.backendUrl}/api/game/room/${roomId}`);
+            const room = resp.ok ? await resp.json() : null;
+            if (!room || !room.room_id) {
+                FWUI.Toast.error('房间不存在或已关闭');
+                navigateTo('/');
+                return;
+            }
+
+            // 校验当前钱包是该房间的玩家
+            const myAddr = (Wallet.getAddress() || '').toLowerCase();
+            const amICreator = room.creator && room.creator.toLowerCase() === myAddr;
+            const amIPlayer2 = room.player2 && room.player2.toLowerCase() === myAddr;
+            if (!amICreator && !amIPlayer2) {
+                FWUI.Toast.warning('你不是该房间的玩家');
+                navigateTo('/');
+                return;
+            }
+
+            currentRoomId = roomId;
+            currentRoom = room;
+
+            if (room.status === 'game_started') {
+                // 用 room 数据构造 game_started 事件，传递已有 chain_game_id 避免重复签名
+                roomGameStartedHandled = false;
+                handleRoomGameStarted({
+                    room_id: roomId,
+                    game_id: room.game_id,
+                    is_creator: amICreator,
+                    opponent: amICreator ? room.player2 : room.creator,
+                    token: room.token,
+                    bet_amount: room.bet_amount,
+                    commit_deadline: null,
+                    chain_game_id: room.chain_game_id, // 关键：已有则跳过 createMatch 签名
+                });
+            } else if (room.status === 'countdown') {
+                // 倒计时中，回到房间等待界面
+                enterRoomWait();
+            } else {
+                // CREATED / JOINED / FINISHED / CLOSED 等：回房间等待
+                enterRoomWait();
+            }
+        } catch (e) {
+            FWUI.Toast.error('恢复游戏状态失败: ' + (e.message || e));
+            navigateTo('/');
         }
     }
 
@@ -581,7 +662,7 @@ const App = (function() {
             try {
                 const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         room_id: currentRoomId,
                         player_address: myAddress,
@@ -596,6 +677,7 @@ const App = (function() {
                         FWUI.Toast.info('已离开房间');
                     }
                     stopRoomPolling();
+                    disconnectP2PChannel();
                     currentRoomId = null;
                     currentRoom = null;
                     UI.showStage('stageLobby');
@@ -629,6 +711,15 @@ const App = (function() {
                 const roomId = joinBtn.dataset.roomId;
                 if (roomId) {
                     joinRoom(roomId);
+                }
+            }
+            const enterBtn = e.target.closest('.btn-enter-room');
+            if (enterBtn) {
+                const roomId = enterBtn.dataset.roomId;
+                if (roomId) {
+                    currentRoomId = roomId;
+                    roomGameStartedHandled = false;
+                    navigateTo(`/room/${roomId}`);
                 }
             }
         });
@@ -954,7 +1045,7 @@ const App = (function() {
             if (currentGameId && Number(event.args.gameId) === currentGameId) {
                 const player = event.args.player;
                 const myAddress = Wallet.getAddress();
-                
+
                 if (player.toLowerCase() === myAddress.toLowerCase()) {
                     myCommitSubmitted = true;
                     UI.setMyStatus('已提交');
@@ -967,13 +1058,15 @@ const App = (function() {
 
                 if (myCommitSubmitted && opponentCommitSubmitted) {
                     gamePhase = 'reveal';
-                    UI.setGameStatus('揭晓阶段');
+                    // 双方都已提交 → 进入揭晓阶段
+                    const revealingText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['revealing'] : '🔓 揭晓中，等待结算';
+                    UI.setGameStatus('揭晓阶段 · ' + revealingText);
                     UI.setChoiceButtonsEnabled(false);
-                    
+
                     if (selectedChoice && !myRevealed) {
                         UI.showRevealButton(true);
                     }
-                    
+
                     startGameTimer('reveal');
                 }
             }
@@ -984,7 +1077,7 @@ const App = (function() {
                 const player = event.args.player;
                 const choice = Number(event.args.choice);
                 const myAddress = Wallet.getAddress();
-                
+
                 if (player.toLowerCase() === myAddress.toLowerCase()) {
                     myRevealed = true;
                     UI.setMyStatus('已揭晓');
@@ -1051,100 +1144,101 @@ const App = (function() {
         isHandlingWalletConnection = true;
         chainChangedDuringInit = false;
         try {
-        UI.updateWalletInfo(address, '0', currentToken);
-        UI.setMyAddress(address);
+            UI.updateWalletInfo(address, '0', currentToken);
+            UI.setMyAddress(address);
 
-        let chainId = Wallet.getChainId();
-        let networkName = getNetworkNameByChainId(chainId);
-        UI.updateNetworkInfo(chainId, networkName);
+            let chainId = Wallet.getChainId();
+            let networkName = getNetworkNameByChainId(chainId);
+            UI.updateNetworkInfo(chainId, networkName);
 
-        currentToken = CONFIG.getDefaultToken();
-        UI.showTokenSelect(currentToken);
+            currentToken = CONFIG.getDefaultToken();
+            UI.showTokenSelect(currentToken);
 
-        let needsChainSwitch = false;
-        try {
-            const mainChainConfig = await fetchMainChainConfig();
-            if (mainChainConfig && mainChainConfig.chain_id) {
-                const mainChainId = mainChainConfig.chain_id;
-                const now = Date.now();
-                if (chainId !== mainChainId && now - lastChainSwitchTime > CHAIN_SWITCH_COOLDOWN) {
-                    lastChainSwitchTime = now;
-                    needsChainSwitch = true;
-                    if (!silentMode) {
-                        FWUI.Toast.info(`正在切换到 ChainRPS 主链: ${mainChainConfig.network_name}...`);
-                    }
-                    try {
-                        isSwitchingChain = true;
-                        const switched = await Wallet.switchOrAddChain({
-                            chainId: mainChainId,
-                            chainName: mainChainConfig.network_name,
-                            rpcUrls: [mainChainConfig.rpc_url],
-                            nativeCurrency: mainChainConfig.native_currency,
-                            blockExplorerUrls: mainChainConfig.block_explorer ? [mainChainConfig.block_explorer] : undefined,
-                        });
-                        if (switched === false) {
-                            if (!silentMode) {
-                                FWUI.Toast.warning(`请先在钱包中手动添加 ${mainChainConfig.network_name} 网络（配置已弹出显示），添加后刷新页面`);
-                            }
-                            isSwitchingChain = false;
-                        } else if (switched && !silentMode) {
-                            FWUI.Toast.success(`已切换到 ChainRPS 主链: ${mainChainConfig.network_name}`);
-                        }
-                    } catch (switchError) {
-                        console.error('切换主链失败:', switchError);
-                        isSwitchingChain = false;
+            let needsChainSwitch = false;
+            try {
+                const mainChainConfig = await fetchMainChainConfig();
+                if (mainChainConfig && mainChainConfig.chain_id) {
+                    const mainChainId = mainChainConfig.chain_id;
+                    const now = Date.now();
+                    if (chainId !== mainChainId && now - lastChainSwitchTime > CHAIN_SWITCH_COOLDOWN) {
+                        lastChainSwitchTime = now;
+                        needsChainSwitch = true;
                         if (!silentMode) {
-                            const errMsg = switchError.message || switchError.toString();
-                            if (errMsg.indexOf('User rejected') !== -1 || errMsg.indexOf('用户拒绝') !== -1) {
-                                FWUI.Toast.warning(`您已拒绝切换网络，请手动切换到 ${mainChainConfig.network_name}`);
-                            } else {
-                                FWUI.Toast.error(`切换网络失败，请手动切换到 ${mainChainConfig.network_name}`);
+                            FWUI.Toast.info(`正在切换到 ChainRPS 主链: ${mainChainConfig.network_name}...`);
+                        }
+                        try {
+                            isSwitchingChain = true;
+                            const switched = await Wallet.switchOrAddChain({
+                                chainId: mainChainId,
+                                chainName: mainChainConfig.network_name,
+                                rpcUrls: [mainChainConfig.rpc_url],
+                                nativeCurrency: mainChainConfig.native_currency,
+                                blockExplorerUrls: mainChainConfig.block_explorer ? [mainChainConfig.block_explorer] : undefined,
+                            });
+                            if (switched === false) {
+                                if (!silentMode) {
+                                    FWUI.Toast.warning(`请先在钱包中手动添加 ${mainChainConfig.network_name} 网络（配置已弹出显示），添加后刷新页面`);
+                                }
+                                isSwitchingChain = false;
+                            } else if (switched && !silentMode) {
+                                FWUI.Toast.success(`已切换到 ChainRPS 主链: ${mainChainConfig.network_name}`);
+                            }
+                        } catch (switchError) {
+                            console.error('切换主链失败:', switchError);
+                            isSwitchingChain = false;
+                            if (!silentMode) {
+                                const errMsg = switchError.message || switchError.toString();
+                                if (errMsg.indexOf('User rejected') !== -1 || errMsg.indexOf('用户拒绝') !== -1) {
+                                    FWUI.Toast.warning(`您已拒绝切换网络，请手动切换到 ${mainChainConfig.network_name}`);
+                                } else {
+                                    FWUI.Toast.error(`切换网络失败，请手动切换到 ${mainChainConfig.network_name}`);
+                                }
                             }
                         }
                     }
+
+                    if (mainChainConfig.contract_address) {
+                        CONFIG.setContractAddress(mainChainConfig.contract_address);
+                    }
                 }
+            } catch (e) {
+                console.warn('获取主链配置失败，使用本地配置:', e);
+            }
 
-                if (mainChainConfig.contract_address) {
-                    CONFIG.setContractAddress(mainChainConfig.contract_address);
+            if (needsChainSwitch && isSwitchingChain) {
+                // 网络正在切换中，后续操作（initContract、updateBalance 等）交给 chainChanged 事件处理
+                return;
+            }
+
+            initContract();
+
+            updateBalanceDisplay();
+
+            History.syncFromChain(address).then(() => {
+                updateHistoryAndStats();
+            });
+
+            Settings.loadFromServer(address).then(() => {
+                Settings.renderSettingsForm();
+                const prefs = Settings.getPreferences();
+                // 主题统一以 localStorage.rps_theme 为准（顶部按钮和设置面板共用同一来源）
+                // 服务端返回的 prefs.theme 只用于回填设置面板的显示值，不强制覆盖当前主题
+                const localTheme = localStorage.getItem('rps_theme');
+                if (localTheme) {
+                    Settings.setPreference('theme', localTheme);
+                } else if (prefs && prefs.theme) {
+                    Settings.applyTheme(prefs.theme);
                 }
-            }
-        } catch (e) {
-            console.warn('获取主链配置失败，使用本地配置:', e);
-        }
+            });
 
-        if (needsChainSwitch && isSwitchingChain) {
-            // 网络正在切换中，后续操作（initContract、updateBalance 等）交给 chainChanged 事件处理
-            return;
-        }
-
-        initContract();
-
-        updateBalanceDisplay();
-        
-        History.syncFromChain(address).then(() => {
-            updateHistoryAndStats();
-        });
-
-        Settings.loadFromServer(address).then(() => {
-            Settings.renderSettingsForm();
-            const prefs = Settings.getPreferences();
-            // 主题统一以 localStorage.rps_theme 为准（顶部按钮和设置面板共用同一来源）
-            // 服务端返回的 prefs.theme 只用于回填设置面板的显示值，不强制覆盖当前主题
-            const localTheme = localStorage.getItem('rps_theme');
-            if (localTheme) {
-                Settings.setPreference('theme', localTheme);
-            } else if (prefs && prefs.theme) {
-                Settings.applyTheme(prefs.theme);
-            }
-        });
-
-        checkAndRestorePlayerRoom(address);
+            checkAndRestorePlayerRoom(address);
         } finally {
             isHandlingWalletConnection = false;
         }
     }
 
     let cachedMainChainConfig = null;
+
     // 获取主链配置
     async function fetchMainChainConfig(forceRefresh = false) {
         if (cachedMainChainConfig && !forceRefresh) {
@@ -1199,7 +1293,7 @@ const App = (function() {
         FWUI.Toast.info('正在断开钱包...');
         await Wallet.disconnect();
         handleWalletDisconnected();
-        FWUI.Toast.success('钱包已断开连接');
+        FWUI.Toast.success('钱包已断开，刷新页面不会自动重连');
     }
 
     // 初始化合约实例
@@ -1278,6 +1372,10 @@ const App = (function() {
     let roomListLoading = false;
     let roomListTimeout = null;
 
+    // P2P 通道状态（房间内私密通信，WS 降级兜底）
+    let p2pConnected = false;
+    let p2pListenersBound = false;
+
     // 开始大厅定时刷新（WS 未连接时的降级轮询）
     function startLobbyRefresh() {
         stopLobbyRefresh();
@@ -1287,10 +1385,11 @@ const App = (function() {
                 stopLobbyRefresh();
                 return;
             }
+            // WS 未连接时降级轮询
             if (!lobbyWsConnected) {
                 loadRoomList();
             }
-        }, 10000);
+        }, 5000);
     }
 
     // 停止大厅定时刷新
@@ -1514,7 +1613,7 @@ const App = (function() {
                     return;
                 }
                 modal.close();
-                resolve({ token: selectedToken, amount: selectedAmount });
+                resolve({token: selectedToken, amount: selectedAmount});
             });
             modal.element.querySelector('[data-action="cancel"]').addEventListener('click', () => {
                 modal.close();
@@ -1537,7 +1636,7 @@ const App = (function() {
         try {
             const response = await fetch(`${CONFIG.backendUrl}/api/game/room/create`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     player_address: Wallet.getAddress(),
                     token: result.token,
@@ -1775,6 +1874,7 @@ const App = (function() {
 
         // 点击外部关闭
         document.addEventListener('click', handleOutsideClick);
+
         // 处理下拉框外部点击
         function handleOutsideClick(e) {
             if (!dropdownEl) return;
@@ -1800,7 +1900,7 @@ const App = (function() {
         // 清理函数
         const originalClose = modal.close;
         // 重写modal关闭方法进行清理
-        modal.close = function() {
+        modal.close = function () {
             window.removeEventListener('resize', positionDropdown);
             window.removeEventListener('scroll', positionDropdown, true);
             document.removeEventListener('click', handleOutsideClick);
@@ -1830,7 +1930,7 @@ const App = (function() {
             try {
                 const response = await fetch(`${CONFIG.backendUrl}/api/game/room/join`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         room_id: roomId,
                         player_address: myAddress
@@ -1905,7 +2005,7 @@ const App = (function() {
         try {
             const response = await fetch(`${CONFIG.backendUrl}/api/game/room/join`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     room_id: roomId,
                     player_address: Wallet.getAddress()
@@ -1964,7 +2064,7 @@ const App = (function() {
         try {
             const response = await fetch(`${CONFIG.backendUrl}/api/game/room/ready`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     room_id: currentRoomId,
                     player_address: Wallet.getAddress()
@@ -1975,6 +2075,14 @@ const App = (function() {
             if (response.ok && data.room_id) {
                 currentRoom = data;
                 updateRoomUI();
+                // 通过 P2P 即时通知对端（P2P 未就绪时由后端 WS 推送兜底）
+                const amICreator = data.creator && data.creator.toLowerCase() === Wallet.getAddress().toLowerCase();
+                const myReady = amICreator ? data.creator_ready : data.player2_ready;
+                sendPeerNotify('room_ready_change', {
+                    room_id: currentRoomId,
+                    player: Wallet.getAddress(),
+                    ready: myReady,
+                });
             } else {
                 FWUI.Toast.error(data.detail || data.message || '操作失败');
             }
@@ -1990,14 +2098,105 @@ const App = (function() {
         await loadRoomStatus();
         updateRoomUI();
         connectRoomSocket();
+        connectP2PChannel();
+        startRoomPolling();
     }
 
     // 连接房间WebSocket并注册事件
     function connectRoomSocket() {
         if (!CONFIG.wsUrl || !Wallet.getAddress()) return;
         if (!GameSocket.isConnected()) {
+            // 监听 WS 关闭事件，重置连接状态以便恢复轮询
+            GameSocket.on('close', () => {
+                if (roomWsConnected) {
+                    console.log('[Room] WebSocket 断开，恢复轮询模式');
+                    roomWsConnected = false;
+                }
+            });
+            // 连接 WebSocket，等待连接成功后再注册事件并刷新状态
+            GameSocket.once('open', () => {
+                registerRoomListeners();
+                // 订阅当前房间（后端可批量通知房间内双方）
+                if (currentRoomId) {
+                    GameSocket.subscribeRoom(currentRoomId);
+                    loadRoomStatus();
+                }
+            });
             GameSocket.connect(CONFIG.wsUrl, Wallet.getAddress());
+        } else {
+            // 已连接，直接注册事件
+            registerRoomListeners();
+            // 已连接时也确保订阅当前房间
+            if (currentRoomId) {
+                GameSocket.subscribeRoom(currentRoomId);
+            }
         }
+    }
+
+    // ============ P2P 通道管理（房间内私密通信，WS 降级兜底） ============
+    // 连接 P2P 通道：进入房间时调用，通过 WebRTC 数据通道与对端直连
+    function connectP2PChannel() {
+        if (!CONFIG.wsUrl || !Wallet.getAddress() || !currentRoomId) return;
+        try {
+            // 注册 P2P 消息监听（仅注册一次）
+            if (!p2pListenersBound) {
+                p2pListenersBound = true;
+                // P2P 数据通道就绪
+                P2PChannel.on('open', () => {
+                    p2pConnected = true;
+                    console.log('[P2P] 数据通道就绪，房间内消息优先走 P2P');
+                });
+                // P2P 断开：降级到 WS
+                P2PChannel.on('close', () => {
+                    if (p2pConnected) {
+                        p2pConnected = false;
+                        console.log('[P2P] 数据通道断开，降级到 WS 通信');
+                    }
+                });
+                // P2P 重连失败：永久降级到 WS
+                P2PChannel.on('reconnect_failed', () => {
+                    p2pConnected = false;
+                    console.warn('[P2P] 重连失败，持续使用 WS 通道');
+                });
+                // 对端离开
+                P2PChannel.on('peer_left', () => {
+                    console.log('[P2P] 对端离开');
+                });
+                // P2P 收到消息：注入到 GameSocket 事件流，复用所有 WS 事件监听器
+                P2PChannel.on('message', (data) => {
+                    if (data && data.type) {
+                        GameSocket.inject(data.type, data.data || {});
+                    }
+                });
+            }
+            // 连接 P2P 通道
+            P2PChannel.connect(CONFIG.wsUrl, Wallet.getAddress(), currentRoomId);
+            console.log(`[P2P] 连接房间 ${currentRoomId} 的 P2P 通道`);
+        } catch (e) {
+            console.warn('[P2P] 连接失败，使用 WS 降级:', e.message);
+        }
+    }
+
+    // 断开 P2P 通道：退出房间/房间关闭时调用
+    function disconnectP2PChannel() {
+        if (p2pConnected || P2PChannel.isSignalingReady()) {
+            P2PChannel.disconnect();
+            p2pConnected = false;
+        }
+    }
+
+    // 通过 P2P 通知对端（P2P 未就绪时静默降级到 WS，由后端推送）
+    function sendPeerNotify(type, data) {
+        if (!type) return false;
+        const payload = { type, data: data || {}, timestamp: Date.now() };
+        if (p2pConnected) {
+            return P2PChannel.send(payload);
+        }
+        return false;
+    }
+
+    // 注册房间事件监听器
+    function registerRoomListeners() {
         if (roomWsConnected) return;
         roomWsConnected = true;
         // 房间模式 WebSocket 事件监听（事件名与后端 WSMessage.type 一致）
@@ -2045,6 +2244,7 @@ const App = (function() {
             if (currentRoomId === data.room_id) {
                 FWUI.Toast.warning(data.message || '房间已被解散');
                 stopRoomPolling();
+                disconnectP2PChannel();
                 currentRoomId = null;
                 currentRoom = null;
                 UI.showStage('stageLobby');
@@ -2063,6 +2263,7 @@ const App = (function() {
             if (currentRoomId === data.room_id) {
                 FWUI.Toast.warning(data.message || '因未准备已被移出房间');
                 stopRoomPolling();
+                disconnectP2PChannel();
                 currentRoomId = null;
                 currentRoom = null;
                 UI.showStage('stageLobby');
@@ -2074,6 +2275,7 @@ const App = (function() {
             if (currentRoomId === data.room_id) {
                 FWUI.Toast.warning(data.message || '房间已关闭');
                 stopRoomPolling();
+                disconnectP2PChannel();
                 stopAllCountdowns();
                 hasWsCountdown = false;
                 currentRoomId = null;
@@ -2083,12 +2285,151 @@ const App = (function() {
                 loadRoomList();
             }
         });
+
+        // ============ 倒计时取消事件（双方准备阶段任一方取消准备） ============
+        GameSocket.on('countdown_cancelled', (data) => {
+            if (currentRoomId === data.room_id) {
+                hasWsCountdown = false;
+                stopAllCountdowns();
+                FWUI.Toast.warning(data.message || '倒计时已取消');
+                // 重新加载房间状态（会自动切回 stageRoomWait 并更新准备按钮）
+                loadRoomStatus();
+            }
+        });
+
+        // ============ 链上对局阶段事件 ============
+        // 创建者上报 chain_game_id 成功（创建者本人收到）
+        GameSocket.on('chain_game_reported', (data) => {
+            if (currentRoomId === data.room_id && !currentGameId) {
+                currentGameId = Number(data.chain_game_id);
+                UI.setGameId(currentGameId);
+                UI.setGameStatus('等待对手加入');
+                UI.setMyStatus('等待出拳');
+                UI.setOpponentStatus('加入中...');
+                FWUI.Toast.info(data.message || '链上对局已创建，等待对手加入');
+                // 启动兜底轮询：若 chain_game_player_joined 事件丢失，仍能感知对手加入
+                pollChainGameUntilJoined();
+            }
+        });
+
+        // player2 已加入链上对局（创建者收到，立即进入出拳阶段）
+        GameSocket.on('chain_game_player_joined', (data) => {
+            // 仅创建者关心此事件
+            if (currentGameId && Number(data.chain_game_id) === currentGameId) {
+                UI.setOpponentStatus('等待出拳');
+                const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
+                const gsEl = document.getElementById('gameStatus');
+                const curStatus = gsEl ? gsEl.textContent : '';
+                if (!curStatus.includes('资金已链上锁定') && !curStatus.includes('链上冻结')) {
+                    UI.setGameStatus((curStatus || '提交阶段') + ' · ' + chainFrozenText);
+                }
+                FWUI.Toast.success(data.message || '对手已加入链上对局，开始出拳！');
+                enterGamePhase();
+            }
+        });
+
+        // 对手已提交哈希（双方收到，提示等待揭晓）
+        GameSocket.on('opponent_commit', (data) => {
+            if (currentGameId && Number(data.game_id) === currentGameId) {
+                opponentCommitSubmitted = true;
+                UI.setOpponentStatus('已提交');
+                if (myCommitSubmitted) {
+                    // 双方都已提交，等待揭晓
+                    FWUI.Toast.info('双方都已提交，准备揭晓');
+                } else {
+                    FWUI.Toast.info('对手已提交出拳，请尽快提交');
+                }
+            }
+        });
+
+        // 进入揭晓阶段（双方都已提交）
+        GameSocket.on('reveal_start', (data) => {
+            if (currentGameId && Number(data.game_id) === currentGameId) {
+                gamePhase = 'reveal';
+                UI.setGameStatus('揭晓阶段 · 请揭晓出拳');
+                UI.setMyStatus('待揭晓');
+                if (myCommitSubmitted) {
+                    UI.showRevealButton(true);
+                }
+                startGameTimer('reveal');
+                FWUI.Toast.info(data.message || '进入揭晓阶段，请揭晓出拳');
+            }
+        });
+
+        // 对手已揭晓出拳（双方收到，包含对方出拳内容）
+        GameSocket.on('opponent_reveal', (data) => {
+            if (currentGameId && Number(data.game_id) === currentGameId) {
+                opponentRevealed = true;
+                const opponentChoice = data.choice;
+                UI.setOpponentChoice(opponentChoice);
+                UI.setOpponentStatus('已揭晓');
+                if (myRevealed) {
+                    // 双方都已揭晓，等待链上结算
+                    UI.setGameStatus('双方已揭晓，等待链上结算');
+                    FWUI.Toast.info('双方都已揭晓，等待链上结算');
+                } else {
+                    FWUI.Toast.info('对手已揭晓，请尽快揭晓');
+                }
+            }
+        });
+
+        // 双方都已揭晓完成（等待链上结算）
+        GameSocket.on('reveal_complete', (data) => {
+            if (currentGameId && Number(data.game_id) === currentGameId) {
+                UI.setOpponentChoice(data.choice2 || data.choice1);
+                UI.setGameStatus('双方已揭晓，等待链上结算');
+                FWUI.Toast.info(data.message || '双方都已揭晓，等待链上结算');
+            }
+        });
+
+        // 对局被取消（Owner 取消或异常）
+        GameSocket.on('match_cancelled', (data) => {
+            if (currentGameId && Number(data.game_id) === currentGameId) {
+                FWUI.Toast.warning(data.message || '对局已被取消');
+                stopGameTimer();
+                stopAllFallbackPolling();
+                disconnectP2PChannel();
+                UI.setGameStatus('对局已取消');
+                // 返回大厅
+                setTimeout(() => {
+                    currentGameId = null;
+                    currentRoomId = null;
+                    currentRoom = null;
+                    UI.showStage('stageLobby');
+                    loadRoomList();
+                }, 1500);
+            }
+        });
+
+        // 对局结果（双方收到，链上结算完成）
+        GameSocket.on('game_result', (data) => {
+            if (currentGameId && Number(data.game_id) === currentGameId) {
+                stopGameTimer();
+                stopGamePhaseFallbackPolling();
+                const myAddress = Wallet.getAddress();
+                let resultText = '平局';
+                if (data.is_draw) {
+                    resultText = '平局';
+                } else if (data.winner && data.winner.toLowerCase() === myAddress.toLowerCase()) {
+                    resultText = '胜利';
+                } else {
+                    resultText = '失败';
+                }
+                UI.setGameStatus(`对局已结算 · ${resultText}`);
+                FWUI.Toast.success(`对局结束：${resultText}`);
+            }
+        });
+
+        // ============ WS 重连失败事件 ============
+        GameSocket.on('reconnect_failed', () => {
+            FWUI.Toast.error('实时连接已断开且重连失败，将使用轮询模式');
+        });
     }
 
     // 加载房间状态
     function loadRoomStatus() {
         if (!currentRoomId) return;
-        
+
         if (roomStatusLoading) {
             if (roomStatusTimeout) clearTimeout(roomStatusTimeout);
             roomStatusTimeout = setTimeout(loadRoomStatus, 100);
@@ -2096,13 +2437,13 @@ const App = (function() {
         }
 
         roomStatusLoading = true;
-        
+
         fetch(`${CONFIG.backendUrl}/api/game/room/${currentRoomId}`)
             .then(response => {
                 const ok = response.ok;
-                return response.json().then(data => ({ ok, data }));
+                return response.json().then(data => ({ok, data}));
             })
-            .then(({ ok, data }) => {
+            .then(({ok, data}) => {
                 if (ok) {
                     currentRoom = data;
                     updateRoomUI();
@@ -2171,6 +2512,27 @@ const App = (function() {
             UI.showCountdown(false);
             stopAllCountdowns();
             hasWsCountdown = false;
+
+            // 关键修复：如果房间已进入 game_started 状态但前端还停留在房间等待界面
+            // （常见于 WebSocket game_started 事件丢失、刷新页面、轮询恢复场景），
+            // 主动用 currentRoom 数据构造事件并触发 handleRoomGameStarted，
+            // 否则双方都会卡在"游戏即将开始"界面无法进入游戏。
+            const stageGame = document.getElementById('stageGame');
+            const stillInRoomWait = stageGame && stageGame.classList.contains('hidden');
+            if (stillInRoomWait && !roomGameStartedHandled && currentRoom.game_id) {
+                roomGameStartedHandled = true;
+                const myAddr = Wallet.getAddress();
+                const amICreator = currentRoom.creator.toLowerCase() === (myAddr || '').toLowerCase();
+                handleRoomGameStarted({
+                    room_id: currentRoom.room_id,
+                    game_id: currentRoom.game_id,
+                    is_creator: amICreator,
+                    opponent: amICreator ? currentRoom.player2 : currentRoom.creator,
+                    token: currentRoom.token,
+                    bet_amount: currentRoom.bet_amount,
+                    commit_deadline: null,
+                });
+            }
         } else {
             UI.showCountdown(false);
             stopAllCountdowns();
@@ -2270,8 +2632,11 @@ const App = (function() {
     // 5. 双方使用 chain_game_id 进入提交/揭晓阶段
 
     // 处理房间游戏开始事件
+    // data.chain_game_id 可选：若已有（如刷新页面恢复），创建者会跳过 createMatch 签名
     async function handleRoomGameStarted(data) {
         console.log('[Room] 游戏开始:', data);
+        // 标记已处理，防止轮询重复触发
+        roomGameStartedHandled = true;
         stopRoomPolling();
         stopAllCountdowns();
         hasWsCountdown = false;
@@ -2291,17 +2656,33 @@ const App = (function() {
         }
         currentRoom.status = 'game_started';
         currentRoom.game_id = data.game_id;
+        // 保存已有的 chain_game_id（用于幂等性判断，避免刷新后重复签名）
+        if (data.chain_game_id) {
+            currentRoom.chain_game_id = data.chain_game_id;
+        }
 
         // 使用后端传来的 is_creator 字段，比自己比较更可靠
         const amICreator = !!data.is_creator;
+        // 是否已有链上对局 ID（刷新恢复 / 上报过 / 事件携带）
+        const existingChainGameId = data.chain_game_id ? Number(data.chain_game_id) : null;
 
         // 设置游戏状态
         resetGameState();
-        currentGameId = data.game_id;
+        // 注意：currentGameId 在此时不设置为 chainGameId，让 createChainGameForRoom/handleChainGameCreated
+        // 内部根据幂等性逻辑决定是否设置（避免 player2 在未 join 之前就以为自己在游戏中）
+        if (existingChainGameId && !amICreator) {
+            // player2 刷新恢复：已有 chain_game_id，直接用（joinMatch 会做链上已 join 检查）
+            currentGameId = existingChainGameId;
+        } else if (amICreator && existingChainGameId) {
+            // 创建者刷新恢复：已有 chain_game_id，直接用（createChainGameForRoom 会跳过签名）
+            currentGameId = existingChainGameId;
+        } else {
+            currentGameId = data.game_id;
+        }
 
         // 切换界面
         UI.showCountdown(false);
-        UI.setGameId(data.game_id || '准备中...');
+        UI.setGameId(existingChainGameId || data.game_id || '准备中...');
         UI.showStage('stageGame');
 
         // 显示出拳按钮（禁用状态），让用户知道这是游戏界面
@@ -2315,82 +2696,196 @@ const App = (function() {
         const confirmSection = document.getElementById('choiceConfirmSection');
         if (confirmSection) confirmSection.classList.add('hidden');
 
-        // 更新 URL（放在 UI 切换之后，避免 handleRoute 重置界面
-        window.history.pushState({}, '', '/game');
+        // 更新 URL：使用带房间号的路由，刷新页面可恢复
+        if (currentRoomId) {
+            window.history.pushState({}, '', `/room/${currentRoomId}/game`);
+        } else {
+            window.history.pushState({}, '', '/game');
+        }
 
         if (amICreator) {
-            UI.setGameStatus('创建链上对局中...');
             UI.setMyStatus('创建对局');
             UI.setOpponentStatus('等待加入');
             UI.setOpponentAddress(data.opponent);
-            // 创建者：调用合约 createMatch 创建链上对局
-            createChainGameForRoom(data).catch(err => {
-                console.error('[Room] 创建链上对局失败:', err);
-                FWUI.Toast.error('创建链上对局失败: ' + (err.message || err));
-            });
+
+            // 幂等性：如果已有 chain_game_id（例如刷新页面恢复），跳过 createMatch 签名
+            // 直接进入"等待对手加入"阶段，避免重复签名
+            if (existingChainGameId) {
+                currentGameId = existingChainGameId;
+                UI.setGameId(existingChainGameId);
+                UI.setGameStatus('等待对手加入');
+                UI.setMyStatus('等待出拳');
+                UI.setOpponentStatus('加入中...');
+                FWUI.Toast.info(`已恢复链上对局 #${existingChainGameId}，等待对手加入`);
+                pollChainGameUntilJoined();
+            } else {
+                UI.setGameStatus('创建链上对局中...');
+
+                // 创建者兜底轮询：如仍未拿到 chain_game_id（可能之前上报成功但前端异常），
+                // 则拉取 room 信息拿 chain_game_id，若有则直接进入等待对手加入阶段
+                const creatorRecoverTimer = setInterval(async () => {
+                    if (currentGameId) { clearInterval(creatorRecoverTimer); return; }
+                    if (!currentRoomId) { clearInterval(creatorRecoverTimer); return; }
+                    try {
+                        const resp = await fetch(`${CONFIG.backendUrl}/api/game/room/${currentRoomId}`);
+                        const d = resp.ok ? await resp.json() : null;
+                        if (d && d.chain_game_id) {
+                            clearInterval(creatorRecoverTimer);
+                            const chainGameId = Number(d.chain_game_id);
+                            currentGameId = chainGameId;
+                            UI.setGameId(chainGameId);
+                            UI.setGameStatus('等待对手加入');
+                            UI.setMyStatus('等待出拳');
+                            UI.setOpponentStatus('加入中...');
+                            FWUI.Toast.success(`已恢复链上对局 #${chainGameId}，等待对手加入`);
+                            pollChainGameUntilJoined();
+                        }
+                    } catch (_) {}
+                }, 3000);
+
+                // 创建者：调用合约 createMatch 创建链上对局
+                createChainGameForRoom(data).catch(err => {
+                    console.error('[Room] 创建链上对局失败:', err);
+                    // 兜底轮询已在上面启动，用户可手动重试或等待恢复
+                });
+            }
         } else {
             // player2：等待创建者上报 chain_game_id
-            UI.setGameStatus('等待对手创建链上对局...');
             UI.setMyStatus('等待中');
             UI.setOpponentStatus('创建对局中');
             UI.setOpponentAddress(data.opponent);
-            FWUI.Toast.info('等待对手创建链上对局...');
+
+            // 幂等性：如果已有 chain_game_id（例如刷新页面恢复），直接进入加入流程
+            // handleChainGameCreated 内部会先检查链上是否已 join，避免重复签名
+            if (existingChainGameId) {
+                FWUI.Toast.info('检测到对手已创建链上对局，准备加入...');
+                handleChainGameCreated({
+                    room_id: currentRoomId,
+                    chain_game_id: existingChainGameId,
+                });
+            } else {
+                UI.setGameStatus('等待对手创建链上对局...');
+                FWUI.Toast.info('等待对手创建链上对局...');
+
+                // player2 兜底轮询：若 chain_game_created 事件丢失，定期去 room 信息拉取 chain_game_id
+                const player2RecoverTimer = setInterval(async () => {
+                    if (currentGameId) { clearInterval(player2RecoverTimer); return; }
+                    if (!currentRoomId) { clearInterval(player2RecoverTimer); return; }
+                    try {
+                        const resp = await fetch(`${CONFIG.backendUrl}/api/game/room/${currentRoomId}`);
+                        const d = resp.ok ? await resp.json() : null;
+                        if (d && d.chain_game_id) {
+                            clearInterval(player2RecoverTimer);
+                            FWUI.Toast.info('检测到对手已创建链上对局，准备加入...');
+                            handleChainGameCreated({
+                                room_id: currentRoomId,
+                                chain_game_id: d.chain_game_id,
+                            });
+                        }
+                    } catch (_) {}
+                }, 3000);
+            }
         }
     }
 
     // 为房间创建链上对局
+    // 幂等性：若 data.chain_game_id 已存在（例如刷新页面恢复），跳过 createMatch 签名
     async function createChainGameForRoom(data) {
         try {
             UI.showStage('stageGame');
-            UI.setGameId('创建中...');
-            UI.setGameStatus('授权代币中...');
             UI.setMyStatus('创建对局');
             UI.setOpponentStatus('等待加入');
 
+            // 幂等性检查：已有 chain_game_id 时直接进入等待对手加入阶段，不再签名
+            if (data && data.chain_game_id) {
+                const existingId = Number(data.chain_game_id);
+                currentGameId = existingId;
+                UI.setGameId(existingId);
+                UI.setGameStatus('等待对手加入');
+                UI.setMyStatus('等待出拳');
+                UI.setOpponentStatus('加入中...');
+                FWUI.Toast.info(`已恢复链上对局 #${existingId}，等待对手加入`);
+                pollChainGameUntilJoined();
+                return;
+            }
+
+            UI.setGameId('创建中...');
+
             const tokenAddress = CONFIG.getTokenAddresses()[currentRoom.token];
             const myAddress = Wallet.getAddress();
+            const isNativeETH = !tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000';
 
-            // ERC20 需要先授权
-            await Contract.ensureAllowance(tokenAddress, currentRoom.bet_amount, myAddress);
+            if (!isNativeETH) {
+                UI.setGameStatus('授权代币中...');
+                // ERC20 需要先授权（ETH 原生代币跳过）
+                await Contract.ensureAllowance(tokenAddress, currentRoom.bet_amount, myAddress);
+            }
 
             UI.setGameStatus('创建链上对局中...');
 
             // 调用合约 createMatch
-            const { gameId: chainGameId } = await Contract.createMatch(currentRoom.bet_amount, tokenAddress);
+            const {gameId: chainGameId} = await Contract.createMatch(currentRoom.bet_amount, tokenAddress);
 
             if (!chainGameId) {
                 throw new Error('未能获取链上对局 ID');
             }
 
-            // 上报 chain_game_id 到后端
-            await fetch(`${CONFIG.backendUrl}/api/game/room/${currentRoomId}/chain-game`, {
+            // 上报 chain_game_id 到后端（必须验证后端成功，否则对手无法被通知）
+            const reportRes = await fetch(`${CONFIG.backendUrl}/api/game/room/${currentRoomId}/chain-game`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     chain_game_id: chainGameId,
                     player_address: myAddress,
                 })
             });
+            const reportData = reportRes.ok ? await reportRes.json().catch(() => ({})) : {};
+            if (!reportRes.ok || !reportData.success) {
+                const msg = reportData.detail || reportData.message || 'HTTP ' + reportRes.status;
+                throw new Error('链上对局已创建，但上报给后端失败：' + msg + '（对手可能无法自动加入，请联系对方手动刷新页面）');
+            }
 
             currentGameId = Number(chainGameId);
             UI.setGameId(currentGameId);
-            UI.setGameStatus('等待对手加入');
+            // 资金已在 createMatch 中上链冻结
+            const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
+            UI.setGameStatus('等待对手加入 · ' + chainFrozenText);
             UI.setMyStatus('等待出拳');
             UI.setOpponentStatus('加入中...');
 
-            FWUI.Toast.success(`链上对局已创建: #${chainGameId}`);
+            FWUI.Toast.success(`链上对局已创建: #${chainGameId}（资金已上链锁定）`);
+
+            // 通过 P2P 即时通知对端链上对局已创建（P2P 未就绪时由后端 WS 推送兜底）
+            sendPeerNotify('chain_game_created', {
+                room_id: currentRoomId,
+                chain_game_id: currentGameId,
+                creator: myAddress,
+            });
 
             // 轮询等待 player2 加入链上对局
             pollChainGameUntilJoined();
         } catch (e) {
             console.error('创建链上对局失败:', e);
-            FWUI.Toast.error(e.message || '创建链上对局失败');
-            UI.setGameStatus('创建失败');
-            UI.showStage('stageRoomWait');
+            const msg = e && e.message ? e.message : String(e);
+            // 用户主动取消：不展示"失败"字样
+            if (e && e.userCancelled) {
+                FWUI.Toast.info(msg || '您已取消创建对局');
+                UI.setGameStatus('创建已取消，点击"重试创建对局"可继续');
+            } else {
+                FWUI.Toast.error(msg || '创建链上对局失败');
+                UI.setGameStatus('创建失败，可点击下方按钮重试');
+            }
+            // 不要切回 stageRoomWait：房间已处于 GAME_STARTED 状态无法离开，切回反而让用户困惑
+            // 保留在 stageGame 中显示当前状态与重试能力
+            UI.showStage('stageGame');
+            UI.setGameId('创建中...');
+            UI.setMyStatus('创建对局');
+            UI.setOpponentStatus('等待加入');
         }
     }
 
     // 处理链上对局已创建事件
+    // 幂等性：先调用 Contract.getGame 检查链上 player2 是否已是自己，若是则跳过 joinMatch 签名
     async function handleChainGameCreated(data) {
         const chainGameId = Number(data.chain_game_id);
         if (!chainGameId) return;
@@ -2400,27 +2895,81 @@ const App = (function() {
         try {
             UI.showStage('stageGame');
             UI.setGameId(currentGameId);
-            UI.setGameStatus('加入链上对局中...');
             UI.setMyStatus('加入中');
             UI.setOpponentStatus('已就绪');
 
-            const tokenAddress = CONFIG.getTokenAddresses()[currentRoom.token];
             const myAddress = Wallet.getAddress();
+            const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 
-            // ERC20 需要先授权
-            await Contract.ensureAllowance(tokenAddress, currentRoom.bet_amount, myAddress);
+            // 幂等性检查：先查链上对局状态，若自己已是 player2 则直接进入出拳阶段，不再签名
+            // 这是"一个房间只需签名一次"的关键：刷新页面后若已 join 过，直接恢复出拳界面
+            try {
+                UI.setGameStatus('检查链上对局状态...');
+                const game = await Contract.getGame(currentGameId);
+                if (game && game.player2 && game.player2.toLowerCase() === myAddress.toLowerCase()) {
+                    // 已经 join 过，直接进入出拳阶段
+                    enterGamePhase();
+                    UI.setOpponentStatus('等待出拳');
+                    FWUI.Toast.success('已恢复加入状态，开始出拳！');
+                    return;
+                }
+                // 若对局已结束（status >= 3），也直接进入出拳阶段让 enterGamePhase 处理后续
+                if (game && Number(game.status) >= 3) {
+                    enterGamePhase();
+                    UI.setOpponentStatus('对局已结束');
+                    FWUI.Toast.info('该对局已结束');
+                    return;
+                }
+            } catch (checkErr) {
+                // 链上查询失败时降级为继续尝试 joinMatch（不阻断流程）
+                console.warn('[Room] 检查链上 join 状态失败，继续尝试 joinMatch:', checkErr && checkErr.message);
+            }
+
+            const tokenAddress = CONFIG.getTokenAddresses()[currentRoom.token];
+            const isNativeETH = !tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000';
+
+            if (!isNativeETH) {
+                UI.setGameStatus('授权代币中...');
+                // ERC20 需要先授权（ETH 原生代币跳过）
+                await Contract.ensureAllowance(tokenAddress, currentRoom.bet_amount, myAddress);
+            }
+
+            UI.setGameStatus('加入链上对局中...');
 
             // 调用合约 joinMatch
             await Contract.joinMatch(currentGameId);
 
             enterGamePhase();
+            // 资金已在 joinMatch 中上链冻结
+            const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
+            const curStatus = document.getElementById('gameStatus') ? document.getElementById('gameStatus').textContent : '';
+            if (!curStatus.includes('资金已链上锁定') && !curStatus.includes('链上冻结')) {
+                UI.setGameStatus((curStatus || '提交阶段') + ' · ' + chainFrozenText);
+            }
             UI.setOpponentStatus('等待出拳');
-            FWUI.Toast.success('已加入链上对局！');
+            FWUI.Toast.success('已加入链上对局！（资金已上链锁定）');
+
+            // 通过 P2P 即时通知创建者已加入链上对局（P2P 未就绪时由后端 WS 推送兜底）
+            sendPeerNotify('chain_game_player_joined', {
+                chain_game_id: currentGameId,
+                player: myAddress,
+                message: '对手已加入链上对局',
+            });
         } catch (e) {
             console.error('加入链上对局失败:', e);
-            FWUI.Toast.error(e.message || '加入链上对局失败');
-            UI.setGameStatus('加入失败');
-            UI.showStage('stageRoomWait');
+            const msg = e && e.message ? e.message : String(e);
+            if (e && e.userCancelled) {
+                FWUI.Toast.info(msg || '您已取消加入对局');
+                UI.setGameStatus('加入已取消，点击"重试加入对局"可继续');
+            } else {
+                FWUI.Toast.error(msg || '加入链上对局失败');
+                UI.setGameStatus('加入失败，可刷新页面重试或点击重试按钮');
+            }
+            // 保留在 stageGame：避免切回 stageRoomWait 让用户误以为已经退出对局
+            UI.showStage('stageGame');
+            UI.setGameId(currentGameId);
+            UI.setMyStatus('加入中');
+            UI.setOpponentStatus('已就绪');
         }
     }
 
@@ -2450,7 +2999,14 @@ const App = (function() {
 
                     UI.setOpponentAddress(opponent);
                     enterGamePhase();
-                    FWUI.Toast.success('对手已加入，开始出拳！');
+                    // 创建者视角：对手 joinMatch 成功后，双方资金都在链上冻结
+                    const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
+                    const gsEl = document.getElementById('gameStatus');
+                    const curStatus = gsEl ? gsEl.textContent : '';
+                    if (!curStatus.includes('资金已链上锁定') && !curStatus.includes('链上冻结')) {
+                        UI.setGameStatus((curStatus || '提交阶段') + ' · ' + chainFrozenText);
+                    }
+                    FWUI.Toast.success('对手已加入，开始出拳！（资金已链上锁定）');
                 }
             } catch (e) {
                 console.error('查询链上对局失败:', e);
@@ -2463,21 +3019,42 @@ const App = (function() {
     let roomPollingInterval = null;
     let roomStatusLoading = false;
     let roomStatusTimeout = null;
+    // 防止轮询恢复 game_started 状态时重复触发 handleRoomGameStarted
+    let roomGameStartedHandled = false;
+    // 游戏阶段兜底轮询定时器（用于 WS 事件丢失时检测对手提交/揭晓状态）
+    let gameFallbackTimer = null;
 
-    // 开始房间状态轮询
+    // 开始房间状态轮询（智能降级：WS 已连接时低频兜底，WS 断连时高频降级）
     function startRoomPolling() {
         if (roomPollingInterval) clearInterval(roomPollingInterval);
 
-        roomPollingInterval = setInterval(() => {
+        const tick = () => {
             if (!currentRoomId) {
                 clearInterval(roomPollingInterval);
                 return;
             }
-
+            // 智能降级策略：
+            // - WS 已连接：低频兜底（10 秒一次），防止 WS 事件丢失
+            // - WS 未连接：高频降级（3 秒一次），保证基本实时性
             if (!roomWsConnected) {
                 loadRoomStatus();
             }
-        }, 5000);
+        };
+
+        // 固定 3 秒间隔触发，但内部只在 WS 断连时实际拉取
+        // WS 已连接时通过独立的兜底轮询（10 秒）补充检测
+        roomPollingInterval = setInterval(tick, 3000);
+
+        // WS 已连接时的低频兜底轮询（10 秒一次，防止 WS 事件丢失）
+        if (!gameFallbackTimer) {
+            gameFallbackTimer = setInterval(() => {
+                if (!currentRoomId) return;
+                // WS 已连接时仍兜底拉取一次房间状态（WS 事件可能丢失）
+                if (roomWsConnected) {
+                    loadRoomStatus();
+                }
+            }, 10000);
+        }
     }
 
     // 停止房间状态轮询
@@ -2486,32 +3063,107 @@ const App = (function() {
             clearInterval(roomPollingInterval);
             roomPollingInterval = null;
         }
+        // 停止房间阶段兜底轮询
+        if (gameFallbackTimer) {
+            clearInterval(gameFallbackTimer);
+            gameFallbackTimer = null;
+        }
+        // 重置 game_started 处理标志，下次进入新房间时可再次触发
+        roomGameStartedHandled = false;
+    }
+
+    // 停止所有兜底轮询（房间销毁/退出时调用）
+    function stopAllFallbackPolling() {
+        if (gameFallbackTimer) {
+            clearInterval(gameFallbackTimer);
+            gameFallbackTimer = null;
+        }
+        stopGamePhaseFallbackPolling();
+    }
+
+    // 游戏阶段兜底轮询定时器（检测链上对局状态：commit/reveal）
+    let gamePhaseFallbackTimer = null;
+    let lastOpponentCommitState = false;
+    let lastOpponentRevealState = false;
+
+    // 启动游戏阶段兜底轮询（WS 事件丢失时通过链上查询恢复）
+    function startGamePhaseFallbackPolling() {
+        stopGamePhaseFallbackPolling();
+        lastOpponentCommitState = opponentCommitSubmitted;
+        lastOpponentRevealState = opponentRevealed;
+
+        gamePhaseFallbackTimer = setInterval(async () => {
+            if (!currentGameId) {
+                stopGamePhaseFallbackPolling();
+                return;
+            }
+            try {
+                const game = await Contract.getGame(currentGameId);
+                if (!game) return;
+
+                const myAddress = Wallet.getAddress();
+                const isPlayer1 = game.player1 && game.player1.toLowerCase() === myAddress.toLowerCase();
+                const opponentAddr = isPlayer1 ? game.player2 : game.player1;
+
+                // 检测对手是否已提交哈希（链上 commit 字段非零）
+                // 注意：合约的 commit1/commit2 是 bytes32，需要通过 getCommit 查询
+                if (!opponentCommitSubmitted && currentGameId) {
+                    try {
+                        const opponentCommit = await Contract.getCommit(currentGameId, opponentAddr);
+                        if (opponentCommit && opponentCommit !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+                            // 链上检测到对手已提交，但 WS 事件未到达，手动触发
+                            console.log('[Fallback] 链上检测到对手已提交，补触发 opponent_commit');
+                            opponentCommitSubmitted = true;
+                            UI.setOpponentStatus('已提交');
+                            if (myCommitSubmitted) {
+                                gamePhase = 'reveal';
+                                UI.setGameStatus('揭晓阶段 · 请揭晓出拳');
+                                UI.setMyStatus('待揭晓');
+                                if (myCommitSubmitted) UI.showRevealButton(true);
+                                startGameTimer('reveal');
+                                FWUI.Toast.info('双方都已提交，进入揭晓阶段');
+                            }
+                        }
+                    } catch (_) {}
+                }
+            } catch (e) {
+                console.warn('[Fallback] 游戏阶段兜底轮询失败:', e.message);
+            }
+        }, 5000);
+    }
+
+    // 停止游戏阶段兜底轮询
+    function stopGamePhaseFallbackPolling() {
+        if (gamePhaseFallbackTimer) {
+            clearInterval(gamePhaseFallbackTimer);
+            gamePhaseFallbackTimer = null;
+        }
     }
 
     // 开始快速匹配
     async function startQuickMatch() {
         try {
             UI.setStartButtonText('授权中...', true);
-            
+
             const contract = Contract.getContract();
             if (!contract) {
                 throw new Error('合约未部署或配置，请联系管理员');
             }
-            
+
             const tokenAddress = CONFIG.getTokenAddresses()[currentToken];
             const myAddress = Wallet.getAddress();
-            
+
             await Contract.ensureAllowance(tokenAddress, currentAmount, myAddress);
-            
+
             UI.setStartButtonText('寻找对手中...', true);
             UI.showStage('stageMatching');
             UI.updateMatchingTime(0);
             if (UI.elements.matchingAmount) {
                 UI.elements.matchingAmount.textContent = `${currentAmount} ${currentToken}`;
             }
-            
+
             startMatchingTimer();
-            
+
             if (currentMode === 'A' && CONFIG.backendUrl) {
                 requestMatchFromBackend();
             }
@@ -2537,7 +3189,7 @@ const App = (function() {
 
         fetch(`${CONFIG.backendUrl}/api/game/join`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 player_address: Wallet.getAddress(),
                 token: currentToken,
@@ -2589,11 +3241,11 @@ const App = (function() {
     // 取消匹配
     function cancelMatch() {
         stopMatchingTimer();
-        
+
         if (GameSocket.isConnected()) {
             GameSocket.disconnect();
         }
-        
+
         UI.showStage('stageLobby');
         FWUI.Toast.info('已取消匹配');
     }
@@ -2602,11 +3254,11 @@ const App = (function() {
     function handleMatchFound(gameId, opponent) {
         stopMatchingTimer();
         currentGameId = Number(gameId);
-        
+
         enterGamePhase();
         UI.setOpponentAddress(opponent);
         UI.setOpponentStatus('等待出拳');
-        
+
         FWUI.Toast.success('匹配成功！');
     }
 
@@ -2614,25 +3266,25 @@ const App = (function() {
     async function createPrivateMatch() {
         try {
             UI.setStartButtonText('创建对局中...', true);
-            
+
             const tokenAddress = CONFIG.getTokenAddresses()[currentToken];
             const myAddress = Wallet.getAddress();
-            
+
             await Contract.ensureAllowance(tokenAddress, currentAmount, myAddress);
-            
-            const { gameId } = await Contract.createMatch(currentAmount, tokenAddress);
+
+            const {gameId} = await Contract.createMatch(currentAmount, tokenAddress);
             currentGameId = gameId;
-            
+
             UI.setStartButtonText('创建成功', false);
-            
+
             enterGamePhase();
             UI.setOpponentStatus('等待对手加入');
-            
+
             copyToClipboard(gameId.toString());
             FWUI.Toast.success(`对局已创建，ID: ${gameId} 已复制到剪贴板`);
-            
+
             pollGameUntilJoined();
-            
+
         } catch (e) {
             FWUI.Toast.error(e.message || '创建失败');
             UI.setStartButtonText('创建/加入私密对局', false);
@@ -2643,29 +3295,29 @@ const App = (function() {
     async function joinPrivateMatch(matchId) {
         try {
             UI.setStartButtonText('加入对局中...', true);
-            
+
             const gameId = parseInt(matchId);
             if (isNaN(gameId) || gameId <= 0) {
                 throw new Error('无效的对局 ID');
             }
-            
+
             const tokenAddress = CONFIG.getTokenAddresses()[currentToken];
             const myAddress = Wallet.getAddress();
-            
+
             await Contract.ensureAllowance(tokenAddress, currentAmount, myAddress);
-            
+
             await Contract.joinMatch(gameId);
             currentGameId = gameId;
-            
+
             enterGamePhase();
-            
+
             const game = await Contract.getGame(gameId);
             const opponent = game.player1;
             UI.setOpponentAddress(opponent);
             UI.setOpponentStatus('等待出拳');
-            
+
             FWUI.Toast.success('加入对局成功！');
-            
+
         } catch (e) {
             FWUI.Toast.error(e.message || '加入失败');
             UI.setStartButtonText('创建/加入私密对局', false);
@@ -2712,7 +3364,9 @@ const App = (function() {
         gamePhase = 'commit';
         UI.showStage('stageGame');
         UI.setGameId(currentGameId);
-        UI.setGameStatus('提交阶段');
+        // 进入提交阶段时双方已完成 createMatch/joinMatch，资金已在链上冻结
+        const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
+        UI.setGameStatus('提交阶段 · ' + chainFrozenText);
         UI.setMyStatus('等待出拳');
         UI.setMyChoice(null);
         UI.setOpponentChoice(null);
@@ -2732,25 +3386,33 @@ const App = (function() {
         myRevealed = false;
         opponentRevealed = false;
 
+        // 订阅对局（后端可批量通知对局双方）
+        if (currentGameId && GameSocket.isConnected()) {
+            GameSocket.subscribeGame(currentGameId);
+        }
+
+        // 启动游戏阶段兜底轮询（WS 事件丢失时通过链上查询恢复）
+        startGamePhaseFallbackPolling();
+
         startGameTimer('commit');
     }
 
     // 开始游戏阶段计时器
     function startGameTimer(phase) {
         stopGameTimer();
-        
+
         const totalTime = phase === 'commit' ? CONFIG.commitTimeout : CONFIG.revealTimeout;
         let remaining = totalTime;
-        
+
         UI.updateGameTimer(remaining);
-        
+
         gameTimerInterval = setInterval(() => {
             remaining--;
-            
+
             const isWarning = remaining <= 30;
             const isDanger = remaining <= 10;
             UI.updateGameTimer(remaining, isWarning, isDanger);
-            
+
             if (remaining <= 0) {
                 stopGameTimer();
                 handleTimerExpired(phase);
@@ -2769,7 +3431,7 @@ const App = (function() {
     // 处理计时器超时
     function handleTimerExpired(phase) {
         const myAddress = Wallet.getAddress();
-        
+
         if (phase === 'commit') {
             if (myCommitSubmitted && !opponentCommitSubmitted) {
                 UI.showTimeoutButton(true);
@@ -2826,31 +3488,39 @@ const App = (function() {
         // 隐藏确认区和选择按钮
         const confirmSection = document.getElementById('choiceConfirmSection');
         if (confirmSection) confirmSection.classList.add('hidden');
-        
+
         try {
             currentSalt = RPSCrypto.generateSalt();
             const myAddress = Wallet.getAddress();
             const commitHash = RPSCrypto.computeCommit(choice, currentSalt, myAddress);
-            
+
             UI.setMyStatus('提交中...');
-            
+
             await Contract.submitCommit(currentGameId, commitHash);
-            
+
             myCommitSubmitted = true;
             UI.setMyStatus('已提交');
             UI.setChoiceButtonsEnabled(false);
-            
+
             RPSCrypto.storeSalt(currentGameId, currentSalt, choice);
-            
+
             FWUI.Toast.success('出拳已提交');
-            
+
+            // 通过 P2P 即时通知对端已提交（P2P 未就绪时由后端 WS 推送兜底）
+            sendPeerNotify('opponent_commit', {
+                game_id: currentGameId,
+                player: myAddress,
+            });
+
             if (opponentCommitSubmitted) {
                 gamePhase = 'reveal';
-                UI.setGameStatus('揭晓阶段');
+                // 双方都已提交 → 进入揭晓阶段，资金状态进入 revealing
+                const revealingText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['revealing'] : '🔓 揭晓中，等待结算';
+                UI.setGameStatus('揭晓阶段 · ' + revealingText);
                 UI.showRevealButton(true);
                 startGameTimer('reveal');
             }
-            
+
         } catch (e) {
             FWUI.Toast.error(e.message || '提交失败');
             UI.setMyStatus('提交失败，重试');
@@ -2863,22 +3533,29 @@ const App = (function() {
     // 揭晓出拳
     async function revealChoice() {
         if (!selectedChoice || !currentSalt || !myCommitSubmitted || myRevealed) return;
-        
+
         try {
             UI.revealBtn.disabled = true;
             UI.revealBtn.textContent = '揭晓中...';
-            
+
             await Contract.revealChoice(currentGameId, selectedChoice, currentSalt);
-            
+
             myRevealed = true;
             UI.showRevealButton(false);
             UI.setMyStatus('已揭晓');
             UI.setMyChoice(selectedChoice, true);
-            
+
             FWUI.Toast.success('揭晓成功');
-            
+
             RPSCrypto.clearSalt(currentGameId);
-            
+
+            // 通过 P2P 即时通知对端已揭晓（含出拳内容，P2P 未就绪时由后端 WS 推送兜底）
+            sendPeerNotify('opponent_reveal', {
+                game_id: currentGameId,
+                player: Wallet.getAddress(),
+                choice: selectedChoice,
+            });
+
         } catch (e) {
             FWUI.Toast.error(e.message || '揭晓失败');
             UI.revealBtn.disabled = false;
@@ -2891,11 +3568,11 @@ const App = (function() {
         try {
             UI.claimTimeoutBtn.disabled = true;
             UI.claimTimeoutBtn.textContent = '索赔中...';
-            
+
             await Contract.claimTimeout(currentGameId);
-            
+
             FWUI.Toast.success('超时索赔成功');
-            
+
         } catch (e) {
             FWUI.Toast.error(e.message || '索赔失败');
             UI.claimTimeoutBtn.disabled = false;
@@ -2906,6 +3583,10 @@ const App = (function() {
     // 处理对局结算
     function handleGameSettled(args) {
         stopGameTimer();
+
+        // 资金结算完成，显示为已结算
+        const settledText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['settled'] : '✅ 资金已结算';
+        UI.setGameStatus('对局结束 · ' + settledText);
 
         const myAddress = Wallet.getAddress();
         const winner = args.winner;
@@ -2972,6 +3653,12 @@ const App = (function() {
 
     // 处理平局结算
     function handleDrawSettled(args) {
+        stopGameTimer();
+
+        // 平局结算完成，资金已退款
+        const settledText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['settled'] : '✅ 资金已结算（平局退款）';
+        UI.setGameStatus('平局结束 · ' + settledText);
+
         const myAddress = Wallet.getAddress();
 
         // 平局退款金额：优先取房间信息，其次取首页选择
@@ -3018,7 +3705,7 @@ const App = (function() {
                 });
             });
         } else {
-            showResult({ type: 'draw' });
+            showResult({type: 'draw'});
         }
     }
 
@@ -3033,14 +3720,14 @@ const App = (function() {
         myRevealed = false;
         opponentRevealed = false;
         gamePhase = 'idle';
-        
+
         stopGameTimer();
         stopMatchingTimer();
-        
+
         if (GameSocket.isConnected()) {
             GameSocket.disconnect();
         }
-        
+
         UI.setSelectedChoice(null);
         UI.setStartButtonText(currentMode === 'B' ? '创建/加入私密对局' : '🏠 进入交易大厅', false);
     }

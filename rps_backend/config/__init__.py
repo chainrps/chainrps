@@ -77,6 +77,7 @@ GAME_CACHE_PREFIX = os.getenv("GAME_CACHE_PREFIX", "rps:game:")  # 对局缓存�
 ROOM_CACHE_PREFIX = os.getenv("ROOM_CACHE_PREFIX", "rps:room:")  # 房间缓存前缀
 WS_PREFIX = os.getenv("WS_PREFIX", "rps:ws:")  # WebSocket 会话前缀
 REDIS_BROADCAST_CHANNEL = os.getenv("REDIS_BROADCAST_CHANNEL", "rps:broadcast")  # Redis 广播频道名称
+REDIS_DIRECT_CHANNEL = os.getenv("REDIS_DIRECT_CHANNEL", "rps:direct")  # Redis 点对点消息路由频道
 
 
 def reload_config():
@@ -88,7 +89,7 @@ def reload_config():
     global ADMIN_WHITELIST, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS
     global DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, DEBUG
     global MATCH_QUEUE_PREFIX, GAME_CACHE_PREFIX, ROOM_CACHE_PREFIX
-    global WS_PREFIX, REDIS_BROADCAST_CHANNEL
+    global WS_PREFIX, REDIS_BROADCAST_CHANNEL, REDIS_DIRECT_CHANNEL
 
     # 重新加载 .env 文件
     load_dotenv(override=True)
@@ -123,6 +124,7 @@ def reload_config():
     ROOM_CACHE_PREFIX = os.getenv("ROOM_CACHE_PREFIX", "rps:room:")
     WS_PREFIX = os.getenv("WS_PREFIX", "rps:ws:")
     REDIS_BROADCAST_CHANNEL = os.getenv("REDIS_BROADCAST_CHANNEL", "rps:broadcast")
+    REDIS_DIRECT_CHANNEL = os.getenv("REDIS_DIRECT_CHANNEL", "rps:direct")
 
 
 __all__ = [
@@ -143,5 +145,6 @@ __all__ = [
     "ROOM_CACHE_PREFIX",
     "WS_PREFIX",
     "REDIS_BROADCAST_CHANNEL",
+    "REDIS_DIRECT_CHANNEL",
     "reload_config",
 ]

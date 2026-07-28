@@ -949,12 +949,12 @@ sqlite3 new.db < backup.sql
 5. 建设 FWUI 独立组件库
 6. 全链路联调，确认资金、加密、结算、手续费无误
 7. 合约安全校验与基础审计
-8. Polygon 主网部署，开源全套源码与部署文档
+8. Polygon (主网)部署，开源全套源码与部署文档
 9. 对外开放内测，验证真实用户流程与盈利闭环
 
 ---
 
-## 附录 A：Polygon 主网配置
+## 附录 A：Polygon (主网)配置
 
 ```env
 RPC_URL=https://polygon-rpc.com/

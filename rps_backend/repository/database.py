@@ -520,12 +520,13 @@ SYSTEM_CONFIG_DEFAULTS = {
     # 游戏配置
     "commit_timeout": ("66", "game", "提交哈希超时时间（秒）"),
     "reveal_timeout": ("88", "game", "揭晓出拳超时时间（秒）"),
+    "room_max_lifetime": ("3600", "game", "房间最大存在时间（秒），超时自动关闭（1小时=3600）"),
     "supported_tokens": ("USDC,USDT", "game", "支持的代币列表（逗号分隔）"),
     "max_bet_amount": ("10000", "game", "最大下注金额"),
     "min_bet_amount": ("1", "game", "最小下注金额"),
     # 主链配置
     "chain_id": ("5208888", "chain", "目标区块链网络 Chain ID"),
-    "recommended_chain_name": ("ChainRPS Chain", "chain", "推荐主链名称（统一标识名）"),
+    "recommended_chain_name": ("ChainRPS_Sim", "chain", "推荐主链名称（统一标识名）"),
     "network_name": ("ChainRPS Local", "chain", "网络显示名称"),
     "rpc_url": (f"http://127.0.0.1:{RPC_LOCAL_PORT}", "chain", "RPC 节点 URL"),
     "block_explorer": ("", "chain", "区块浏览器 URL（可选）"),
@@ -544,13 +545,25 @@ SYSTEM_CONFIG_DEFAULTS = {
 def _init_default_config(cursor):
     now = datetime.utcnow().isoformat()
     for key, (value, category, desc) in SYSTEM_CONFIG_DEFAULTS.items():
+        # INSERT OR IGNORE 仅对新 key 生效；已存在的 key 保留原值。
+        # 这样新增配置项（如 room_max_lifetime）会自动写入现有数据库，
+        # 而老配置项的用户修改值不会被默认值覆盖。
         cursor.execute(
             "INSERT OR IGNORE INTO system_config (config_key, config_value, category, description, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             [key, value, category, desc, None, now]
         )
+        # 对于已存在但缺少 description/category 的老记录，补齐元数据（不改 config_value）
+        cursor.execute(
+            """
+            UPDATE system_config
+               SET category = COALESCE(NULLIF(category, ''), ?),
+                   description = COALESCE(NULLIF(description, ''), ?)
+             WHERE config_key = ?
+            """,
+            [category, desc, key],
+        )
 
     # 历史遗留修正：曾使用 108108 作为本地链端口，已统一改为 8686。
-    # INSERT OR IGNORE 不会覆盖已存在的旧值，这里显式 UPDATE 修正残留记录。
     cursor.execute(
         "UPDATE system_config SET config_value = ? WHERE config_key = 'rpc_url' AND config_value LIKE '%:108108%'",
         [f"http://127.0.0.1:{RPC_LOCAL_PORT}"],
@@ -614,7 +627,7 @@ def get_system_config_default(key: str) -> Optional[str]:
     return entry[0] if entry else None
 
 
-def get_all_system_config_defaults() -> Dict[str, str]:
+def get_all_system_config_defaults() :
     """获取所有配置项的默认值字典 {config_key: default_value}"""
     return {k: v[0] for k, v in SYSTEM_CONFIG_DEFAULTS.items()}
 

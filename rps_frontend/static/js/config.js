@@ -15,7 +15,7 @@ const CONFIG = {
     networks: {
         localhost: {
             get name() {
-                return 'Localhost ' + CONFIG.RPC_PORT;
+                return 'ChainRPS_Sim';
             },
             get rpcUrl() {
                 return 'http://' + CONFIG.RPC_HOST + ':' + CONFIG.RPC_PORT;
