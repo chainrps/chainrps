@@ -1047,16 +1047,18 @@ async def explorer_query(query: str):
         if not service.is_running():
             return {"success": False, "message": "本地链未运行", "type": None, "data": None}
 
-        # 交易哈希：0x + 64 hex
-        if q.startswith("0x") and len(q) == 66:
-            data = service.get_transaction(q)
+        # 交易哈希：0x + 64 hex（容错：不带 0x 前缀也支持）
+        tx_hash = q if q.startswith("0x") else ("0x" + q if len(q) == 64 and all(c in "0123456789abcdefABCDEF" for c in q) else None)
+        if tx_hash and len(tx_hash) == 66:
+            data = service.get_transaction(tx_hash)
             if data:
                 return {"success": True, "type": "transaction", "data": data}
             return {"success": False, "message": "未找到该交易", "type": "transaction", "data": None}
 
-        # 地址：0x + 40 hex
-        if q.startswith("0x") and len(q) == 42:
-            data = service.get_address_info(q)
+        # 地址：0x + 40 hex（容错：不带 0x 前缀也支持）
+        addr = q if q.startswith("0x") else ("0x" + q if len(q) == 40 and all(c in "0123456789abcdefABCDEF" for c in q) else None)
+        if addr and len(addr) == 42:
+            data = service.get_address_info(addr)
             if data:
                 return {"success": True, "type": "address", "data": data}
             return {"success": False, "message": "地址无效或查询失败", "type": "address", "data": None}

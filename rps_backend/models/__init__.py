@@ -114,6 +114,12 @@ class LeaveRoomRequest(BaseModel):
     player_address: str
 
 
+class ResetRoomRequest(BaseModel):
+    """重置房间（再来一局）请求"""
+    room_id: str
+    player_address: str
+
+
 class ReportChainGameRequest(BaseModel):
     """上报链上对局 ID 请求"""
     chain_game_id: int
@@ -137,6 +143,7 @@ class RoomResponse(BaseModel):
     chain_game_id: Optional[int] = None
     close_reason: Optional[str] = None
     closed_at: Optional[int] = None
+    fund_stage: Optional[str] = None
 
 
 class RoomListResponse(BaseModel):
@@ -337,6 +344,7 @@ __all__ = [
     "JoinRoomRequest",
     "ToggleReadyRequest",
     "LeaveRoomRequest",
+    "ResetRoomRequest",
     "ReportChainGameRequest",
     "RoomResponse",
     "RoomListResponse",

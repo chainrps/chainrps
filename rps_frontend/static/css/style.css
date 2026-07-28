@@ -1117,6 +1117,45 @@
     margin: 0 auto;
 }
 
+/* 结果界面倒计时提示 */
+.result-countdown {
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-top: 12px;
+    min-height: 18px;
+}
+
+/* 游戏界面退出按钮 */
+.btn-exit-game {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 16px;
+    padding: 0;
+    line-height: 1;
+}
+
+.btn-exit-game:hover {
+    border-color: var(--danger-color, #ef4444);
+    color: var(--danger-color, #ef4444);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.btn-exit-game:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 .side-panel {
     width: 320px;
     flex-shrink: 0;

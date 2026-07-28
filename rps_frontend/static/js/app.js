@@ -15,6 +15,8 @@ const App = (function () {
     let matchingTimer = null;
     let gameTimerInterval = null;
     let gamePhase = 'idle';
+    let autoRevealTimer = null; // 自动揭示计时器
+    let resultCountdownTimer = null; // 结果界面倒计时计时器
 
     // 根据链ID获取网络名称
     function getNetworkNameByChainId(chainId) {
@@ -653,10 +655,14 @@ const App = (function () {
                 return;
             }
 
-            // 倒计时中或游戏已开始，不允许退出
-            if (currentRoom && (currentRoom.status === 'countdown' || currentRoom.status === 'game_started')) {
-                FWUI.Toast.warning('游戏即将开始或已开始，无法退出房间');
-                return;
+            // 与 updateRoomUI 的禁用规则保持一致：仅资金已上链时禁用
+            if (currentRoom) {
+                const fundStage = currentRoom.fund_stage || 'local_frozen';
+                const fundsOnChain = fundStage === 'chain_frozen' || fundStage === 'revealing';
+                if (fundsOnChain) {
+                    FWUI.Toast.warning('对局进行中（资金已上链），无法退出房间');
+                    return;
+                }
             }
 
             try {
@@ -759,14 +765,211 @@ const App = (function () {
 
         document.getElementById('claimTimeoutBtn').addEventListener('click', claimTimeout);
 
-        document.getElementById('playAgainBtn').addEventListener('click', () => {
-            UI.showStage('stageLobby');
-            resetGameState();
+        // 重试创建链上对局（创建者 createMatch 失败/取消后）
+        document.getElementById('retryCreateBtn').addEventListener('click', async () => {
+            UI.showRetrySection(null);
+            UI.setGameStatus('创建链上对局中...');
+            try {
+                await createChainGameForRoom({
+                    room_id: currentRoomId,
+                    game_id: currentRoom ? currentRoom.game_id : null,
+                    is_creator: true,
+                    opponent: currentRoom ? currentRoom.player2 : null,
+                    token: currentRoom ? currentRoom.token : null,
+                    bet_amount: currentRoom ? currentRoom.bet_amount : null,
+                    commit_deadline: null,
+                });
+            } catch (e) {
+                console.error('[Room] 重试创建链上对局失败:', e);
+            }
         });
 
-        document.getElementById('backHomeBtn').addEventListener('click', () => {
+        // 重试加入链上对局（player2 joinMatch 失败/取消后）
+        document.getElementById('retryJoinBtn').addEventListener('click', async () => {
+            if (!currentGameId) {
+                FWUI.Toast.warning('链上对局 ID 丢失，请刷新页面重试');
+                return;
+            }
+            UI.showRetrySection(null);
+            try {
+                await handleChainGameCreated({
+                    room_id: currentRoomId,
+                    chain_game_id: currentGameId,
+                });
+            } catch (e) {
+                console.error('[Room] 重试加入链上对局失败:', e);
+            }
+        });
+
+        // 游戏界面头部的退出房间按钮（✕）
+        document.getElementById('exitGameBtn').addEventListener('click', async () => {
+            const myAddress = Wallet.getAddress();
+            if (!myAddress || !currentRoomId) {
+                UI.showStage('stageLobby');
+                return;
+            }
+            // 资金已上链时不允许退出
+            if (currentRoom) {
+                const fundStage = currentRoom.fund_stage || 'local_frozen';
+                const fundsOnChain = fundStage === 'chain_frozen' || fundStage === 'revealing';
+                if (fundsOnChain) {
+                    FWUI.Toast.warning('对局进行中（资金已上链），无法退出房间');
+                    return;
+                }
+            }
+            // 确认退出
+            FWUI.Modal.confirm({
+                title: '退出房间',
+                content: '确定要退出当前房间吗？退出后将返回游戏大厅。',
+                okText: '确认退出',
+                cancelText: '取消',
+                onOk: async () => {
+                    try {
+                        const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                room_id: currentRoomId,
+                                player_address: myAddress,
+                            }),
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            FWUI.Toast.info(data.message || '已退出房间');
+                            stopRoomPolling();
+                            disconnectP2PChannel();
+                            stopAllFallbackPolling();
+                            stopAutoReveal();
+                            currentRoomId = null;
+                            currentRoom = null;
+                            currentGameId = null;
+                            UI.showStage('stageLobby');
+                            loadRoomList();
+                        } else {
+                            FWUI.Toast.warning(data.message || data.detail || '退出房间失败');
+                        }
+                    } catch (e) {
+                        console.error('退出房间请求失败:', e);
+                        FWUI.Toast.error('退出房间失败: ' + (e.message || e));
+                    }
+                },
+            });
+        });
+
+        // 游戏界面中的退出房间按钮（创建/加入链上对局失败时可用）
+        document.getElementById('leaveRoomInGameBtn').addEventListener('click', () => {
+            const myAddress = Wallet.getAddress();
+            if (!myAddress || !currentRoomId) {
+                FWUI.Toast.warning('无法退出：缺少钱包或房间信息');
+                return;
+            }
+
+            FWUI.Modal.confirm({
+                title: '退出房间',
+                content: '确定要退出当前房间吗？链上对局尚未创建成功，退出不会影响链上资金。',
+                okText: '确认退出',
+                cancelText: '取消',
+                onOk: async () => {
+                    try {
+                        const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                room_id: currentRoomId,
+                                player_address: myAddress,
+                            })
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            FWUI.Toast.info(data.message || '已退出房间');
+                            stopRoomPolling();
+                            disconnectP2PChannel();
+                            UI.showRetrySection(null);
+                            currentRoomId = null;
+                            currentRoom = null;
+                            currentGameId = null;
+                            UI.showStage('stageLobby');
+                            loadRoomList();
+                        } else {
+                            FWUI.Toast.warning(data.message || data.detail || '退出房间失败');
+                        }
+                    } catch (e) {
+                        console.error('退出房间请求失败:', e);
+                        FWUI.Toast.error('退出房间失败: ' + (e.message || e));
+                    }
+                }
+            });
+        });
+
+        document.getElementById('playAgainBtn').addEventListener('click', async () => {
+            stopResultCountdown();
+            // 房间模式下：重置房间开启下一局（再来一局）
+            const myAddress = Wallet.getAddress();
+            if (currentRoomId && currentRoom && myAddress) {
+                try {
+                    const res = await fetch(`${CONFIG.backendUrl}/api/game/room/reset-rematch`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            room_id: currentRoomId,
+                            player_address: myAddress,
+                        }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        FWUI.Toast.success(data.message || '已重置房间，可重新准备');
+                        resetGameState();
+                        // 保留房间上下文，回到房间等待界面
+                        gamePhase = 'idle';
+                        roomGameStartedHandled = false;
+                        currentGameId = null;
+                        if (data.room) {
+                            currentRoom = data.room;
+                        }
+                        disconnectP2PChannel();
+                        stopAllFallbackPolling();
+                        UI.showStage('stageRoomWait');
+                        updateRoomUI();
+                        startRoomPolling();
+                        return;
+                    }
+                    FWUI.Toast.warning(data.message || data.detail || '再来一局失败');
+                } catch (e) {
+                    console.error('再来一局请求失败:', e);
+                    FWUI.Toast.error('再来一局失败: ' + (e.message || e));
+                }
+                // 兜底：返回大厅
+            }
             UI.showStage('stageLobby');
             resetGameState();
+            loadRoomList();
+        });
+
+        document.getElementById('backHomeBtn').addEventListener('click', async () => {
+            stopResultCountdown();
+            // 房间模式下：退出房间后返回大厅
+            const myAddress = Wallet.getAddress();
+            if (currentRoomId && myAddress) {
+                try {
+                    await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            room_id: currentRoomId,
+                            player_address: myAddress,
+                        }),
+                    });
+                } catch (e) {
+                    console.error('离开房间请求失败:', e);
+                }
+            }
+            stopRoomPolling();
+            disconnectP2PChannel();
+            currentRoomId = null;
+            currentRoom = null;
+            UI.showStage('stageLobby');
+            resetGameState();
+            loadRoomList();
         });
 
         document.querySelectorAll('.panel-tab').forEach(tab => {
@@ -1060,7 +1263,7 @@ const App = (function () {
                     gamePhase = 'reveal';
                     // 双方都已提交 → 进入揭晓阶段
                     const revealingText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['revealing'] : '🔓 揭晓中，等待结算';
-                    UI.setGameStatus('揭晓阶段 · ' + revealingText);
+                    UI.setGameStatus('揭晓阶段 · 即将自动揭晓 · ' + revealingText);
                     UI.setChoiceButtonsEnabled(false);
 
                     if (selectedChoice && !myRevealed) {
@@ -1068,6 +1271,7 @@ const App = (function () {
                     }
 
                     startGameTimer('reveal');
+                    startAutoReveal(5);
                 }
             }
         });
@@ -1366,6 +1570,7 @@ const App = (function () {
 
     let isMockMode = false;
     let lobbyRefreshInterval = null;
+    let lobbySlowRefreshInterval = null; // WS 已连接时的低频兜底刷新
     let lobbyWsConnected = false;
     let roomWsConnected = false;
     let gameWsConnected = false;
@@ -1376,20 +1581,32 @@ const App = (function () {
     let p2pConnected = false;
     let p2pListenersBound = false;
 
-    // 开始大厅定时刷新（WS 未连接时的降级轮询）
+    // 开始大厅定时刷新（双通道兜底）
+    // - 高频（5s）：WS 未连接时每 5s 强制拉一次（降级模式）
+    // - 低频（10s）：即使 WS 已连接，每 10s 也拉一次作为兜底（防止事件漏发导致大厅不更新）
     function startLobbyRefresh() {
         stopLobbyRefresh();
+        // 高频降级轮询
         lobbyRefreshInterval = setInterval(() => {
             const lobby = document.getElementById('stageLobby');
             if (!lobby || lobby.classList.contains('hidden')) {
                 stopLobbyRefresh();
                 return;
             }
-            // WS 未连接时降级轮询
+            // WS 未连接时高频轮询
             if (!lobbyWsConnected) {
                 loadRoomList();
             }
         }, 5000);
+        // 低频兜底轮询（WS 已连接时也每 10s 拉一次）
+        lobbySlowRefreshInterval = setInterval(() => {
+            const lobby = document.getElementById('stageLobby');
+            if (!lobby || lobby.classList.contains('hidden')) {
+                stopLobbyRefresh();
+                return;
+            }
+            loadRoomList();
+        }, 10000);
     }
 
     // 停止大厅定时刷新
@@ -1397,6 +1614,10 @@ const App = (function () {
         if (lobbyRefreshInterval) {
             clearInterval(lobbyRefreshInterval);
             lobbyRefreshInterval = null;
+        }
+        if (lobbySlowRefreshInterval) {
+            clearInterval(lobbySlowRefreshInterval);
+            lobbySlowRefreshInterval = null;
         }
     }
 
@@ -2258,6 +2479,26 @@ const App = (function () {
                 loadRoomStatus();
             }
         });
+        // 结算后重置房间（再来一局，对方申请时被动收到）
+        GameSocket.on('room_reset_for_rematch', (data) => {
+            if (currentRoomId === data.room_id) {
+                FWUI.Toast.info(data.message || '房间已重置，可重新准备下一局');
+                resetGameState();
+                gamePhase = 'idle';
+                roomGameStartedHandled = false;
+                currentGameId = null;
+                stopAutoReveal();
+                disconnectP2PChannel();
+                stopAllFallbackPolling();
+                if (data.room) {
+                    currentRoom = data.room;
+                }
+                // 如果当前在 stageResult 或 stageGame，都跳回房间等待界面
+                UI.showStage('stageRoomWait');
+                updateRoomUI();
+                startRoomPolling();
+            }
+        });
         // 被踢出房间（未准备超时）
         GameSocket.on('kicked_for_unready', (data) => {
             if (currentRoomId === data.room_id) {
@@ -2346,13 +2587,15 @@ const App = (function () {
         GameSocket.on('reveal_start', (data) => {
             if (currentGameId && Number(data.game_id) === currentGameId) {
                 gamePhase = 'reveal';
-                UI.setGameStatus('揭晓阶段 · 请揭晓出拳');
+                UI.setGameStatus('揭晓阶段 · 即将自动揭晓');
                 UI.setMyStatus('待揭晓');
                 if (myCommitSubmitted) {
                     UI.showRevealButton(true);
                 }
                 startGameTimer('reveal');
-                FWUI.Toast.info(data.message || '进入揭晓阶段，请揭晓出拳');
+                // 5秒倒计时自动揭示
+                startAutoReveal(5);
+                FWUI.Toast.info(data.message || '进入揭晓阶段，5秒后自动揭晓');
             }
         });
 
@@ -2444,9 +2687,23 @@ const App = (function () {
                 return response.json().then(data => ({ok, data}));
             })
             .then(({ok, data}) => {
-                if (ok) {
+                if (ok && data.room_id) {
                     currentRoom = data;
                     updateRoomUI();
+                    updateExitGameBtnState();
+                } else {
+                    // 房间不存在或已关闭 → 回到大厅
+                    const msg = (data && data.message) || '房间已解散';
+                    console.warn('[Room] 房间不可用:', msg);
+                    stopRoomPolling();
+                    disconnectP2PChannel();
+                    FWUI.Toast.warning(msg);
+                    currentRoomId = null;
+                    currentRoom = null;
+                    currentGameId = null;
+                    UI.showStage('stageLobby');
+                    navigateTo('/');
+                    loadRoomList();
                 }
             })
             .catch(e => {
@@ -2481,20 +2738,26 @@ const App = (function () {
 
         const amIReady = amICreator ? currentRoom.creator_ready : currentRoom.player2_ready;
 
-        // 准备按钮：倒计时中或游戏已开始时禁用
+        // 准备按钮：仅游戏已开始（资金已上链）时禁用
+        const fundStage = currentRoom.fund_stage || 'local_frozen';
+        const fundsOnChain = fundStage === 'chain_frozen' || fundStage === 'revealing';
         const readyBtn = document.getElementById('readyBtn');
-        const inGameOrCountdown = currentRoom.status === 'countdown' || currentRoom.status === 'game_started';
         if (readyBtn) {
-            readyBtn.disabled = inGameOrCountdown;
+            readyBtn.disabled = fundsOnChain;
         }
         UI.setReadyButtonText(amIReady ? '取消准备' : '准备');
 
-        // 退出按钮：倒计时中或游戏已开始时禁用
+        // 退出按钮规则：仅资金已上链（chain_frozen/revealing）时禁用
+        // 其余所有阶段（CREATED/JOINED/COUNTDOWN/FINISHED/settled/local_frozen）均可退出
+        const cannotLeave = fundsOnChain;
         const leaveBtn = document.getElementById('leaveRoomBtn');
         if (leaveBtn) {
-            leaveBtn.disabled = inGameOrCountdown;
-            leaveBtn.style.opacity = inGameOrCountdown ? '0.5' : '1';
-            leaveBtn.style.cursor = inGameOrCountdown ? 'not-allowed' : 'pointer';
+            leaveBtn.disabled = cannotLeave;
+            leaveBtn.style.opacity = cannotLeave ? '0.5' : '1';
+            leaveBtn.style.cursor = cannotLeave ? 'not-allowed' : 'pointer';
+            leaveBtn.title = cannotLeave
+                ? '对局进行中（资金已上链），无法退出'
+                : '退出当前房间，返回游戏大厅';
         }
 
         if (currentRoom.status === 'countdown') {
@@ -2538,6 +2801,18 @@ const App = (function () {
             stopAllCountdowns();
             hasWsCountdown = false;
         }
+    }
+
+    // 更新游戏界面退出按钮状态（根据 fund_stage 判断是否可退出）
+    function updateExitGameBtnState() {
+        const btn = document.getElementById('exitGameBtn');
+        if (!btn) return;
+        const fundStage = (currentRoom && currentRoom.fund_stage) || 'local_frozen';
+        const fundsOnChain = fundStage === 'chain_frozen' || fundStage === 'revealing';
+        btn.disabled = fundsOnChain;
+        btn.title = fundsOnChain
+            ? '对局进行中（资金已上链），无法退出'
+            : '退出当前房间';
     }
 
     // 高亮自己的玩家卡片
@@ -2656,6 +2931,9 @@ const App = (function () {
         }
         currentRoom.status = 'game_started';
         currentRoom.game_id = data.game_id;
+        // 进入游戏阶段时资金尚未上链（local_frozen）
+        if (!currentRoom.fund_stage) currentRoom.fund_stage = 'local_frozen';
+        updateExitGameBtnState();
         // 保存已有的 chain_game_id（用于幂等性判断，避免刷新后重复签名）
         if (data.chain_game_id) {
             currentRoom.chain_game_id = data.chain_game_id;
@@ -2691,8 +2969,7 @@ const App = (function () {
         UI.setChoiceButtonsEnabled(false);
         UI.showRevealButton(false);
         UI.showTimeoutButton(false);
-
-        // 隐藏确认区
+        UI.showRetrySection(null);
         const confirmSection = document.getElementById('choiceConfirmSection');
         if (confirmSection) confirmSection.classList.add('hidden');
 
@@ -2848,6 +3125,8 @@ const App = (function () {
             currentGameId = Number(chainGameId);
             UI.setGameId(currentGameId);
             // 资金已在 createMatch 中上链冻结
+            if (currentRoom) currentRoom.fund_stage = 'chain_frozen';
+            updateExitGameBtnState();
             const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
             UI.setGameStatus('等待对手加入 · ' + chainFrozenText);
             UI.setMyStatus('等待出拳');
@@ -2881,6 +3160,8 @@ const App = (function () {
             UI.setGameId('创建中...');
             UI.setMyStatus('创建对局');
             UI.setOpponentStatus('等待加入');
+            // 显示重试创建对局 + 退出房间按钮
+            UI.showRetrySection('create');
         }
     }
 
@@ -2941,6 +3222,8 @@ const App = (function () {
 
             enterGamePhase();
             // 资金已在 joinMatch 中上链冻结
+            if (currentRoom) currentRoom.fund_stage = 'chain_frozen';
+            updateExitGameBtnState();
             const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
             const curStatus = document.getElementById('gameStatus') ? document.getElementById('gameStatus').textContent : '';
             if (!curStatus.includes('资金已链上锁定') && !curStatus.includes('链上冻结')) {
@@ -2963,13 +3246,15 @@ const App = (function () {
                 UI.setGameStatus('加入已取消，点击"重试加入对局"可继续');
             } else {
                 FWUI.Toast.error(msg || '加入链上对局失败');
-                UI.setGameStatus('加入失败，可刷新页面重试或点击重试按钮');
+                UI.setGameStatus('加入失败，可点击下方按钮重试');
             }
             // 保留在 stageGame：避免切回 stageRoomWait 让用户误以为已经退出对局
             UI.showStage('stageGame');
             UI.setGameId(currentGameId);
             UI.setMyStatus('加入中');
             UI.setOpponentStatus('已就绪');
+            // 显示重试加入对局 + 退出房间按钮
+            UI.showRetrySection('join');
         }
     }
 
@@ -3117,11 +3402,12 @@ const App = (function () {
                             UI.setOpponentStatus('已提交');
                             if (myCommitSubmitted) {
                                 gamePhase = 'reveal';
-                                UI.setGameStatus('揭晓阶段 · 请揭晓出拳');
+                                UI.setGameStatus('揭晓阶段 · 即将自动揭晓');
                                 UI.setMyStatus('待揭晓');
                                 if (myCommitSubmitted) UI.showRevealButton(true);
                                 startGameTimer('reveal');
-                                FWUI.Toast.info('双方都已提交，进入揭晓阶段');
+                                startAutoReveal(5);
+                                FWUI.Toast.info('双方都已提交，进入揭晓阶段（5秒后自动揭晓）');
                             }
                         }
                     } catch (_) {}
@@ -3373,8 +3659,7 @@ const App = (function () {
         UI.setChoiceButtonsEnabled(true);
         UI.showRevealButton(false);
         UI.showTimeoutButton(false);
-
-        // 重置确认区
+        UI.showRetrySection(null);
         pendingChoice = null;
         const confirmSection = document.getElementById('choiceConfirmSection');
         if (confirmSection) confirmSection.classList.add('hidden');
@@ -3516,9 +3801,10 @@ const App = (function () {
                 gamePhase = 'reveal';
                 // 双方都已提交 → 进入揭晓阶段，资金状态进入 revealing
                 const revealingText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['revealing'] : '🔓 揭晓中，等待结算';
-                UI.setGameStatus('揭晓阶段 · ' + revealingText);
+                UI.setGameStatus('揭晓阶段 · 即将自动揭晓 · ' + revealingText);
                 UI.showRevealButton(true);
                 startGameTimer('reveal');
+                startAutoReveal(5);
             }
 
         } catch (e) {
@@ -3536,6 +3822,7 @@ const App = (function () {
 
         const revealBtn = UI.elements.revealBtn;
         try {
+            stopAutoReveal();
             if (revealBtn) {
                 revealBtn.disabled = true;
                 revealBtn.textContent = '揭晓中...';
@@ -3568,6 +3855,56 @@ const App = (function () {
         }
     }
 
+    // 启动自动揭示倒计时（seconds 秒后自动调用 revealChoice）
+    function startAutoReveal(seconds = 5) {
+        stopAutoReveal();
+        let remaining = seconds;
+        const btn = UI.elements.revealBtn;
+
+        const tick = () => {
+            // 已揭示，或不再需要揭示（状态变更），直接停止
+            if (myRevealed || !currentGameId || gamePhase !== 'reveal') {
+                stopAutoReveal();
+                return;
+            }
+            if (btn) {
+                if (remaining <= 0) {
+                    stopAutoReveal();
+                    // 优先使用本地保存的盐+出拳（用户可能未点击选择但之前已经提交过 commit，因为 submitChoice 时已存盐）
+                    const stored = RPSCrypto.getSalt(currentGameId);
+                    if (!selectedChoice && stored && stored.choice) {
+                        selectedChoice = stored.choice;
+                    }
+                    if (!currentSalt && stored && stored.salt) {
+                        currentSalt = stored.salt;
+                    }
+                    if (selectedChoice && currentSalt && myCommitSubmitted && !myRevealed) {
+                        btn.disabled = true;
+                        btn.textContent = '自动揭晓中...';
+                        revealChoice();
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = '揭晓出拳';
+                    }
+                    return;
+                }
+                btn.textContent = `自动揭晓（${remaining}s）`;
+            }
+            remaining--;
+        };
+
+        tick();
+        autoRevealTimer = setInterval(tick, 1000);
+    }
+
+    // 停止自动揭示
+    function stopAutoReveal() {
+        if (autoRevealTimer) {
+            clearInterval(autoRevealTimer);
+            autoRevealTimer = null;
+        }
+    }
+
     // 超时索赔
     async function claimTimeout() {
         const claimBtn = UI.elements.claimTimeoutBtn;
@@ -3593,6 +3930,10 @@ const App = (function () {
     // 处理对局结算
     function handleGameSettled(args) {
         stopGameTimer();
+        stopAutoReveal();
+        // 结算后更新房间 fund_stage（本地同步）
+        if (currentRoom) currentRoom.fund_stage = 'settled';
+        updateExitGameBtnState();
 
         // 资金结算完成，显示为已结算
         const settledText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['settled'] : '✅ 资金已结算';
@@ -3654,16 +3995,61 @@ const App = (function () {
         }
     }
 
-    // 显示对局结果
+    // 显示对局结果（默认持续显示30秒，之后自动返回）
     function showResult(result) {
         gamePhase = 'finished';
         UI.showStage('stageResult');
         UI.showResult(result);
+        startResultCountdown(30);
+    }
+
+    // 启动结果界面倒计时（seconds 秒后自动返回房间/大厅）
+    function startResultCountdown(seconds = 30) {
+        stopResultCountdown();
+        const el = document.getElementById('resultCountdown');
+        let remaining = seconds;
+        const updateText = () => {
+            if (el) {
+                el.textContent = `${remaining} 秒后自动返回房间...`;
+            }
+        };
+        updateText();
+        resultCountdownTimer = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                stopResultCountdown();
+                // 自动返回：房间还在则回房间等待，否则回大厅
+                if (currentRoomId && currentRoom) {
+                    UI.showStage('stageRoomWait');
+                    updateRoomUI();
+                    startRoomPolling();
+                } else {
+                    UI.showStage('stageLobby');
+                    loadRoomList();
+                }
+                return;
+            }
+            updateText();
+        }, 1000);
+    }
+
+    // 停止结果界面倒计时
+    function stopResultCountdown() {
+        if (resultCountdownTimer) {
+            clearInterval(resultCountdownTimer);
+            resultCountdownTimer = null;
+        }
+        const el = document.getElementById('resultCountdown');
+        if (el) el.textContent = '';
     }
 
     // 处理平局结算
     function handleDrawSettled(args) {
         stopGameTimer();
+        stopAutoReveal();
+        // 结算后更新房间 fund_stage（本地同步）
+        if (currentRoom) currentRoom.fund_stage = 'settled';
+        updateExitGameBtnState();
 
         // 平局结算完成，资金已退款
         const settledText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['settled'] : '✅ 资金已结算（平局退款）';
@@ -3675,6 +4061,17 @@ const App = (function () {
         const betAmount = (currentRoom && currentRoom.bet_amount) ? currentRoom.bet_amount : currentAmount;
         const tokenSymbol = (currentRoom && currentRoom.token) ? currentRoom.token : currentToken;
         const betAmountNum = Number(betAmount) || 0;
+
+        // 自动领取平局退款（合约要求双方各自调用 handleDraw 领取）
+        if (currentGameId && Contract.getContract()) {
+            FWUI.Toast.info('平局，正在自动领取退款...');
+            Contract.handleDraw(currentGameId).then(() => {
+                FWUI.Toast.success('平局退款已领取');
+            }).catch(e => {
+                console.warn('自动领取平局退款失败（可稍后手动领取）:', e.message);
+                FWUI.Toast.warning('平局退款领取失败，可稍后手动领取');
+            });
+        }
 
         if (Contract.getContract()) {
             Contract.getGame(currentGameId).then(game => {
@@ -3732,6 +4129,8 @@ const App = (function () {
         gamePhase = 'idle';
 
         stopGameTimer();
+        stopAutoReveal();
+        stopResultCountdown();
         stopMatchingTimer();
 
         if (GameSocket.isConnected()) {

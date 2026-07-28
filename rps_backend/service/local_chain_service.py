@@ -704,7 +704,7 @@ class LocalChainService:
                 return {
                     "success": True,
                     "message": "转账成功",
-                    "tx_hash": tx_hash.hex(),
+                    "tx_hash": '0x' + tx_hash.hex(),
                     "from": from_address,
                     "to": to_address,
                     "amount_eth": amount_eth,
@@ -856,7 +856,7 @@ class LocalChainService:
                     "symbol": symbol,
                     "decimals": decimals,
                     "initial_supply": initial_supply,
-                    "tx_hash": tx_hash.hex(),
+                    "tx_hash": '0x' + tx_hash.hex(),
                 }
 
             except Exception as e:
@@ -932,7 +932,7 @@ class LocalChainService:
                 return {
                     "success": True,
                     "message": f"Mint 成功，当前余额: {balance_display} {token_symbol}",
-                    "tx_hash": tx_hash.hex(),
+                    "tx_hash": '0x' + tx_hash.hex(),
                     "to": to_address,
                     "amount": amount,
                     "symbol": token_symbol,
@@ -969,15 +969,15 @@ class LocalChainService:
             block = self._w3.eth.get_block(block_number, full_transactions=False)
             return {
                 "number": block.number,
-                "hash": block.hash.hex() if block.hash else None,
-                "parent_hash": block.parentHash.hex() if block.parentHash else None,
+                "hash": ('0x' + block.hash.hex()) if block.hash else None,
+                "parent_hash": ('0x' + block.parentHash.hex()) if block.parentHash else None,
                 "timestamp": block.timestamp,
                 "miner": block.miner,
                 "gas_used": block.gasUsed,
                 "gas_limit": block.gasLimit,
                 "size": block.size,
                 "tx_count": len(block.transactions),
-                "transactions": [tx.hex() if isinstance(tx, bytes) else tx for tx in block.transactions],
+                "transactions": [('0x' + tx.hex()) if isinstance(tx, bytes) else tx for tx in block.transactions],
             }
         except Exception:
             return None
@@ -990,9 +990,9 @@ class LocalChainService:
             tx = self._w3.eth.get_transaction(tx_hash)
             receipt = self._w3.eth.get_transaction_receipt(tx_hash)
             return {
-                "hash": tx.hash.hex(),
+                "hash": '0x' + tx.hash.hex(),
                 "block_number": tx.blockNumber,
-                "block_hash": tx.blockHash.hex() if tx.blockHash else None,
+                "block_hash": ('0x' + tx.blockHash.hex()) if tx.blockHash else None,
                 "from": tx["from"],
                 "to": tx.to,
                 "value": str(self._w3.from_wei(tx.value, 'ether')),
@@ -1051,7 +1051,7 @@ class LocalChainService:
                         if tx.get("from", "").lower() == checksum_addr.lower() or \
                                 (tx.get("to") and tx["to"].lower() == checksum_addr.lower()):
                             txs.append({
-                                "hash": tx.hash.hex(),
+                                "hash": '0x' + tx.hash.hex(),
                                 "block_number": tx.blockNumber,
                                 "from": tx["from"],
                                 "to": tx.to,

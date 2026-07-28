@@ -49,6 +49,11 @@ const UI = (function() {
         elements.revealBtn = document.getElementById('revealBtn');
         elements.timeoutSection = document.getElementById('timeoutSection');
         elements.claimTimeoutBtn = document.getElementById('claimTimeoutBtn');
+        elements.retrySection = document.getElementById('retrySection');
+        elements.retryCreateBtn = document.getElementById('retryCreateBtn');
+        elements.retryJoinBtn = document.getElementById('retryJoinBtn');
+        elements.leaveRoomInGameBtn = document.getElementById('leaveRoomInGameBtn');
+        elements.exitGameBtn = document.getElementById('exitGameBtn');
         
         elements.resultIcon = document.getElementById('resultIcon');
         elements.resultTitle = document.getElementById('resultTitle');
@@ -302,6 +307,23 @@ const UI = (function() {
     function showTimeoutButton(show) {
         if (elements.timeoutSection) {
             elements.timeoutSection.classList.toggle('hidden', !show);
+        }
+    }
+
+    // 显示或隐藏重试/退出操作区
+    // mode: 'create' 显示重试创建, 'join' 显示重试加入, null 隐藏整个区域
+    function showRetrySection(mode) {
+        if (!elements.retrySection) return;
+        if (!mode) {
+            elements.retrySection.classList.add('hidden');
+            return;
+        }
+        elements.retrySection.classList.remove('hidden');
+        if (elements.retryCreateBtn) {
+            elements.retryCreateBtn.classList.toggle('hidden', mode !== 'create');
+        }
+        if (elements.retryJoinBtn) {
+            elements.retryJoinBtn.classList.toggle('hidden', mode !== 'join');
         }
     }
 
@@ -719,6 +741,7 @@ const UI = (function() {
         setGameId,
         showRevealButton,
         showTimeoutButton,
+        showRetrySection,
         setChoiceButtonsEnabled,
         setSelectedChoice,
         showResult,

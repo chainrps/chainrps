@@ -99,6 +99,13 @@ class WebSocketManager:
         # 注销 Redis 中的连接记录（同步 Redis 调用放到线程池）
         await _run_sync(redis_client.unregister_ws_connection, addr_lower)
 
+        # 延迟清理无人在线的房间（避免循环导入，此处懒加载 room_manager）
+        try:
+            from rps_backend.service.room_service import room_manager
+            asyncio.create_task(room_manager.handle_player_disconnect(player_address))
+        except Exception as e:
+            print(f"[WS] 房间清理检查失败 ({player_address}): {e}")
+
     # 发送消息给指定玩家（自动跨进程路由）
     async def send_to_player(self, player_address: str, message: WSMessage):
         """

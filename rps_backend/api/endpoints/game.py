@@ -23,6 +23,7 @@ from rps_backend.models import (
     MatchJoinResponse,
     MatchStatusResponse,
     ReportChainGameRequest,
+    ResetRoomRequest,
     RevealChoiceRequest,
     RoomResponse,
     RoomListResponse,
@@ -121,6 +122,7 @@ async def join_room(request: JoinRoomRequest):
             chain_game_id=room.get("chain_game_id"),
             close_reason=room.get("close_reason"),
             closed_at=room.get("closed_at"),
+            fund_stage=room.get("fund_stage"),
         ),
     }
 
@@ -179,6 +181,24 @@ async def leave_room(request: LeaveRoomRequest):
     }
 
 
+# 结算后重置房间（再来一局）
+@router.post("/room/reset-rematch")
+async def reset_room_for_rematch(request: ResetRoomRequest):
+    """
+    结算后重置房间以开启下一局（再来一局）。
+
+    - 保留两位玩家不变，清除 game_id/准备状态，回到 JOINED/CREATED。
+    房间内的双方都会收到 room_reset_for_rematch WS 事件通知。
+    """
+    result = room_manager.reset_room_for_rematch(
+        request.room_id,
+        request.player_address,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "重置失败"))
+    return result
+
+
 # 获取房间列表
 @router.get("/room/list", response_model=RoomListResponse)
 async def get_room_list():
@@ -203,6 +223,7 @@ async def get_room_list():
             chain_game_id=room.get("chain_game_id"),
             close_reason=room.get("close_reason"),
             closed_at=room.get("closed_at"),
+            fund_stage=room.get("fund_stage"),
         ))
 
     return RoomListResponse(
@@ -243,6 +264,7 @@ async def get_player_room(player_address: str):
             chain_game_id=room.get("chain_game_id"),
             close_reason=room.get("close_reason"),
             closed_at=room.get("closed_at"),
+            fund_stage=room.get("fund_stage"),
         ),
     }
 
@@ -255,6 +277,10 @@ async def get_room(room_id: str):
 
     if not room:
         return {"success": False, "message": "房间不存在或已关闭"}
+
+    # 已关闭的房间视为不存在
+    if room.get("status") == "closed":
+        return {"success": False, "message": "房间已解散"}
 
     return RoomResponse(
         room_id=room["room_id"],
@@ -269,6 +295,8 @@ async def get_room(room_id: str):
         countdown_start=room.get("countdown_start"),
         game_id=room.get("game_id"),
         chain_game_id=room.get("chain_game_id"),
+        close_reason=room.get("close_reason"),
+        closed_at=room.get("closed_at"),
     )
 
 

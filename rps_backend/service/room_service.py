@@ -785,7 +785,9 @@ class RoomManager:
         """
         获取游戏大厅的房间列表
 
-        返回所有活跃房间（准备中、倒计时中、游戏中），供大厅展示完整状态
+        返回所有活跃房间（准备中、倒计时中、游戏中），供大厅展示完整状态。
+        对于 CREATED/JOINED/COUNTDOWN 状态的房间，若创建者不在线则不展示
+        （避免大厅出现无人值守的空房间）。
         """
         now = now_timestamp()
         active_rooms = []
@@ -800,19 +802,32 @@ class RoomManager:
         }
 
         for room_id, room in self._rooms.items():
-            if room["status"] in visible_statuses:
-                if now - room["created_at"] < lifetime:
-                    active_rooms.append({
-                        "room_id": room_id,
-                        "creator": room["creator"],
-                        "player2": room["player2"],
-                        "token": room["token"],
-                        "bet_amount": room["bet_amount"],
-                        "status": room["status"],
-                        "creator_ready": room["creator_ready"],
-                        "player2_ready": room["player2_ready"],
-                        "created_at": room["created_at"],
-                    })
+            if room["status"] not in visible_statuses:
+                continue
+            if now - room["created_at"] >= lifetime:
+                continue
+
+            # CREATED/JOINED/COUNTDOWN 房间：创建者不在线则不展示（空房间过滤）
+            if room["status"] in [
+                ROOM_STATUS["CREATED"],
+                ROOM_STATUS["JOINED"],
+                ROOM_STATUS["COUNTDOWN"],
+            ]:
+                creator_online = room["creator"].lower() in ws_manager.active_connections
+                if not creator_online:
+                    continue
+
+            active_rooms.append({
+                "room_id": room_id,
+                "creator": room["creator"],
+                "player2": room["player2"],
+                "token": room["token"],
+                "bet_amount": room["bet_amount"],
+                "status": room["status"],
+                "creator_ready": room["creator_ready"],
+                "player2_ready": room["player2_ready"],
+                "created_at": room["created_at"],
+            })
 
         return sorted(active_rooms, key=lambda r: r["created_at"], reverse=True)
 
@@ -844,15 +859,44 @@ class RoomManager:
         if not room:
             return {"success": False, "message": "房间不存在"}
 
-        # 倒计时中或游戏已开始不允许通过此接口退出
-        if room["status"] in [ROOM_STATUS["COUNTDOWN"], ROOM_STATUS["GAME_STARTED"]]:
-            return {"success": False, "message": "游戏即将开始或已开始，无法退出房间"}
-
         is_creator = room["creator"].lower() == player_address.lower()
         is_player2 = room["player2"] and room["player2"].lower() == player_address.lower()
 
         if not (is_creator or is_player2):
             return {"success": False, "message": "你不在此房间中"}
+
+        # 退出规则（与用户期望一致：除"游戏中（资金已上链）"外，所有阶段均可退出）：
+        # - GAME_STARTED 且资金已上链（chain_frozen/revealing）→ 不允许退出（对局进行中）
+        # - GAME_STARTED 但资金仍为 local_frozen（链上对局创建失败/取消）→ 允许退出
+        # - GAME_STARTED 且 fund_stage=settled（已结算）→ 允许退出
+        # - COUNTDOWN/JOINED/CREATED/FINISHED → 均允许退出
+        #   * COUNTDOWN 退出时自动取消倒计时，重置准备状态
+        if room["status"] == ROOM_STATUS["GAME_STARTED"]:
+            fund_stage = room.get("fund_stage", "local_frozen")
+            # 资金未上链（createMatch 失败/取消）→ 允许安全退出
+            if fund_stage == "local_frozen":
+                self._close_room(room_id, "creator_chain_game_failed", "链上对局未创建，房间已关闭")
+                return {"success": True, "action": "dissolved", "message": "链上对局未创建成功，房间已关闭"}
+            # 已结算 → 允许退出（关闭房间）
+            if fund_stage == "settled":
+                self._close_room(room_id, "game_finished", "对局已结束，房间已关闭")
+                return {"success": True, "action": "dissolved", "message": "对局已结束，房间已关闭"}
+            return {"success": False, "message": "游戏进行中（资金已上链），无法退出房间"}
+
+        # COUNTDOWN 阶段退出：取消倒计时，重置准备状态
+        if room["status"] == ROOM_STATUS["COUNTDOWN"]:
+            room["status"] = ROOM_STATUS["JOINED"]
+            room["countdown_start"] = None
+            room["creator_ready"] = False
+            room["player2_ready"] = False
+            self._stop_game_timer(room_id)
+            # 通知对方倒计时已取消
+            opponent_addr = room["player2"] if is_creator else room["creator"]
+            if opponent_addr:
+                asyncio.create_task(ws_manager.send_to_player(opponent_addr, WSMessage(
+                    type="countdown_cancelled",
+                    data={"room_id": room_id, "message": "对手已退出房间，倒计时已取消"}
+                )))
 
         if is_creator:
             # 创建者退出 → 解散房间
@@ -923,6 +967,146 @@ class RoomManager:
         self._broadcast_room_list_changed("room_reopened", room_id)
 
         return {"success": True, "action": "left", "message": "已离开房间"}
+
+    # 玩家 WebSocket 断开后的延迟房间清理
+    async def handle_player_disconnect(self, player_address: str):
+        """
+        玩家 WebSocket 断开后，延迟检查房间是否需要清理。
+
+        策略：
+        - 延迟 10 秒后检查（给页面刷新/短暂断网留出重连窗口）
+        - 仅处理 CREATED/JOINED/COUNTDOWN 状态（无链上资金的安全阶段）
+        - 若房间内所有玩家均不在线 → 关闭房间并广播
+        - 若仅 player2 断开且创建者仍在线 → 重置房间为 CREATED
+        """
+        addr_lower = player_address.lower()
+        room_id = self._player_rooms.get(addr_lower)
+        if not room_id:
+            return
+
+        room = self._rooms.get(room_id)
+        if not room:
+            return
+
+        # 仅处理未上链的安全阶段
+        if room["status"] not in [
+            ROOM_STATUS["CREATED"],
+            ROOM_STATUS["JOINED"],
+            ROOM_STATUS["COUNTDOWN"],
+        ]:
+            return
+
+        # 延迟 10 秒检查，给页面刷新重连留出窗口
+        await asyncio.sleep(10)
+
+        # 重新获取房间（可能在延迟期间已被关闭或移除）
+        room = self._rooms.get(room_id)
+        if not room:
+            return
+        if room["status"] in [ROOM_STATUS["CLOSED"], ROOM_STATUS["FINISHED"]]:
+            return
+        if room["status"] == ROOM_STATUS["GAME_STARTED"]:
+            # 延迟期间游戏已开始，不再清理
+            return
+
+        creator = room.get("creator")
+        player2 = room.get("player2")
+        creator_online = bool(creator) and creator.lower() in ws_manager.active_connections
+        player2_online = bool(player2) and player2.lower() in ws_manager.active_connections
+
+        if not creator_online and not player2_online:
+            # 所有人都不在线 → 关闭房间
+            self._close_room(room_id, "all_players_disconnected", "所有玩家已离线，房间已关闭")
+            self._broadcast_room_list_changed("room_closed", room_id)
+            print(f"[Room] 房间 {room_id} 因所有玩家离线已关闭")
+            return
+
+        # 若创建者在线但 player2 断开且房间在 JOINED/COUNTDOWN → 重置为 CREATED
+        if creator_online and not player2_online and player2:
+            if room["status"] in [ROOM_STATUS["JOINED"], ROOM_STATUS["COUNTDOWN"]]:
+                room["player2"] = None
+                room["status"] = ROOM_STATUS["CREATED"]
+                room["creator_ready"] = False
+                room["player2_ready"] = False
+                room["countdown_start"] = None
+                self._rooms[room_id] = room
+                redis_client.cache_room_state(room_id, room)
+                self._stop_game_timer(room_id)
+
+                # 清理 player2 的映射
+                p2_lower = player2.lower()
+                if self._player_rooms.get(p2_lower) == room_id:
+                    self._player_rooms.pop(p2_lower, None)
+
+                # 通知创建者
+                asyncio.create_task(ws_manager.send_to_player(creator, WSMessage(
+                    type="player_left",
+                    data={"room_id": room_id, "message": "对手已离线，房间回到等待状态"}
+                )))
+                self._broadcast_room_list_changed("room_reopened", room_id)
+                print(f"[Room] 房间 {room_id} 的 player2 离线，重置为 CREATED")
+
+    def reset_room_for_rematch(self, room_id: str, player_address: str) -> dict:
+        """
+        结算后重置房间以开启下一局（再来一局）。
+
+        规则：
+        - 仅 GAME_STARTED 或 FINISHED 状态（对局已结束）可调用
+        - 仅房间内玩家可操作
+        - 保留玩家不变，清除 game_id/准备状态/倒计时，回到 JOINED（有两人）或 CREATED（仅创建者）
+        """
+        room = self._rooms.get(room_id)
+        if not room:
+            return {"success": False, "message": "房间不存在"}
+
+        is_creator = room["creator"].lower() == player_address.lower()
+        is_player2 = bool(room["player2"]) and room["player2"].lower() == player_address.lower()
+        if not (is_creator or is_player2):
+            return {"success": False, "message": "你不是该房间的玩家"}
+
+        if room["status"] not in [ROOM_STATUS["GAME_STARTED"], ROOM_STATUS["FINISHED"],
+                                  ROOM_STATUS["COUNTDOWN"], ROOM_STATUS["JOINED"],
+                                  ROOM_STATUS["CREATED"]]:
+            return {"success": False, "message": "当前状态无法重置房间"}
+
+        # 清理计时器
+        self._stop_game_timer(room_id)
+        self._stop_lifetime_timer(room_id)
+        # 双方重新准备倒计时
+        if room.get("creator"):
+            self._stop_unready_timer(room["creator"])
+            self._start_unready_timer(room["creator"], room_id)
+        if room.get("player2"):
+            self._stop_unready_timer(room["player2"])
+            self._start_unready_timer(room["player2"], room_id)
+
+        room["game_id"] = None
+        room["commit_deadline"] = None
+        room["reveal_deadline"] = None
+        room["creator_ready"] = False
+        room["player2_ready"] = False
+        room["countdown_start"] = None
+        # 回到对应状态
+        if room.get("player2"):
+            room["status"] = ROOM_STATUS["JOINED"]
+        else:
+            room["status"] = ROOM_STATUS["CREATED"]
+
+        self._rooms[room_id] = room
+        redis_client.cache_room_state(room_id, room)
+
+        # 通知房间内双方：房间已重置，可重新准备
+        asyncio.create_task(ws_manager.send_to_room(room_id, WSMessage(
+            type="room_reset_for_rematch",
+            data={
+                "room_id": room_id,
+                "room": room,
+                "message": "已重置房间，可重新准备开始下一局",
+            }
+        )))
+
+        self._broadcast_room_list_changed("room_reopened", room_id)
+        return {"success": True, "room": room, "message": "已重置房间"}
 
     # 广播房间列表变更事件
     def _broadcast_room_list_changed(self, event: str, room_id: str):

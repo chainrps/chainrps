@@ -240,6 +240,7 @@
                         <div class="game-status-badge" id="gameStatusBadge">准备中</div>
                         <div class="game-timer" id="gameTimer">--:--</div>
                         <div class="game-id" id="gameIdDisplay">对局 #--</div>
+                        <button class="btn btn-icon btn-exit-game" id="exitGameBtn" title="退出房间">✕</button>
                     </div>
 
                     <div class="game-board">
@@ -305,6 +306,18 @@
                                 索赔超时胜利
                             </button>
                         </div>
+
+                        <div class="action-buttons hidden" id="retrySection">
+                            <button class="btn btn-primary btn-large btn-block" id="retryCreateBtn">
+                                ⟳ 重试创建对局
+                            </button>
+                            <button class="btn btn-primary btn-large btn-block hidden" id="retryJoinBtn">
+                                ⟳ 重试加入对局
+                            </button>
+                            <button class="btn btn-danger btn-block" id="leaveRoomInGameBtn">
+                                退出房间
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -342,9 +355,10 @@
                                 再来一局
                             </button>
                             <button class="btn btn-default btn-block btn-back-home" id="backHomeBtn">
-                                返回首页
+                                退出房间
                             </button>
                         </div>
+                        <p class="result-countdown" id="resultCountdown"></p>
                     </div>
                 </div>
             </div>
