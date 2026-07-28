@@ -14,9 +14,15 @@ const CONFIG = {
 
     networks: {
         localhost: {
-            get name() { return 'Localhost ' + CONFIG.RPC_PORT; },
-            get rpcUrl() { return 'http://' + CONFIG.RPC_HOST + ':' + CONFIG.RPC_PORT; },
-            get chainId() { return CONFIG.RPC_CHAIN_ID; },
+            get name() {
+                return 'Localhost ' + CONFIG.RPC_PORT;
+            },
+            get rpcUrl() {
+                return 'http://' + CONFIG.RPC_HOST + ':' + CONFIG.RPC_PORT;
+            },
+            get chainId() {
+                return CONFIG.RPC_CHAIN_ID;
+            },
             nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
             supportedTokens: [
                 {symbol: 'ETH', name: 'Ether', decimals: 18, address: '0x0000000000000000000000000000000000000000'}
@@ -27,7 +33,7 @@ const CONFIG = {
         },
         amoy: {
             name: 'Polygon Amoy',
-            rpcUrl: 'https://rpc-amoy.polygon.technology/',
+            rpcUrl: 'https://polygon-amoy-bor-rpc.publicnode.com',
             chainId: 80002,
             nativeCurrency: {name: 'Polygon', symbol: 'POL', decimals: 18},
             supportedTokens: [
@@ -206,3 +212,43 @@ const CONFIG = {
         return `ws://${this.getServerIp()}:${this.getServerPort()}`;
     }
 };
+
+// ==================== 一次性配置迁移：清理旧端口/旧链ID缓存 ====================
+// 历史遗留：曾使用 108108 作为本地链端口，已统一改为 8686；
+// 曾使用 31337 作为默认 chain_id，已统一改为 5208888。
+// 旧值可能残留在 localStorage 的 rps_local_chain_config 中，导致管理页面
+// 表单仍显示旧值。此处检测并修正（仅执行一次，通过版本号标记）。
+(function _migrateOldRpcConfig() {
+    try {
+        const MIGRATION_KEY = 'rps_config_migration_v2';
+        if (localStorage.getItem(MIGRATION_KEY)) return;
+
+        const cfgRaw = localStorage.getItem('rps_local_chain_config');
+        if (cfgRaw) {
+            const cfg = JSON.parse(cfgRaw);
+            let changed = false;
+            // 修正 port 字段
+            if (cfg.port && String(cfg.port).includes('108108')) {
+                cfg.port = String(CONFIG.RPC_PORT);
+                changed = true;
+            }
+            // 修正可能内嵌在 rpc_url 中的旧端口
+            if (cfg.rpc_url && cfg.rpc_url.includes(':108108')) {
+                cfg.rpc_url = cfg.rpc_url.replace(':108108', ':' + CONFIG.RPC_PORT);
+                changed = true;
+            }
+            // 修正旧 chain_id（31337 → 当前 CONFIG.RPC_CHAIN_ID）
+            if (cfg.chain_id && String(cfg.chain_id) === '31337') {
+                cfg.chain_id = String(CONFIG.RPC_CHAIN_ID);
+                changed = true;
+            }
+            if (changed) {
+                localStorage.setItem('rps_local_chain_config', JSON.stringify(cfg));
+                console.info('[迁移] 已修正本地链配置（端口/链ID）为当前默认值');
+            }
+        }
+        localStorage.setItem(MIGRATION_KEY, 'done');
+    } catch (e) {
+        // 忽略迁移失败，不影响主流程
+    }
+})();

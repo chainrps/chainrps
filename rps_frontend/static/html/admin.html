@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChainRPS - 管理员面板</title>
-    <link rel="stylesheet" href="../css/style.css">
-    <link rel="stylesheet" href="../css/theme.css">
+    <link rel="stylesheet" href="../css/style.css?v=20260728b">
+    <link rel="stylesheet" href="../css/theme.css?v=20260728b">
     <style>
         /* CSS变量定义 */
         :root {
@@ -14,20 +14,30 @@
             --bg-card: #ffffff;
             --card-bg: #ffffff;
             --input-bg: #f8fafc;
-            
+
             --text-primary: #0f172a;
             --text-secondary: #475569;
             --text-tertiary: #94a3b8;
-            
+
             --border-color: #e2e8f0;
             --primary-color: #6366f1;
             --accent: #3b82f6;
         }
-        
+
         /* ==================== 侧边栏布局 ==================== */
-        * { box-sizing: border-box; }
-        body { margin: 0; }
-        .admin-layout { display: flex; min-height: 100vh; }
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+        }
+
+        .admin-layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
         .admin-sidebar {
             width: 240px;
             background: var(--card-bg);
@@ -42,7 +52,11 @@
             flex-shrink: 0;
             z-index: 100;
         }
-        .admin-sidebar.collapsed { width: 64px; }
+
+        .admin-sidebar.collapsed {
+            width: 64px;
+        }
+
         .sidebar-header {
             display: flex;
             align-items: center;
@@ -51,6 +65,7 @@
             border-bottom: 1px solid var(--border-color);
             gap: 8px;
         }
+
         .sidebar-logo {
             font-size: 16px;
             font-weight: 700;
@@ -58,7 +73,11 @@
             white-space: nowrap;
             overflow: hidden;
         }
-        .admin-sidebar.collapsed .sidebar-logo { display: none; }
+
+        .admin-sidebar.collapsed .sidebar-logo {
+            display: none;
+        }
+
         .sidebar-toggle {
             background: none;
             border: none;
@@ -69,12 +88,21 @@
             border-radius: 6px;
             flex-shrink: 0;
         }
-        .sidebar-toggle:hover { background: var(--bg-secondary); color: var(--text-primary); }
+
+        .sidebar-toggle:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
         .sidebar-search {
             padding: 12px 16px;
             border-bottom: 1px solid var(--border-color);
         }
-        .admin-sidebar.collapsed .sidebar-search { display: none; }
+
+        .admin-sidebar.collapsed .sidebar-search {
+            display: none;
+        }
+
         .sidebar-search input {
             width: 100%;
             padding: 8px 12px;
@@ -84,8 +112,18 @@
             color: var(--text-primary);
             font-size: 13px;
         }
-        .sidebar-search input:focus { outline: none; border-color: var(--primary-color); }
-        .sidebar-nav { flex: 1; padding: 8px; overflow-y: auto; }
+
+        .sidebar-search input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 8px;
+            overflow-y: auto;
+        }
+
         .nav-item {
             display: flex;
             align-items: center;
@@ -104,19 +142,48 @@
             overflow: hidden;
             text-decoration: none;
         }
-        .nav-item:hover { background: var(--bg-secondary); color: var(--text-primary); }
-        .nav-item.active { background: var(--primary-color); color: white; }
-        .nav-item .nav-icon { font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
-        .nav-item .nav-label { overflow: hidden; text-overflow: ellipsis; }
-        .admin-sidebar.collapsed .nav-item { justify-content: center; padding: 10px; }
-        .admin-sidebar.collapsed .nav-item .nav-label { display: none; }
+
+        .nav-item:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .nav-item.active {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .nav-item .nav-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+            width: 24px;
+            text-align: center;
+        }
+
+        .nav-item .nav-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .admin-sidebar.collapsed .nav-item {
+            justify-content: center;
+            padding: 10px;
+        }
+
+        .admin-sidebar.collapsed .nav-item .nav-label {
+            display: none;
+        }
+
         .sidebar-footer {
             padding: 12px 16px;
             border-top: 1px solid var(--border-color);
             font-size: 12px;
             color: var(--text-tertiary);
         }
-        .admin-sidebar.collapsed .sidebar-footer { display: none; }
+
+        .admin-sidebar.collapsed .sidebar-footer {
+            display: none;
+        }
 
         /* 主内容区 */
         .admin-main {
@@ -126,8 +193,19 @@
             max-width: 1200px;
             margin: 0 auto;
         }
-        .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-        .admin-header h1 { font-size: 22px; margin: 0; }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .admin-header h1 {
+            font-size: 22px;
+            margin: 0;
+        }
+
         .back-link {
             display: inline-block;
             margin-bottom: 16px;
@@ -135,86 +213,235 @@
             text-decoration: none;
             font-size: 13px;
         }
-        .back-link:hover { text-decoration: underline; }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
         .admin-connect {
-            display: flex; align-items: center; gap: 12px;
-            padding: 12px 16px; background: var(--card-bg);
-            border: 1px solid var(--border-color); border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
             margin-bottom: 20px;
         }
-        .admin-address { font-family: monospace; font-size: 13px; color: var(--text-secondary); }
-        .admin-section { display: none; }
-        .admin-section.active { display: block; }
+
+        .admin-address {
+            font-family: monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .admin-section {
+            display: none;
+        }
+
+        .admin-section.active {
+            display: block;
+        }
+
         .stats-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px; margin-bottom: 24px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
         }
+
         .stat-card {
-            background: var(--card-bg); border: 1px solid var(--border-color);
-            border-radius: 12px; padding: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
         }
-        .stat-card .label { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
-        .stat-card .value { font-size: 28px; font-weight: 600; }
+
+        .stat-card .label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 600;
+        }
+
         .data-table {
-            width: 100%; border-collapse: collapse;
-            background: var(--card-bg); border-radius: 12px; overflow: hidden;
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
         }
+
         .data-table th, .data-table td {
-            padding: 12px 16px; text-align: left;
+            padding: 12px 16px;
+            text-align: left;
             border-bottom: 1px solid var(--border-color);
         }
-        .data-table th { background: var(--bg-secondary); font-size: 13px; color: var(--text-secondary); }
-        .data-table tr:last-child td { border-bottom: none; }
-        .btn {
-            padding: 8px 16px; border: none; border-radius: 8px;
-            cursor: pointer; font-size: 13px;
+
+        .data-table th {
+            background: var(--bg-secondary);
+            font-size: 13px;
+            color: var(--text-secondary);
         }
-        .btn-primary { background: var(--primary-color); color: white; }
-        .btn-secondary { background: var(--bg-secondary); color: var(--text-primary); }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-outline { background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); }
-        .btn-outline:hover { border-color: var(--primary-color); color: var(--primary-color); }
-        .form-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-        .form-group { flex: 1; min-width: 180px; }
-        .form-group label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-secondary); }
+
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .form-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .form-group {
+            flex: 1;
+            min-width: 180px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+        }
+
         .form-group input, .form-group select, .form-group textarea {
-            width: 100%; padding: 10px 12px; border: 1px solid var(--border-color);
-            border-radius: 8px; background: var(--input-bg); color: var(--text-primary);
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-primary);
             font-size: 14px;
         }
+
         .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
-            outline: none; border-color: var(--primary-color);
+            outline: none;
+            border-color: var(--primary-color);
         }
+
         .config-item {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 12px 16px; border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
         }
-        .config-item:last-child { border-bottom: none; }
-        .config-key { font-weight: 500; }
-        .config-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-        .config-value { display: flex; align-items: center; gap: 8px; }
+
+        .config-item:last-child {
+            border-bottom: none;
+        }
+
+        .config-key {
+            font-weight: 500;
+        }
+
+        .config-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .config-value {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .config-value input {
-            padding: 6px 10px; border: 1px solid var(--border-color);
-            border-radius: 6px; background: var(--input-bg); color: var(--text-primary);
+            padding: 6px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--input-bg);
+            color: var(--text-primary);
             width: 200px;
         }
-        .section-title { font-size: 18px; font-weight: 600; margin: 24px 0 16px; }
-        .tag {
-            display: inline-block; padding: 2px 8px; border-radius: 4px;
-            font-size: 12px; font-weight: 500;
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 24px 0 16px;
         }
-        .tag-active { background: #dcfce7; color: #166534; }
-        .tag-inactive { background: #fee2e2; color: #991b1b; }
+
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .tag-active {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .tag-inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
 
         /* 移动端适配 */
         @media (max-width: 768px) {
-            .admin-sidebar { width: 64px; }
+            .admin-sidebar {
+                width: 64px;
+            }
+
             .admin-sidebar .nav-label,
             .admin-sidebar .sidebar-logo,
             .admin-sidebar .sidebar-search,
-            .admin-sidebar .sidebar-footer { display: none; }
-            .admin-sidebar .nav-item { justify-content: center; padding: 10px; }
-            .admin-main { padding: 16px; }
+            .admin-sidebar .sidebar-footer {
+                display: none;
+            }
+
+            .admin-sidebar .nav-item {
+                justify-content: center;
+                padding: 10px;
+            }
+
+            .admin-main {
+                padding: 16px;
+            }
         }
 
         /* Modal styles */
@@ -225,13 +452,17 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0, 0, 0, 0.6);
             z-index: 1000;
             align-items: center;
             justify-content: center;
             backdrop-filter: blur(4px);
         }
-        .modal-overlay.show { display: flex; }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
         .modal-content {
             background: var(--card-bg);
             border-radius: 16px;
@@ -240,222 +471,410 @@
             max-width: 90%;
             max-height: 85vh;
             overflow-y: auto;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             animation: modalFadeIn 0.2s ease-out;
         }
+
         @keyframes modalFadeIn {
-            from { opacity: 0; transform: scale(0.95) translateY(-10px); }
-            to { opacity: 1; transform: scale(1) translateY(0); }
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
         }
+
         .modal-header {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 20px; padding-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
             border-bottom: 1px solid var(--border-color);
         }
-        .modal-title { font-size: 18px; font-weight: 600; margin: 0; }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+
         .modal-close {
-            background: none; border: none; font-size: 24px;
-            color: var(--text-secondary); cursor: pointer; padding: 0; line-height: 1;
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
         }
-        .modal-close:hover { color: var(--text-primary); }
-        .modal-body { margin-bottom: 20px; }
-        .modal-footer { display: flex; gap: 10px; justify-content: flex-end; }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
         .deploy-step {
-            display: flex; align-items: center; gap: 12px;
-            padding: 10px 14px; background: var(--bg-secondary);
-            border-radius: 8px; margin-bottom: 8px; font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
         }
+
         .deploy-step .step-number {
-            width: 24px; height: 24px; border-radius: 50%;
-            background: var(--primary-color); color: white;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: 600; flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            flex-shrink: 0;
         }
-        .deploy-step.completed .step-number { background: #22c55e; }
+
+        .deploy-step.completed .step-number {
+            background: #22c55e;
+        }
+
         .deploy-status {
-            margin-top: 16px; padding: 12px; border-radius: 8px;
-            font-family: monospace; font-size: 12px; word-break: break-all;
-            white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
         }
-        .deploy-status.success { background: #dcfce7; color: #166534; }
-        .deploy-status.error { background: #fee2e2; color: #991b1b; }
-        .deploy-status.info { background: #e0f2fe; color: #0c4a6e; }
+
+        .deploy-status.success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .deploy-status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .deploy-status.info {
+            background: #e0f2fe;
+            color: #0c4a6e;
+        }
 
         /* ==================== 登录页 ==================== */
         .login-overlay {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background: var(--bg-secondary, #f5f5f5);
-            display: flex; align-items: center; justify-content: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             z-index: 9999;
             transition: opacity 0.3s ease;
         }
-        .login-overlay.hidden { opacity: 0; pointer-events: none; }
+
+        .login-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
         .login-card {
             background: var(--card-bg, #fff);
             border: 1px solid var(--border-color, #e5e7eb);
             border-radius: 16px;
             padding: 40px 36px;
-            width: 360px; max-width: 90vw;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            width: 360px;
+            max-width: 90vw;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
-        .login-logo { font-size: 48px; margin-bottom: 8px; }
-        .login-title { font-size: 22px; margin: 0 0 6px; color: var(--text-primary); }
-        .login-subtitle { font-size: 13px; color: var(--text-secondary); margin: 0 0 24px; }
-        .login-form { display: flex; flex-direction: column; gap: 16px; text-align: left; }
-        .login-field { display: flex; flex-direction: column; gap: 6px; }
-        .login-field label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-        .login-field input {
-            padding: 10px 12px; border: 1px solid var(--border-color, #d1d5db);
-            border-radius: 8px; font-size: 14px; background: var(--card-bg, #fff);
+
+        .login-logo {
+            font-size: 48px;
+            margin-bottom: 8px;
+        }
+
+        .login-title {
+            font-size: 22px;
+            margin: 0 0 6px;
             color: var(--text-primary);
         }
-        .login-field input:focus { outline: none; border-color: var(--accent, #3b82f6); }
-        .login-submit { margin-top: 8px; padding: 12px; font-size: 15px; }
-        .login-hint { font-size: 12px; color: var(--text-secondary); margin: 16px 0 0; opacity: 0.8; }
-        .login-error { color: #dc2626; font-size: 13px; margin-top: 8px; min-height: 18px; }
-        .login-forgot { margin-top: 12px; text-align: left; }
-        .login-forgot summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
-        .login-forgot summary:hover { color: var(--accent, #3b82f6); }
-        .login-forgot-body { margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
-        .login-forgot-body p { margin: 0 0 6px; }
-        .login-forgot-body code { background: var(--bg-secondary, #f3f4f6); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+        .login-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin: 0 0 24px;
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            text-align: left;
+        }
+
+        .login-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .login-field label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .login-field input {
+            padding: 10px 12px;
+            border: 1px solid var(--border-color, #d1d5db);
+            border-radius: 8px;
+            font-size: 14px;
+            background: var(--card-bg, #fff);
+            color: var(--text-primary);
+        }
+
+        .login-field input:focus {
+            outline: none;
+            border-color: var(--accent, #3b82f6);
+        }
+
+        .login-submit {
+            margin-top: 8px;
+            padding: 12px;
+            font-size: 15px;
+        }
+
+        .login-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin: 16px 0 0;
+            opacity: 0.8;
+        }
+
+        .login-error {
+            color: #dc2626;
+            font-size: 13px;
+            margin-top: 8px;
+            min-height: 18px;
+        }
+
+        .login-forgot {
+            margin-top: 12px;
+            text-align: left;
+        }
+
+        .login-forgot summary {
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .login-forgot summary:hover {
+            color: var(--accent, #3b82f6);
+        }
+
+        .login-forgot-body {
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .login-forgot-body p {
+            margin: 0 0 6px;
+        }
+
+        .login-forgot-body code {
+            background: var(--bg-secondary, #f3f4f6);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+
         .login-forgot-body pre {
-            background: var(--bg-secondary, #1e293b); color: var(--text-primary, #e2e8f0);
-            padding: 10px; border-radius: 6px; font-size: 11px; overflow-x: auto;
-            white-space: pre-wrap; word-break: break-all; margin: 0;
+            background: var(--bg-secondary, #1e293b);
+            color: var(--text-primary, #e2e8f0);
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin: 0;
         }
     </style>
 </head>
 <body>
- <!-- 登录遮罩层 -->
- <div id="loginOverlay" class="login-overlay">
-   <div class="login-card">
-     <div class="login-logo">🎮 ChainRPS</div>
-     <h2 class="login-title">管理后台登录</h2>
-     <p class="login-subtitle">请输入管理员账号密码</p>
-     <form id="loginForm" class="login-form" onsubmit="return AdminApp.handleLogin(event)">
-       <div class="login-field">
-         <label for="loginUsername">用户名</label>
-         <input type="text" id="loginUsername" placeholder="admin" autocomplete="username" required>
-       </div>
-       <div class="login-field">
-         <label for="loginPassword">密码</label>
-         <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password" required>
-       </div>
-       <button type="submit" class="btn btn-primary login-submit" id="loginSubmitBtn">登录</button>
-       <div class="login-error" id="loginError"></div>
-     </form>
-     <p class="login-hint">默认账号：admin / ADMIN（请及时修改密码）</p>
-     <details class="login-forgot">
-       <summary>忘记密码？</summary>
-       <div class="login-forgot-body">
-         <p>在服务器执行以下命令重置为默认密码 <code>ADMIN</code>：</p>
-         <pre># 方式一：一键重置脚本（推荐）
+<!-- 登录遮罩层 -->
+<div id="loginOverlay" class="login-overlay">
+    <div class="login-card">
+        <div class="login-logo">🎮 ChainRPS</div>
+        <h2 class="login-title">管理后台登录</h2>
+        <p class="login-subtitle">请输入管理员账号密码</p>
+        <form id="loginForm" class="login-form" onsubmit="return AdminApp.handleLogin(event)">
+            <div class="login-field">
+                <label for="loginUsername">用户名</label>
+                <input type="text" id="loginUsername" placeholder="admin" autocomplete="username" required>
+            </div>
+            <div class="login-field">
+                <label for="loginPassword">密码</label>
+                <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password"
+                       required>
+            </div>
+            <button type="submit" class="btn btn-primary login-submit" id="loginSubmitBtn">登录</button>
+            <div class="login-error" id="loginError"></div>
+        </form>
+        <p class="login-hint">默认账号：admin / ADMIN（请及时修改密码）</p>
+        <details class="login-forgot">
+            <summary>忘记密码？</summary>
+            <div class="login-forgot-body">
+                <p>在服务器执行以下命令重置为默认密码 <code>ADMIN</code>：</p>
+                <pre># 方式一：一键重置脚本（推荐）
 .venv\Scripts\python.exe scripts\reset_admin_password.py
 
 # 方式二：直接 SQL
 sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
 # 然后重启后端，会自动用默认密码 ADMIN 重新初始化</pre>
-       </div>
-     </details>
-   </div>
- </div>
+            </div>
+        </details>
+    </div>
+</div>
 
- <!-- 修改密码模态框 -->
- <div id="changePasswordModal" class="modal-overlay">
-   <div class="modal-content" style="max-width: 380px;">
-     <div class="modal-header">
-       <h3 class="modal-title">🔑 修改密码</h3>
-       <button class="modal-close" onclick="AdminApp.closeChangePasswordModal()">&times;</button>
-     </div>
-     <div class="modal-body">
-       <form onsubmit="return AdminApp.handleChangePassword(event)">
-         <!-- 隐藏的 username 字段，消除浏览器 accessibility 警告 -->
-         <input type="text" name="username" autocomplete="username" style="display:none" tabindex="-1">
-         <div class="form-group" style="margin-bottom: 14px;">
-           <label>原密码</label>
-           <input type="password" id="oldPassword" placeholder="原密码" autocomplete="current-password" required>
-         </div>
-         <div class="form-group" style="margin-bottom: 14px;">
-           <label>新密码</label>
-           <input type="password" id="newPassword" placeholder="新密码" autocomplete="new-password" required minlength="1">
-         </div>
-         <div class="form-group" style="margin-bottom: 14px;">
-           <label>确认新密码</label>
-           <input type="password" id="confirmPassword" placeholder="重复新密码" autocomplete="new-password" required minlength="4">
-         </div>
-         <div class="login-error" id="changePwdError"></div>
-       </form>
-     </div>
-     <div class="modal-footer">
-       <button class="btn btn-secondary" onclick="AdminApp.closeChangePasswordModal()">取消</button>
-       <button class="btn btn-primary" id="changePwdBtn" onclick="AdminApp.handleChangePasswordClick()">确认修改</button>
-     </div>
-   </div>
- </div>
+<!-- 修改密码模态框 -->
+<div id="changePasswordModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 380px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🔑 修改密码</h3>
+            <button class="modal-close" onclick="AdminApp.closeChangePasswordModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form onsubmit="return AdminApp.handleChangePassword(event)">
+                <!-- 隐藏的 username 字段，消除浏览器 accessibility 警告 -->
+                <input type="text" name="username" autocomplete="username" style="display:none" tabindex="-1">
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label>原密码</label>
+                    <input type="password" id="oldPassword" placeholder="原密码" autocomplete="current-password"
+                           required>
+                </div>
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label>新密码</label>
+                    <input type="password" id="newPassword" placeholder="新密码" autocomplete="new-password" required
+                           minlength="1">
+                </div>
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label>确认新密码</label>
+                    <input type="password" id="confirmPassword" placeholder="重复新密码" autocomplete="new-password"
+                           required minlength="4">
+                </div>
+                <div class="login-error" id="changePwdError"></div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="AdminApp.closeChangePasswordModal()">取消</button>
+            <button class="btn btn-primary" id="changePwdBtn" onclick="AdminApp.handleChangePasswordClick()">确认修改
+            </button>
+        </div>
+    </div>
+</div>
 
- <div class="admin-layout">
-  <!-- 左侧边栏 -->
-  <aside class="admin-sidebar" id="adminSidebar">
-    <div class="sidebar-header">
-      <span class="sidebar-logo">ChainRPS 管理台</span>
-      <button class="sidebar-toggle" id="sidebarToggle" title="收起/展开">☰</button>
-    </div>
-    <div class="sidebar-search">
-      <input type="text" id="navSearch" placeholder="🔍 搜索功能..." autocomplete="off">
-    </div>
-    <nav class="sidebar-nav" id="sidebarNav">
-      <a class="nav-item active" data-tab="dashboard" data-hash="#/dashboard" onclick="AdminApp.switchTab('dashboard')" title="仪表盘">
-        <span class="nav-icon">📊</span><span class="nav-label">仪表盘</span>
-      </a>
-      <a class="nav-item" data-tab="contracts" data-hash="#/contracts" onclick="AdminApp.switchTab('contracts')" title="合约管理">
-        <span class="nav-icon">📜</span><span class="nav-label">合约管理</span>
-      </a>
-      <a class="nav-item" data-tab="chainExplorer" data-hash="#/chain-explorer" onclick="AdminApp.switchTab('chainExplorer')" title="链上查询">
-        <span class="nav-icon">🔍</span><span class="nav-label">链上查询</span>
-      </a>
-      <a class="nav-item" data-tab="localChain" data-hash="#/local-chain" onclick="AdminApp.switchTab('localChain')" title="本地链">
-        <span class="nav-icon">🖥️</span><span class="nav-label">本地链</span>
-      </a>
-      <a class="nav-item" data-tab="redis" data-hash="#/redis" onclick="AdminApp.switchTab('redis')" title="Redis管理">
-        <span class="nav-icon">🟥</span><span class="nav-label">Redis管理</span>
-      </a>
-      <a class="nav-item" data-tab="config" data-hash="#/config" onclick="AdminApp.switchTab('config')" title="配置管理">
-        <span class="nav-icon">⚙️</span><span class="nav-label">配置管理</span>
-      </a>
-      <a class="nav-item" data-tab="audit" data-hash="#/audit" onclick="AdminApp.switchTab('audit')" title="审计日志">
-        <span class="nav-icon">📝</span><span class="nav-label">审计日志</span>
-      </a>
-      <a class="nav-item" data-tab="stageDemo" data-hash="#/stage-demo" onclick="AdminApp.switchTab('stageDemo')" title="阶段演示">
-        <span class="nav-icon">🎮</span><span class="nav-label">阶段演示</span>
-      </a>
-    </nav>
-    <div class="sidebar-footer">
-      <a href="/" class="back-link">← 返回游戏</a>
-      <button class="btn btn-outline" onclick="AdminApp.openChangePasswordModal()" title="修改登录密码" style="width: 100%; margin-top: 8px; font-size: 13px;">🔑 修改密码</button>
-      <button class="btn btn-outline" onclick="AdminApp.logout()" title="退出登录" style="width: 100%; margin-top: 8px; font-size: 13px;">🚪 退出登录</button>
-    </div>
-  </aside>
+<div class="admin-layout">
+    <!-- 左侧边栏 -->
+    <aside class="admin-sidebar" id="adminSidebar">
+        <div class="sidebar-header">
+            <span class="sidebar-logo">ChainRPS 管理台</span>
+            <button class="sidebar-toggle" id="sidebarToggle" title="收起/展开">☰</button>
+        </div>
+        <div class="sidebar-search">
+            <input type="text" id="navSearch" placeholder="🔍 搜索功能..." autocomplete="off">
+        </div>
+        <nav class="sidebar-nav" id="sidebarNav">
+            <a class="nav-item active" data-tab="dashboard" data-hash="#/dashboard"
+               onclick="AdminApp.switchTab('dashboard')" title="仪表盘">
+                <span class="nav-icon">📊</span><span class="nav-label">仪表盘</span>
+            </a>
+            <a class="nav-item" data-tab="contracts" data-hash="#/contracts" onclick="AdminApp.switchTab('contracts')"
+               title="合约管理">
+                <span class="nav-icon">📜</span><span class="nav-label">合约管理</span>
+            </a>
+            <a class="nav-item" data-tab="chainExplorer" data-hash="#/chain-explorer"
+               onclick="AdminApp.switchTab('chainExplorer')" title="链上查询">
+                <span class="nav-icon">🔍</span><span class="nav-label">链上查询</span>
+            </a>
+            <a class="nav-item" data-tab="localChain" data-hash="#/local-chain"
+               onclick="AdminApp.switchTab('localChain')" title="本地链">
+                <span class="nav-icon">🖥️</span><span class="nav-label">本地链</span>
+            </a>
+            <a class="nav-item" data-tab="redis" data-hash="#/redis" onclick="AdminApp.switchTab('redis')"
+               title="Redis管理">
+                <span class="nav-icon">🟥</span><span class="nav-label">Redis管理</span>
+            </a>
+            <a class="nav-item" data-tab="config" data-hash="#/config" onclick="AdminApp.switchTab('config')"
+               title="配置管理">
+                <span class="nav-icon">⚙️</span><span class="nav-label">配置管理</span>
+            </a>
+            <a class="nav-item" data-tab="audit" data-hash="#/audit" onclick="AdminApp.switchTab('audit')"
+               title="审计日志">
+                <span class="nav-icon">📝</span><span class="nav-label">审计日志</span>
+            </a>
+            <a class="nav-item" data-tab="stageDemo" data-hash="#/stage-demo" onclick="AdminApp.switchTab('stageDemo')"
+               title="阶段演示">
+                <span class="nav-icon">🎮</span><span class="nav-label">阶段演示</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <a href="/" class="back-link">← 返回游戏</a>
+            <button class="btn btn-outline" onclick="AdminApp.openChangePasswordModal()" title="修改登录密码"
+                    style="width: 100%; margin-top: 8px; font-size: 13px;">🔑 修改密码
+            </button>
+            <button class="btn btn-outline" onclick="AdminApp.logout()" title="退出登录"
+                    style="width: 100%; margin-top: 8px; font-size: 13px;">🚪 退出登录
+            </button>
+        </div>
+    </aside>
 
-  <!-- 主内容区 -->
-  <main class="admin-main">
-    <div class="admin-header">
-      <h1>ChainRPS 管理面板</h1>
-      <div id="adminWallet">
-        <button class="btn btn-primary" onclick="AdminApp.connectAdminWallet()">连接管理员钱包</button>
-      </div>
-    </div>
+    <!-- 主内容区 -->
+    <main class="admin-main">
+        <div class="admin-header">
+            <h1>ChainRPS 管理面板</h1>
+            <div id="adminWallet">
+                <button class="btn btn-primary" onclick="AdminApp.connectAdminWallet()">连接管理员钱包</button>
+            </div>
+        </div>
 
-    <div id="adminConnectInfo" class="admin-connect" style="display:none;">
-      <div class="admin-network" id="adminNetwork" title="点击切换网络">
-        <span class="network-icon" id="adminNetworkIcon">🔗</span>
-        <span class="network-name" id="adminNetworkName">未知网络</span>
-      </div>
-      <span style="font-size:14px;">管理员地址:</span>
-      <span id="adminAddress" class="admin-address"></span>
-      <button class="btn btn-secondary" onclick="AdminApp.disconnectAdminWallet()" style="margin-left:auto;">断开</button>
-    </div>
+        <div id="adminConnectInfo" class="admin-connect" style="display:none;">
+            <div class="admin-network" id="adminNetwork" title="点击切换网络">
+                <span class="network-icon" id="adminNetworkIcon">🔗</span>
+                <span class="network-name" id="adminNetworkName">未知网络</span>
+            </div>
+            <span style="font-size:14px;">管理员地址:</span>
+            <span id="adminAddress" class="admin-address"></span>
+            <button class="btn btn-secondary" onclick="AdminApp.disconnectAdminWallet()" style="margin-left:auto;">
+                断开
+            </button>
+        </div>
 
         <div id="tab-dashboard" class="admin-section active">
             <h2 class="section-title">概览统计</h2>
@@ -504,13 +923,18 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
 
             <div class="form-row">
                 <div class="form-group">
-                    <button class="btn btn-primary" onclick="AdminApp.showAddContractModal()" title="手动添加已部署的合约地址到系统中，用于链上查询和游戏匹配">+ 添加合约记录</button>
-                    <button class="btn btn-outline" onclick="AdminApp.showDeployModal()" style="margin-left: 8px;" title="通过代码自动部署新的 ChainRPS 合约到当前连接的区块链网络">🚀 部署新合约</button>
+                    <button class="btn btn-primary" onclick="AdminApp.showAddContractModal()"
+                            title="手动添加已部署的合约地址到系统中，用于链上查询和游戏匹配">+ 添加合约记录
+                    </button>
+                    <button class="btn btn-outline" onclick="AdminApp.showDeployModal()" style="margin-left: 8px;"
+                            title="通过代码自动部署新的 ChainRPS 合约到当前连接的区块链网络">🚀 部署新合约
+                    </button>
                 </div>
                 <div class="form-group">
-                    <select id="networkFilter" onchange="AdminApp.loadContracts()" style="width:180px;" title="按区块链网络筛选合约列表">
+                    <select id="networkFilter" onchange="AdminApp.loadContracts()" style="width:180px;"
+                            title="按区块链网络筛选合约列表">
                         <option value="">全部网络</option>
-                        <option value="localhost">Localhost 8686</option>
+                        <option value="localhost">ChainRPS_Sim</option>
                         <option value="amoy">Polygon Amoy</option>
                         <option value="polygon">Polygon 主网</option>
                     </select>
@@ -519,19 +943,22 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
 
             <table class="data-table">
                 <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>名称</th>
-                        <th>地址</th>
-                        <th>版本</th>
-                        <th>网络</th>
-                        <th>状态</th>
-                        <th>部署时间</th>
-                        <th>操作</th>
-                    </tr>
+                <tr>
+                    <th>ID</th>
+                    <th>名称</th>
+                    <th>地址</th>
+                    <th>版本</th>
+                    <th>网络</th>
+                    <th>状态</th>
+                    <th>部署时间</th>
+                    <th>操作</th>
+                </tr>
                 </thead>
                 <tbody id="contractsTableBody">
-                    <tr><td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">加载中...</td></tr>
+                <tr>
+                    <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">加载中...
+                    </td>
+                </tr>
                 </tbody>
             </table>
         </div>
@@ -539,16 +966,31 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
         <div id="tab-chainExplorer" class="admin-section">
             <h2 class="section-title">链上查询</h2>
 
-            <h3 style="margin-bottom: 12px; font-size: 15px;">🔍 通用链浏览器</h3>
-            <div style="margin-bottom: 20px; padding: 16px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary);">
+            <!-- 功能选择下拉框 -->
+            <div class="lc-feature-bar">
+                <label class="lc-feature-label" for="chainExplorerFeatureSelector">🧰 功能选择</label>
+                <select id="chainExplorerFeatureSelector" onchange="AdminApp.switchChainExplorerFeature(this.value)"
+                        title="选择链上查询功能">
+                    <option value="general">🔍 通用链浏览器</option>
+                    <option value="contract">📋 合约状态查询</option>
+                </select>
+            </div>
+
+            <!-- 功能面板：通用链浏览器 -->
+            <div id="chain-explorer-feature-general" class="lc-feature-panel">
                 <div class="form-row" style="margin-bottom: 12px; align-items: flex-end;">
                     <div class="form-group" style="flex: 1;">
                         <label title="输入区块号、交易哈希或钱包地址进行查询">查询内容</label>
-                        <input type="text" id="explorerQueryInput" placeholder="区块号 / 0x交易哈希 / 0x钱包地址" style="width: 100%;" title="支持区块号、交易哈希、钱包地址" onkeydown="if(event.key==='Enter')AdminApp.explorerSearch()">
+                        <input type="text" id="explorerQueryInput" placeholder="区块号 / 0x交易哈希 / 0x钱包地址"
+                               style="width: 100%;" title="支持区块号、交易哈希、钱包地址"
+                               onkeydown="if(event.key==='Enter')AdminApp.explorerSearch()">
                     </div>
                     <div class="form-group" style="display: flex; gap: 8px;">
-                        <button class="btn btn-primary" onclick="AdminApp.explorerSearch()" title="执行查询">🔍 查询</button>
-                        <button class="btn btn-outline" onclick="AdminApp.explorerQueryLatest()" title="查询最新区块">📋 最新区块</button>
+                        <button class="btn btn-primary" onclick="AdminApp.explorerSearch()" title="执行查询">🔍 查询
+                        </button>
+                        <button class="btn btn-outline" onclick="AdminApp.explorerQueryLatest()" title="查询最新区块">📋
+                            最新区块
+                        </button>
                     </div>
                 </div>
                 <div id="explorerResult" style="min-height: 40px; font-size: 13px; line-height: 1.6;">
@@ -556,72 +998,90 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 </div>
             </div>
 
-            <h3 style="margin-bottom: 12px; font-size: 15px;">📋 合约状态查询</h3>
+            <!-- 功能面板：合约状态查询 -->
+            <div id="chain-explorer-feature-contract" class="lc-feature-panel">
+                <div class="form-row">
+                    <div class="form-group" style="flex: 2; position: relative;">
+                        <label title="要查询的智能合约地址">合约地址</label>
+                        <div style="position: relative;">
+                            <input type="text" id="explorerContractAddress" placeholder="点击选择或输入合约地址"
+                                   style="width: 100%;" onclick="AdminApp.showContractDropdown()"
+                                   title="点击可从合约列表中选择，或手动输入合约地址">
+                            <div id="contractDropdown" class="dropdown-menu"
+                                 style="display: none; max-height: 200px; overflow-y: auto;">
+                                <div class="dropdown-header">选择合约地址</div>
+                                <div id="contractDropdownItems"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-end; gap: 8px;">
+                        <button class="btn btn-primary" onclick="AdminApp.queryContractOnChain()"
+                                title="查询合约的基本信息和状态">查询合约
+                        </button>
+                        <button class="btn btn-outline" onclick="AdminApp.useActiveContract()"
+                                title="将此合约设为系统当前使用的合约">使用当前合约
+                        </button>
+                    </div>
+                </div>
 
-            <div class="form-row">
-                <div class="form-group" style="flex: 2; position: relative;">
-                    <label title="要查询的智能合约地址">合约地址</label>
-                    <div style="position: relative;">
-                        <input type="text" id="explorerContractAddress" placeholder="点击选择或输入合约地址" style="width: 100%;" onclick="AdminApp.showContractDropdown()" title="点击可从合约列表中选择，或手动输入合约地址">
-                        <div id="contractDropdown" class="dropdown-menu" style="display: none; max-height: 200px; overflow-y: auto;">
-                            <div class="dropdown-header">选择合约地址</div>
-                            <div id="contractDropdownItems"></div>
+                <div id="chainContractInfo" style="display: none; margin-top: 20px;">
+                    <h3 style="margin-bottom: 16px; font-size: 16px;">📋 合约详情</h3>
+                    <div class="stats-grid" id="contractStatsGrid" style="margin-bottom: 20px;">
+                        <div class="stat-card">
+                            <div class="label">合约 Owner</div>
+                            <div class="value" id="chainContractOwner" style="font-size: 14px; word-break: break-all;">-
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">手续费接收者</div>
+                            <div class="value" id="chainFeeCollector" style="font-size: 14px; word-break: break-all;">-
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">官方开发者</div>
+                            <div class="value" id="chainDeveloper" style="font-size: 14px; word-break: break-all;">-
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">游戏总数</div>
+                            <div class="value" id="chainGameCount">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">手续费率</div>
+                            <div class="value" id="chainFeeRate">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">暂停状态</div>
+                            <div class="value" id="chainPaused">-</div>
                         </div>
                     </div>
                 </div>
-                <div class="form-group" style="display: flex; align-items: flex-end; gap: 8px;">
-                    <button class="btn btn-primary" onclick="AdminApp.queryContractOnChain()" title="查询合约的基本信息和状态">查询合约</button>
-                    <button class="btn btn-outline" onclick="AdminApp.useActiveContract()" title="将此合约设为系统当前使用的合约">使用当前合约</button>
-                </div>
-            </div>
 
-            <div id="chainContractInfo" style="display: none; margin-top: 20px;">
-                <h3 style="margin-bottom: 16px; font-size: 16px;">📋 合约详情</h3>
-                <div class="stats-grid" id="contractStatsGrid" style="margin-bottom: 20px;">
-                    <div class="stat-card">
-                        <div class="label">合约 Owner</div>
-                        <div class="value" id="chainContractOwner" style="font-size: 14px; word-break: break-all;">-</div>
+                <div id="chainGamesSection" style="display: none; margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="font-size: 16px;">🎮 链上对局记录</h3>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="number" id="queryGameId" placeholder="游戏ID"
+                                   style="width: 120px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;"
+                                   title="输入链上对局ID进行精确查询">
+                            <button class="btn btn-outline" onclick="AdminApp.queryGameById()"
+                                    title="根据ID查询特定对局的详细信息">按ID查询
+                            </button>
+                            <button class="btn btn-outline" onclick="AdminApp.loadChainGames()"
+                                    title="刷新链上对局列表">
+                                刷新列表
+                            </button>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="label">手续费接收者</div>
-                        <div class="value" id="chainFeeCollector" style="font-size: 14px; word-break: break-all;">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">官方开发者</div>
-                        <div class="value" id="chainDeveloper" style="font-size: 14px; word-break: break-all;">-</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">游戏总数</div>
-                        <div class="value" id="chainGameCount">0</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">手续费率</div>
-                        <div class="value" id="chainFeeRate">0%</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">暂停状态</div>
-                        <div class="value" id="chainPaused">-</div>
-                    </div>
-                </div>
-            </div>
 
-            <div id="chainGamesSection" style="display: none; margin-top: 20px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h3 style="font-size: 16px;">🎮 链上对局记录</h3>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="number" id="queryGameId" placeholder="游戏ID" style="width: 120px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;" title="输入链上对局ID进行精确查询">
-                        <button class="btn btn-outline" onclick="AdminApp.queryGameById()" title="根据ID查询特定对局的详细信息">按ID查询</button>
-                        <button class="btn btn-outline" onclick="AdminApp.loadChainGames()" title="刷新链上对局列表">刷新列表</button>
+                    <div id="gameDetailCard"
+                         style="display: none; margin-bottom: 20px; padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
+                        <h4 style="margin-bottom: 12px;">对局详情</h4>
+                        <div id="gameDetailContent"></div>
                     </div>
-                </div>
 
-                <div id="gameDetailCard" style="display: none; margin-bottom: 20px; padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
-                    <h4 style="margin-bottom: 12px;">对局详情</h4>
-                    <div id="gameDetailContent"></div>
-                </div>
-
-                <table class="data-table">
-                    <thead>
+                    <table class="data-table">
+                        <thead>
                         <tr>
                             <th>ID</th>
                             <th>玩家1</th>
@@ -632,17 +1092,28 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                             <th>赢家</th>
                             <th>操作</th>
                         </tr>
-                    </thead>
-                    <tbody id="chainGamesTableBody">
-                        <tr><td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">请先查询合约</td></tr>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody id="chainGamesTableBody">
+                        <tr>
+                            <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">
+                                请先查询合约
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
 
-                <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                    <span id="chainGamesPagination" style="font-size: 13px; color: var(--text-secondary);"></span>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="btn btn-outline" id="prevChainGamesBtn" onclick="AdminApp.prevChainGamesPage()" disabled>上一页</button>
-                        <button class="btn btn-outline" id="nextChainGamesBtn" onclick="AdminApp.nextChainGamesPage()" disabled>下一页</button>
+                    <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                        <span id="chainGamesPagination" style="font-size: 13px; color: var(--text-secondary);"></span>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-outline" id="prevChainGamesBtn"
+                                    onclick="AdminApp.prevChainGamesPage()"
+                                    disabled>上一页
+                            </button>
+                            <button class="btn btn-outline" id="nextChainGamesBtn"
+                                    onclick="AdminApp.nextChainGamesPage()"
+                                    disabled>下一页
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -662,6 +1133,10 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     <div class="lc-status-engine" id="nodeEngineBadge" title="当前链引擎类型">-</div>
                 </div>
                 <div class="lc-stats-grid">
+                    <div class="lc-stat">
+                        <span class="lc-stat-label">⛓ 推荐主链名</span>
+                        <span class="lc-stat-value" id="nodeRecommendedChainName">-</span>
+                    </div>
                     <div class="lc-stat">
                         <span class="lc-stat-label">链引擎</span>
                         <span class="lc-stat-value" id="nodeEngine">-</span>
@@ -686,11 +1161,20 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         <span class="lc-stat-label">代币符号</span>
                         <span class="lc-stat-value" id="nodeSymbol">-</span>
                     </div>
+                    <div class="lc-stat">
+                        <span class="lc-stat-label">持久化</span>
+                        <span class="lc-stat-value" id="nodePersistStatus" title="链数据是否持久化到磁盘">-</span>
+                    </div>
                     <div class="lc-stat lc-stat-wide">
                         <span class="lc-stat-label">RPC URL</span>
                         <span class="lc-stat-value lc-stat-mono" id="nodeRpcUrl">-</span>
                     </div>
-                    <div class="lc-stat lc-stat-wide lc-stat-link" onclick="AdminApp.switchTab('chainExplorer')" title="点击前往链浏览器，查询区块/交易/地址">
+                    <div class="lc-stat lc-stat-wide" id="nodePersistDirRow" style="display:none;">
+                        <span class="lc-stat-label">💾 数据目录</span>
+                        <span class="lc-stat-value lc-stat-mono" id="nodePersistDir" title="持久化数据存储路径">-</span>
+                    </div>
+                    <div class="lc-stat lc-stat-wide lc-stat-link" onclick="AdminApp.switchTab('chainExplorer')"
+                         title="点击前往链浏览器，查询区块/交易/地址">
                         <span class="lc-stat-label">🔍 链浏览器</span>
                         <span class="lc-stat-value" style="color: var(--primary-color);">点击前往 →</span>
                     </div>
@@ -704,17 +1188,25 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                             <span class="toggle-sub" id="nodeKeepAliveSub">节点已停止</span>
                         </span>
                     </label>
-                    <button class="btn btn-outline" onclick="AdminApp.refreshNodeStatus()" title="刷新本地节点状态信息">🔄 刷新状态</button>
-                    <button class="btn btn-outline" onclick="AdminApp.switchToLocalNetwork()" title="自动在 MetaMask 中添加/切换到本地网络">🔗 切换到本地网络</button>
+                    <button class="btn btn-outline" onclick="AdminApp.refreshNodeStatus()" title="刷新本地节点状态信息">
+                        🔄 刷新状态
+                    </button>
+                    <button class="btn btn-outline" onclick="AdminApp.switchToLocalNetwork()"
+                            title="自动在 MetaMask 中添加/切换到本地网络">🔗 切换到本地网络
+                    </button>
+                    <button class="btn btn-outline" onclick="AdminApp.resetChainData()"
+                            title="清空持久化链数据，下次启动将恢复到创世状态（已部署合约将丢失）">🗑️ 清空链数据
+                    </button>
                 </div>
             </div>
 
             <!-- 功能选择下拉框 -->
             <div class="lc-feature-bar">
                 <label class="lc-feature-label" for="localChainFeatureSelector">🧰 功能选择</label>
-                <select id="localChainFeatureSelector" onchange="AdminApp.switchLocalChainFeature(this.value)" title="选择要操作的本地链功能">
-                    <option value="accounts">👛 测试账户</option>
+                <select id="localChainFeatureSelector" onchange="AdminApp.switchLocalChainFeature(this.value)"
+                        title="选择要操作的本地链功能">
                     <option value="fund">💸 充值测试币</option>
+                    <option value="accounts">👛 测试账户</option>
                     <option value="tokens">🪙 测试代币管理</option>
                     <option value="mint">💳 Mint 测试代币</option>
                     <option value="config">⚙️ 启动配置</option>
@@ -725,20 +1217,26 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
             <div id="feature-accounts" class="lc-feature-panel">
                 <div class="lc-feature-head">
                     <h3>👛 测试账户</h3>
-                    <button class="btn btn-outline" onclick="AdminApp.refreshAccounts()" title="刷新本地节点账户列表">🔄 刷新</button>
+                    <button class="btn btn-outline" onclick="AdminApp.refreshAccounts()" title="刷新本地节点账户列表">🔄
+                        刷新
+                    </button>
                 </div>
                 <div class="lc-table-wrap">
                     <table class="data-table">
                         <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>地址</th>
-                                <th>ETH 余额</th>
-                                <th>操作</th>
-                            </tr>
+                        <tr>
+                            <th>#</th>
+                            <th>地址</th>
+                            <th>ETH 余额</th>
+                            <th>操作</th>
+                        </tr>
                         </thead>
                         <tbody id="nodeAccountsBody">
-                            <tr><td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">节点未运行</td></tr>
+                        <tr>
+                            <td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">
+                                节点未运行
+                            </td>
+                        </tr>
                         </tbody>
                     </table>
                 </div>
@@ -757,15 +1255,18 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         </select>
                     </div>
                     <div class="form-group">
-                        <label title="接收测试 RPSB 的钱包地址">接收地址</label>
-                        <input type="text" id="fundToAddress" placeholder="0x... 接收地址" style="width: 100%;" title="接收测试 RPSB 的钱包地址">
+                        <label title="接收测试 CRPS 的钱包地址">接收地址</label>
+                        <input type="text" id="fundToAddress" placeholder="0x... 接收地址" style="width: 100%;"
+                               title="接收测试 CRPS 的钱包地址">
                     </div>
                     <div class="form-group">
-                        <label title="要发送的 RPSB 数量">ETH 数量</label>
-                        <input type="number" id="fundAmount" value="10" min="0.1" step="0.1" title="要发送的 RPSB 数量">
+                        <label title="要发送的 CRPS 数量">ETH 数量</label>
+                        <input type="number" id="fundAmount" value="10" min="0.1" step="0.1" title="要发送的 CRPS 数量">
                     </div>
                     <div class="form-group" style="display: flex; align-items: flex-end;">
-                        <button class="btn btn-primary" onclick="AdminApp.fundAddress()" title="从本地节点账户转账 RPSB 到指定地址">💰 发送 ETH</button>
+                        <button class="btn btn-primary" onclick="AdminApp.fundAddress()"
+                                title="从本地节点账户转账 CRPS 到指定地址">💰 发送 ETH
+                        </button>
                     </div>
                 </div>
             </div>
@@ -775,22 +1276,30 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 <div class="lc-feature-head">
                     <h3>🪙 测试代币管理</h3>
                     <div class="lc-feature-actions">
-                        <button class="btn btn-outline" onclick="AdminApp.refreshTokenList()" title="刷新本地节点上已部署的测试代币列表">🔄 刷新代币列表</button>
-                        <button class="btn btn-primary" onclick="AdminApp.showDeployLocalTokenModal()" title="在本地节点部署新的 ERC20 测试代币合约">+ 部署新代币</button>
+                        <button class="btn btn-outline" onclick="AdminApp.refreshTokenList()"
+                                title="刷新本地节点上已部署的测试代币列表">🔄 刷新代币列表
+                        </button>
+                        <button class="btn btn-primary" onclick="AdminApp.showDeployLocalTokenModal()"
+                                title="在本地节点部署新的 ERC20 测试代币合约">+ 部署新代币
+                        </button>
                     </div>
                 </div>
                 <div class="lc-table-wrap">
                     <table class="data-table">
                         <thead>
-                            <tr>
-                                <th>代币</th>
-                                <th>地址</th>
-                                <th>小数位</th>
-                                <th>操作</th>
-                            </tr>
+                        <tr>
+                            <th>代币</th>
+                            <th>地址</th>
+                            <th>小数位</th>
+                            <th>操作</th>
+                        </tr>
                         </thead>
                         <tbody id="nodeTokensBody">
-                            <tr><td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">暂无代币</td></tr>
+                        <tr>
+                            <td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">
+                                暂无代币
+                            </td>
+                        </tr>
                         </tbody>
                     </table>
                 </div>
@@ -810,67 +1319,22 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     </div>
                     <div class="form-group">
                         <label title="接收新铸造代币的钱包地址">接收地址</label>
-                        <input type="text" id="mintLocalToAddress" placeholder="0x... 接收地址" style="width: 100%;" title="接收新铸造代币的钱包地址">
+                        <input type="text" id="mintLocalToAddress" placeholder="0x... 接收地址" style="width: 100%;"
+                               title="接收新铸造代币的钱包地址">
                     </div>
                     <div class="form-group">
                         <label title="要铸造的代币数量">数量</label>
                         <input type="number" id="mintLocalAmount" value="10000" min="1" title="要铸造的代币数量">
                     </div>
                     <div class="form-group" style="display: flex; align-items: flex-end;">
-                        <button class="btn btn-primary" onclick="AdminApp.mintLocalToken()" title="铸造指定数量的代币到目标地址">✨ Mint</button>
+                        <button class="btn btn-primary" onclick="AdminApp.mintLocalToken()"
+                                title="铸造指定数量的代币到目标地址">✨ Mint
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <!-- 功能面板：启动配置 -->
-            <div id="feature-config" class="lc-feature-panel">
-                <div class="lc-feature-head">
-                    <h3>⚙️ 启动配置</h3>
-                    <span class="lc-feature-hint">可自定义，留空使用默认值</span>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label title="本地链类型">链类型</label>
-                        <select id="nodeConfigChainType" title="选择本地链类型： Hardhat 或 Ganache">
-                            <option value="hardhat">Hardhat</option>
-                            <option value="ganache">Ganache</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label title="监听地址">监听地址 (Host)</label>
-                        <input type="text" id="nodeConfigHost" value="127.0.0.1" placeholder="127.0.0.1" title="监听地址">
-                    </div>
-                    <div class="form-group">
-                        <label title="RPC 服务端口">端口 (Port)</label>
-                        <input type="number" id="nodeConfigPort" value="8686" min="1" max="65535" placeholder="8686" title="RPC 服务端口">
-                    </div>
-                    <div class="form-group">
-                        <label title="链 ID（Chain ID）">Chain ID</label>
-                        <input type="number" id="nodeConfigChainId" value="5208888" min="1" placeholder="5208888" title="链 ID">
-                    </div>
-                </div>
-                <div class="form-row" style="margin-top: 12px;">
-                    <div class="form-group">
-                        <label title="生成的测试账户数量">账户数</label>
-                        <input type="number" id="nodeConfigAccounts" value="10" min="1" max="100" placeholder="10" title="生成的测试账户数量">
-                    </div>
-                    <div class="form-group">
-                        <label title="每个账户的默认原生代币余额">默认余额</label>
-                        <input type="number" id="nodeConfigBalance" value="123452" min="0" step="1" placeholder="123452" title="每个账户的默认原生代币余额">
-                    </div>
-                    <div class="form-group">
-                        <label title="原生代币符号">代币符号</label>
-                        <input type="text" id="nodeConfigSymbol" value="CRPS" maxlength="10" placeholder="CRPS" title="原生代币符号">
-                    </div>
-                    <div class="form-group" style="display: flex; align-items: flex-end;">
-                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;">
-                            <input type="checkbox" id="nodeConfigDeterministic" checked title="使用固定助记词，每次启动生成相同账户">
-                            确定性助记词
-                        </label>
-                    </div>
-                </div>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">💡 修改配置后点击上方"开启节点"即可应用。节点运行中修改配置需先停止再启动。</p>
-            </div>
+
         </div>
 
         <div id="tab-redis" class="admin-section">
@@ -913,19 +1377,37 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
             </div>
 
             <div style="margin-bottom: 24px; display: flex; gap: 10px; flex-wrap: wrap;">
-                <button id="startRedisBtn" class="btn btn-primary" onclick="AdminApp.startRedis()" title="启动本地 Redis 服务">▶️ 启动</button>
-                <button id="stopRedisBtn" class="btn btn-danger" onclick="AdminApp.stopRedis()" title="停止 Redis 服务（停止后系统降级为内存模式）">⏹️ 停止</button>
-                <button class="btn btn-outline" onclick="AdminApp.refreshRedisStatus()" title="刷新 Redis 连接状态">🔄 刷新状态</button>
-                <button class="btn btn-outline" onclick="AdminApp.loadRedisConfig()" title="查看 Redis 当前配置信息">⚙️ 查看配置</button>
-                <button class="btn btn-outline" onclick="AdminApp.loadRedisKeys()" title="浏览 Redis 键空间">🔑 查看键空间</button>
-                <button class="btn btn-danger" onclick="AdminApp.flushRedisDb()" title="⚠️ 清空 Redis 数据库（不可逆操作）">🗑️ 清空DB</button>
+                <button id="startRedisBtn" class="btn btn-primary" onclick="AdminApp.startRedis()"
+                        title="启动本地 Redis 服务">▶️ 启动
+                </button>
+                <button id="stopRedisBtn" class="btn btn-danger" onclick="AdminApp.stopRedis()"
+                        title="停止 Redis 服务（停止后系统降级为内存模式）">⏹️ 停止
+                </button>
+                <button class="btn btn-outline" onclick="AdminApp.refreshRedisStatus()" title="刷新 Redis 连接状态">🔄
+                    刷新状态
+                </button>
+                <button class="btn btn-outline" onclick="AdminApp.loadRedisConfig()" title="查看 Redis 当前配置信息">⚙️
+                    查看配置
+                </button>
+                <button class="btn btn-outline" onclick="AdminApp.loadRedisKeys()" title="浏览 Redis 键空间">🔑
+                    查看键空间
+                </button>
+                <button class="btn btn-danger" onclick="AdminApp.flushRedisDb()"
+                        title="⚠️ 清空 Redis 数据库（不可逆操作）">🗑️ 清空DB
+                </button>
             </div>
 
             <div id="redisConfigSection" style="display: none; margin-bottom: 24px;">
                 <h3 style="margin-bottom: 12px; font-size: 15px;">⚙️ Redis 配置</h3>
-                <div id="redisConfigContent" style="padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
+                <div id="redisConfigContent"
+                     style="padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
                     <table class="data-table">
-                        <thead><tr><th>配置项</th><th>值</th></tr></thead>
+                        <thead>
+                        <tr>
+                            <th>配置项</th>
+                            <th>值</th>
+                        </tr>
+                        </thead>
                         <tbody id="redisConfigBody"></tbody>
                     </table>
                 </div>
@@ -935,47 +1417,65 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <h3 style="font-size: 15px;">🔑 键空间浏览</h3>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" id="redisKeyPattern" value="*" placeholder="匹配模式: rps:*" style="padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px; width: 200px;" title="使用通配符 * 匹配键名，如 rps:*">
-                        <button class="btn btn-outline" onclick="AdminApp.loadRedisKeys()" title="根据匹配模式搜索键">搜索</button>
+                        <input type="text" id="redisKeyPattern" value="*" placeholder="匹配模式: rps:*"
+                               style="padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px; width: 200px;"
+                               title="使用通配符 * 匹配键名，如 rps:*">
+                        <button class="btn btn-outline" onclick="AdminApp.loadRedisKeys()" title="根据匹配模式搜索键">
+                            搜索
+                        </button>
                     </div>
                 </div>
                 <table class="data-table">
                     <thead>
-                        <tr>
-                            <th>键名</th>
-                            <th>类型</th>
-                            <th>TTL</th>
-                            <th>大小</th>
-                            <th>操作</th>
-                        </tr>
+                    <tr>
+                        <th>键名</th>
+                        <th>类型</th>
+                        <th>TTL</th>
+                        <th>大小</th>
+                        <th>操作</th>
+                    </tr>
                     </thead>
                     <tbody id="redisKeysBody">
-                        <tr><td colspan="5" style="text-align:center; padding: 30px; color: var(--text-secondary);">点击"查看键空间"加载</td></tr>
+                    <tr>
+                        <td colspan="5" style="text-align:center; padding: 30px; color: var(--text-secondary);">
+                            点击"查看键空间"加载
+                        </td>
+                    </tr>
                     </tbody>
                 </table>
             </div>
 
             <div style="margin-top: 16px; padding: 12px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; color: var(--text-secondary);">
-                <strong>💡 说明：</strong>Redis 用于匹配队列、WebSocket 连接注册和对局状态缓存。停止 Redis 后将自动降级为内存模式（仅单进程可用，重启后丢失）。
+                <strong>💡 说明：</strong>Redis 用于匹配队列、WebSocket 连接注册和对局状态缓存。停止 Redis
+                后将自动降级为内存模式（仅单进程可用，重启后丢失）。
             </div>
         </div>
 
         <div id="tab-config" class="admin-section">
             <h2 class="section-title">配置管理</h2>
 
-            <div class="config-tab-bar" style="display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border-color);">
-                <button class="config-tab-btn active" data-config-tab="backend" onclick="AdminApp.switchConfigTab('backend')" style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
+            <div class="config-tab-bar"
+                 style="display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border-color);">
+                <button class="config-tab-btn active" data-config-tab="backend"
+                        onclick="AdminApp.switchConfigTab('backend')"
+                        style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
                     🗄️ 后端配置
                 </button>
-                <button class="config-tab-btn" data-config-tab="chain" onclick="AdminApp.switchConfigTab('chain')" style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
+                <button class="config-tab-btn" data-config-tab="chain" onclick="AdminApp.switchConfigTab('chain')"
+                        style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
                     🔗 链上合约配置
+                </button>
+                <button class="config-tab-btn" data-config-tab="node" onclick="AdminApp.switchConfigTab('node')"
+                        style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
+                    🖥️ 本地链启动配置
                 </button>
             </div>
 
             <div id="configPanel-backend">
                 <div class="form-row">
                     <div class="form-group">
-                        <select id="configCategory" onchange="AdminApp.loadConfig()" style="width:200px;" title="按配置分类筛选">
+                        <select id="configCategory" onchange="AdminApp.loadConfig()" style="width:200px;"
+                                title="按配置分类筛选">
                             <option value="">全部分类</option>
                             <option value="chain">主链配置</option>
                             <option value="game">游戏配置</option>
@@ -984,9 +1484,15 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         </select>
                     </div>
                     <div class="form-group" style="flex:0 0 auto; display:flex; gap:8px; align-items:flex-end;">
-                        <button class="btn btn-secondary" onclick="AdminApp.useCurrentChainAsMain()" title="将当前钱包网络的 Chain ID 填入配置">📌 使用当前网络</button>
-                        <button class="btn btn-secondary" onclick="AdminApp.showBatchUpdateModal()" title="批量修改多个配置项">批量更新</button>
-                        <button class="btn btn-danger" onclick="AdminApp.resetConfig()" title="⚠️ 将所有配置重置为默认值（不可逆）">↺ 重置为默认值</button>
+                        <button class="btn btn-secondary" onclick="AdminApp.useCurrentChainAsMain()"
+                                title="将当前钱包网络的 Chain ID 填入配置">📌 使用当前网络
+                        </button>
+                        <button class="btn btn-secondary" onclick="AdminApp.showBatchUpdateModal()"
+                                title="批量修改多个配置项">批量更新
+                        </button>
+                        <button class="btn btn-danger" onclick="AdminApp.resetConfig()"
+                                title="⚠️ 将所有配置重置为默认值（不可逆）">↺ 重置为默认值
+                        </button>
                     </div>
                 </div>
 
@@ -1007,10 +1513,13 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     <div class="form-row">
                         <div class="form-group">
                             <label title="游戏手续费率，单位为基点，100基点=1%">新费率 (基点, 100=1%)</label>
-                            <input type="number" id="newFeeRate" placeholder="例如: 200 (即 2%)" title="游戏手续费率，单位为基点">
+                            <input type="number" id="newFeeRate" placeholder="例如: 200 (即 2%)"
+                                   title="游戏手续费率，单位为基点">
                         </div>
                         <div class="form-group" style="flex:0 0 auto; display:flex; align-items:flex-end;">
-                            <button class="btn btn-primary" onclick="AdminApp.setFeeRate()" title="调用链上合约修改手续费率">设置费率</button>
+                            <button class="btn btn-primary" onclick="AdminApp.setFeeRate()"
+                                    title="调用链上合约修改手续费率">设置费率
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1020,14 +1529,18 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     <div class="form-row">
                         <div class="form-group">
                             <label title="玩家提交选择的超时时间">提交超时 (秒)</label>
-                            <input type="number" id="newCommitTimeout" placeholder="66" title="玩家提交选择的超时时间（秒）">
+                            <input type="number" id="newCommitTimeout" placeholder="66"
+                                   title="玩家提交选择的超时时间（秒）">
                         </div>
                         <div class="form-group">
                             <label title="玩家揭晓选择的超时时间">揭晓超时 (秒)</label>
-                            <input type="number" id="newRevealTimeout" placeholder="88" title="玩家揭晓选择的超时时间（秒）">
+                            <input type="number" id="newRevealTimeout" placeholder="88"
+                                   title="玩家揭晓选择的超时时间（秒）">
                         </div>
                         <div class="form-group" style="flex:0 0 auto; display:flex; align-items:flex-end;">
-                            <button class="btn btn-primary" onclick="AdminApp.setTimeouts()" title="调用链上合约修改超时时间">设置超时</button>
+                            <button class="btn btn-primary" onclick="AdminApp.setTimeouts()"
+                                    title="调用链上合约修改超时时间">设置超时
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1037,7 +1550,8 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     <div class="form-row">
                         <div class="form-group">
                             <label title="项目官方网站地址">官方网站</label>
-                            <input type="text" id="officialWebsite" placeholder="https://chainrps.io" title="项目官方网站地址">
+                            <input type="text" id="officialWebsite" placeholder="https://chainrps.io"
+                                   title="项目官方网站地址">
                         </div>
                         <div class="form-group">
                             <label title="Twitter/X 官方账号">Twitter</label>
@@ -1045,10 +1559,13 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         </div>
                         <div class="form-group">
                             <label title="Discord 社区邀请链接">Discord</label>
-                            <input type="text" id="officialDiscord" placeholder="discord.gg/chainrps" title="Discord 社区邀请链接">
+                            <input type="text" id="officialDiscord" placeholder="discord.gg/chainrps"
+                                   title="Discord 社区邀请链接">
                         </div>
                     </div>
-                    <button class="btn btn-primary" onclick="AdminApp.updateOfficialInfo()" title="调用链上合约更新官方信息">更新官方信息</button>
+                    <button class="btn btn-primary" onclick="AdminApp.updateOfficialInfo()"
+                            title="调用链上合约更新官方信息">更新官方信息
+                    </button>
                 </div>
 
                 <div class="stat-card" style="margin-bottom: 16px;">
@@ -1059,7 +1576,9 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                             <input type="text" id="newDeveloperAddress" placeholder="0x..." title="合约手续费接收地址">
                         </div>
                         <div class="form-group" style="flex:0 0 auto; display:flex; align-items:flex-end;">
-                            <button class="btn btn-primary" onclick="AdminApp.setDeveloperAddress()" title="调用链上合约修改手续费接收地址">设置地址</button>
+                            <button class="btn btn-primary" onclick="AdminApp.setDeveloperAddress()"
+                                    title="调用链上合约修改手续费接收地址">设置地址
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1079,7 +1598,9 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                             </select>
                         </div>
                         <div class="form-group" style="flex:0 0 auto; display:flex; align-items:flex-end;">
-                            <button class="btn btn-primary" onclick="AdminApp.setTokenSupport()" title="调用链上合约设置代币支持状态">设置代币支持</button>
+                            <button class="btn btn-primary" onclick="AdminApp.setTokenSupport()"
+                                    title="调用链上合约设置代币支持状态">设置代币支持
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1088,10 +1609,14 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     <h3 style="margin-top:0;">合约暂停/恢复</h3>
                     <div class="form-row">
                         <div class="form-group" style="flex:0 0 auto;">
-                            <button class="btn btn-danger" onclick="AdminApp.pauseContract()" title="⚠️ 暂停合约，禁止所有新对局（紧急维护用）">暂停合约</button>
+                            <button class="btn btn-danger" onclick="AdminApp.pauseContract()"
+                                    title="⚠️ 暂停合约，禁止所有新对局（紧急维护用）">暂停合约
+                            </button>
                         </div>
                         <div class="form-group" style="flex:0 0 auto;">
-                            <button class="btn btn-primary" onclick="AdminApp.unpauseContract()" title="恢复合约正常运营">恢复合约</button>
+                            <button class="btn btn-primary" onclick="AdminApp.unpauseContract()"
+                                    title="恢复合约正常运营">恢复合约
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1104,8 +1629,159 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                             <input type="number" id="cancelGameId" placeholder="Game ID" title="要取消的链上对局ID">
                         </div>
                         <div class="form-group" style="flex:0 0 auto; display:flex; align-items:flex-end;">
-                            <button class="btn btn-danger" onclick="AdminApp.cancelMatch()" title="⚠️ 取消指定对局并退还玩家资金">取消对局</button>
+                            <button class="btn btn-danger" onclick="AdminApp.cancelMatch()"
+                                    title="⚠️ 取消指定对局并退还玩家资金">取消对局
+                            </button>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 本地链启动配置 -->
+            <div id="configPanel-node" style="display:none;">
+                <h3 style="margin-bottom: 16px;">🖥️ 本地链 RPC 节点启动配置</h3>
+
+                <div class="stat-card" style="margin-bottom: 16px;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label title="本地链类型">链类型</label>
+                            <select id="nodeConfigChainType" title="选择本地链类型：Hardhat 或 Ganache">
+                                <option value="ganache">Ganache</option>
+                                <option value="hardhat">Hardhat</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label title="监听地址">监听地址 (Host)</label>
+                            <input type="text" id="nodeConfigHost" value="127.0.0.1" placeholder="127.0.0.1"
+                                   title="监听地址">
+                        </div>
+                        <div class="form-group">
+                            <label title="RPC 服务端口">端口 (Port)</label>
+                            <input type="number" id="nodeConfigPort" value="8686" min="1" max="65535" placeholder="8686"
+                                   title="RPC 服务端口">
+                        </div>
+                        <div class="form-group">
+                            <label title="链 ID（Chain ID）">Chain ID</label>
+                            <input type="number" id="nodeConfigChainId" value="5208888" min="1" placeholder="5208888"
+                                   title="链 ID">
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top: 12px;">
+                        <div class="form-group">
+                            <label title="生成的测试账户数量">账户数</label>
+                            <input type="number" id="nodeConfigAccounts" value="10" min="1" max="100" placeholder="10"
+                                   title="生成的测试账户数量">
+                        </div>
+                        <div class="form-group">
+                            <label title="每个账户的默认原生代币余额">默认余额</label>
+                            <input type="number" id="nodeConfigBalance" value="123452" min="0" step="1"
+                                   placeholder="123452"
+                                   title="每个账户的默认原生代币余额">
+                        </div>
+                        <div class="form-group">
+                            <label title="原生代币符号">代币符号</label>
+                            <input type="text" id="nodeConfigSymbol" value="CRPS" maxlength="10" placeholder="CRPS"
+                                   title="原生代币符号">
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: flex-end;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;">
+                                <input type="checkbox" id="nodeConfigDeterministic" checked
+                                       title="使用固定助记词，每次启动生成相同账户">
+                                确定性助记词
+                            </label>
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: flex-end;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;"
+                                   title="启用后链数据持久化到磁盘，重启服务后已部署合约和状态保留（仅 Ganache 支持）">
+                                <input type="checkbox" id="nodeConfigPersist" checked>
+                                💾 持久化存储
+                            </label>
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px; display: flex; gap: 12px; align-items: center;">
+                        <button class="btn btn-primary" onclick="AdminApp.startLocalNode()"
+                                title="使用当前配置启动本地 RPC 节点">🚀 启动节点
+                        </button>
+                        <button class="btn btn-outline" onclick="AdminApp.stopLocalNode()"
+                                title="停止当前运行的本地 RPC 节点">⏹️ 停止节点
+                        </button>
+                        <button class="btn btn-outline" onclick="AdminApp.saveNodeConfig()"
+                                title="保存当前配置到本地存储">💾 保存配置
+                        </button>
+                        <button class="btn btn-ghost" onclick="AdminApp.testRpcConnection()"
+                                title="测试 RPC 节点连通性">🔌 测试连接
+                        </button>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 12px;">💡
+                        修改配置后点击"启动节点"即可应用。节点运行中修改配置需先停止再启动。</p>
+                </div>
+
+                <!-- RPC 网络连接配置 -->
+                <div class="stat-card" style="margin-bottom: 16px;">
+                    <h3 style="margin-top: 0;">🌐 RPC 网络与合约地址</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label title="主 RPC 节点 URL（公链或本地链）">主 RPC URL</label>
+                            <input type="text" id="mainRpcUrl" placeholder="http://127.0.0.1:8686"
+                                   title="主 RPC 节点 URL">
+                        </div>
+                        <div class="form-group">
+                            <label title="备用 RPC 节点 URL（可选）">备用 RPC URL</label>
+                            <input type="text" id="backupRpcUrl" placeholder="可选"
+                                   title="备用 RPC 节点 URL">
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top: 12px;">
+                        <div class="form-group">
+                            <label title="当前链上主合约地址">主合约地址</label>
+                            <input type="text" id="configContractAddress" placeholder="0x..."
+                                   title="当前链上主合约地址">
+                        </div>
+                        <div class="form-group" style="flex: 0 0 auto; display: flex; align-items: flex-end;">
+                            <button class="btn btn-primary" onclick="AdminApp.saveRpcConfig()"
+                                    title="保存 RPC 和合约地址配置">💾 保存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 启动环境配置 -->
+                <div class="stat-card">
+                    <h3 style="margin-top: 0;">⚙️ 启动环境变量</h3>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                        这些变量写入 <code>.env</code> 文件，服务重启后生效。当前内存中的配置不受影响。
+                    </p>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label title="服务监听地址">HOST</label>
+                            <input type="text" id="envHost" value="0.0.0.0" placeholder="0.0.0.0"
+                                   title="服务监听地址">
+                        </div>
+                        <div class="form-group">
+                            <label title="服务端口">PORT</label>
+                            <input type="number" id="envPort" value="8000" min="1" max="65535" placeholder="8000"
+                                   title="服务端口">
+                        </div>
+                        <div class="form-group">
+                            <label title="Redis 连接 URL">REDIS_URL</label>
+                            <input type="text" id="envRedisUrl" placeholder="redis://localhost:6379/0"
+                                   title="Redis 连接 URL">
+                        </div>
+                        <div class="form-group">
+                            <label title="调试模式">DEBUG</label>
+                            <select id="envDebug" title="调试模式开关">
+                                <option value="true" selected>开启</option>
+                                <option value="false">关闭</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px; display: flex; gap: 12px;">
+                        <button class="btn btn-primary" onclick="AdminApp.saveEnvConfig()"
+                                title="保存 .env 配置（需重启服务生效）">💾 保存环境配置
+                        </button>
+                        <button class="btn btn-ghost" onclick="AdminApp.reloadEnv()"
+                                title="重新加载 .env 配置">🔄 重新加载
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1117,7 +1793,8 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
             <div class="form-row">
                 <div class="form-group">
                     <label title="按操作类型筛选审计日志">操作类型</label>
-                    <select id="auditAction" onchange="AdminApp._auditPage=1;AdminApp.loadAuditLogs()" style="width:200px;" title="按操作类型筛选审计日志">
+                    <select id="auditAction" onchange="AdminApp._auditPage=1;AdminApp.loadAuditLogs()"
+                            style="width:200px;" title="按操作类型筛选审计日志">
                         <option value="">全部操作</option>
                         <option value="update_config">配置更新</option>
                         <option value="reset_config">配置重置</option>
@@ -1130,256 +1807,320 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 </div>
                 <div class="form-group">
                     <label title="按管理员地址筛选审计日志（可选）">管理员地址</label>
-                    <input type="text" id="auditAdminAddr" placeholder="0x... (可选)" style="width: 320px;" title="按管理员地址筛选审计日志">
+                    <input type="text" id="auditAdminAddr" placeholder="0x... (可选)" style="width: 320px;"
+                           title="按管理员地址筛选审计日志">
                 </div>
                 <div class="form-group" style="flex:0 0 auto; display:flex; align-items:flex-end;">
-                    <button class="btn btn-primary" onclick="AdminApp._auditPage=1;AdminApp.loadAuditLogs()" title="查询审计日志">查询</button>
+                    <button class="btn btn-primary" onclick="AdminApp._auditPage=1;AdminApp.loadAuditLogs()"
+                            title="查询审计日志">查询
+                    </button>
                 </div>
             </div>
 
             <table class="data-table">
                 <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>管理员</th>
-                        <th>操作</th>
-                        <th>目标</th>
-                        <th>旧值</th>
-                        <th>新值</th>
-                        <th>时间</th>
-                    </tr>
+                <tr>
+                    <th>ID</th>
+                    <th>管理员</th>
+                    <th>操作</th>
+                    <th>目标</th>
+                    <th>旧值</th>
+                    <th>新值</th>
+                    <th>时间</th>
+                </tr>
                 </thead>
                 <tbody id="auditTableBody">
-                    <tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--text-secondary);">加载中...</td></tr>
+                <tr>
+                    <td colspan="7" style="text-align:center; padding: 40px; color: var(--text-secondary);">加载中...
+                    </td>
+                </tr>
                 </tbody>
             </table>
 
             <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
                 <span id="auditPagination" style="font-size: 13px; color: var(--text-secondary);"></span>
                 <div style="display: flex; gap: 8px;">
-                    <button class="btn btn-outline" id="prevAuditBtn" onclick="AdminApp.prevAuditPage()" disabled>上一页</button>
-                    <button class="btn btn-outline" id="nextAuditBtn" onclick="AdminApp.nextAuditPage()" disabled>下一页</button>
+                    <button class="btn btn-outline" id="prevAuditBtn" onclick="AdminApp.prevAuditPage()" disabled>
+                        上一页
+                    </button>
+                    <button class="btn btn-outline" id="nextAuditBtn" onclick="AdminApp.nextAuditPage()" disabled>
+                        下一页
+                    </button>
                 </div>
             </div>
         </div>
 
         <!-- 阶段演示页面 -->
         <div id="tab-stageDemo" class="admin-section">
-            <h2 class="section-title">🎮 各阶段模拟演示</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
-                点击下方卡片可在新窗口中打开对应游戏阶段的模拟界面，无需连接链上即可预览各环节 UI 效果。
+            <h2 class="section-title">🎮 游戏流程动画演示</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 13px;">
+                自动播放 ChainRPS 完整对局流程：大厅 → 创建/加入房间 → 准备 → 倒计时 → 出拳 → 揭晓 → 结算 →
+                结束。无需连接钱包即可预览。
             </p>
-            <div id="stageDemoGrid" class="stage-demo-grid"></div>
-        </div>
-  </main>
- </div>
 
-    <!-- 添加合约记录弹窗 -->
-    <div id="contractModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">添加合约记录</h3>
-                <button class="modal-close" onclick="AdminApp.closeContractModal()">&times;</button>
+            <!-- 阶段进度条 -->
+            <div class="sd-progress-bar" id="sdProgressBar"></div>
+
+            <!-- 演示舞台 -->
+            <div class="sd-stage-wrap">
+                <div class="sd-stage" id="sdStage">
+                    <!-- 场景内容由 JS 渲染 -->
+                </div>
+
+                <!-- 阶段说明角标 -->
+                <div class="sd-stage-info" id="sdStageInfo">
+                    <div class="sd-stage-info-icon" id="sdInfoIcon">🏠</div>
+                    <div class="sd-stage-info-text">
+                        <div class="sd-stage-info-title" id="sdInfoTitle">游戏大厅</div>
+                        <div class="sd-stage-info-desc" id="sdInfoDesc">浏览房间列表，创建或加入房间</div>
+                    </div>
+                </div>
             </div>
-            <div class="modal-body">
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>合约名称</label>
-                    <input type="text" id="modalContractName" placeholder="ChainRPS">
-                </div>
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>合约地址</label>
-                    <input type="text" id="modalContractAddress" placeholder="0x...">
-                </div>
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>版本</label>
-                    <input type="text" id="modalContractVersion" placeholder="v1.0.0" value="v1.0.0">
-                </div>
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>网络</label>
-                    <select id="modalContractNetwork">
-                        <option value="localhost">本地ChainRPS测试网</option>
-                        <option value="amoy">Polygon Amoy (测试网)</option>
-                        <option value="polygon">Polygon 主网</option>
+
+            <!-- 控制台 -->
+            <div class="sd-controls">
+                <button class="btn btn-primary" id="sdPlayBtn" onclick="AdminApp.sdTogglePlay()">▶ 播放</button>
+                <button class="btn btn-outline" onclick="AdminApp.sdRestart()">⏮ 重新开始</button>
+                <button class="btn btn-outline" onclick="AdminApp.sdPrev()">⏪ 上一步</button>
+                <button class="btn btn-outline" onclick="AdminApp.sdNext()">⏩ 下一步</button>
+                <div class="sd-speed-group">
+                    <label>速度</label>
+                    <select id="sdSpeed" onchange="AdminApp.sdChangeSpeed(this.value)">
+                        <option value="2000">慢</option>
+                        <option value="1200" selected>正常</option>
+                        <option value="700">快</option>
+                        <option value="350">极速</option>
                     </select>
                 </div>
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>ABI JSON</label>
-                    <textarea id="modalContractAbi" rows="4" placeholder="粘贴合约 ABI JSON (可选)"></textarea>
-                </div>
-                <div class="form-group" style="margin-bottom:4px;">
-                    <label>备注</label>
-                    <input type="text" id="modalContractDesc" placeholder="描述信息 (可选)">
-                </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="AdminApp.closeContractModal()">取消</button>
-                <button class="btn btn-primary" onclick="AdminApp.addContract()">确认添加</button>
+
+            <!-- 阶段快捷跳转 -->
+            <div class="sd-jumps" id="sdJumps"></div>
+        </div>
+    </main>
+</div>
+
+<!-- 添加合约记录弹窗 -->
+<div id="contractModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">添加合约记录</h3>
+            <button class="modal-close" onclick="AdminApp.closeContractModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>合约名称</label>
+                <input type="text" id="modalContractName" placeholder="ChainRPS">
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>合约地址</label>
+                <input type="text" id="modalContractAddress" placeholder="0x...">
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>版本</label>
+                <input type="text" id="modalContractVersion" placeholder="v1.0.0" value="v1.0.0">
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>网络</label>
+                <select id="modalContractNetwork">
+                    <option value="localhost">本地ChainRPS测试网</option>
+                    <option value="amoy">Polygon Amoy (测试网)</option>
+                    <option value="polygon">Polygon 主网</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>ABI JSON</label>
+                <textarea id="modalContractAbi" rows="4" placeholder="粘贴合约 ABI JSON (可选)"></textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:4px;">
+                <label>备注</label>
+                <input type="text" id="modalContractDesc" placeholder="描述信息 (可选)">
             </div>
         </div>
-    </div>
-
-    <!-- 部署合约弹窗 -->
-    <div id="deployModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">🚀 部署新合约</h3>
-                <button class="modal-close" onclick="AdminApp.closeDeployModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div style="margin-bottom: 16px; padding: 12px; background: #fef3c7; border-radius: 8px; font-size: 13px; color: #92400e;">
-                    ⚠️ 部署合约需要支付 Gas 费用，请确保钱包中有足够的原生代币。部署完成后合约将自动添加到管理列表。
-                </div>
-
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>部署网络</label>
-                    <select id="deployNetwork">
-                        <option value="localhost">本地ChainRPS测试网</option>
-                        <option value="amoy">Polygon Amoy (测试网)</option>
-                        <option value="polygon">Polygon 主网</option>
-                    </select>
-                </div>
-
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>手续费接收地址</label>
-                    <input type="text" id="deployFeeCollector" placeholder="0x...">
-                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">收取游戏手续费的钱包地址</div>
-                </div>
-
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>官方开发者地址</label>
-                    <input type="text" id="deployDeveloper" placeholder="0x...">
-                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">合约 Owner 地址，拥有修改配置权限</div>
-                </div>
-
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label>合约名称</label>
-                    <input type="text" id="deployContractName" value="ChainRPS" readonly>
-                </div>
-
-                <div id="deploySteps" style="display: none;">
-                    <div class="deploy-step" id="deployStep1">
-                        <span class="step-number">1</span>
-                        <span>准备部署...</span>
-                    </div>
-                    <div class="deploy-step" id="deployStep2">
-                        <span class="step-number">2</span>
-                        <span>签署交易...</span>
-                    </div>
-                    <div class="deploy-step" id="deployStep3">
-                        <span class="step-number">3</span>
-                        <span>等待链上确认...</span>
-                    </div>
-                    <div class="deploy-step" id="deployStep4">
-                        <span class="step-number">4</span>
-                        <span>部署完成</span>
-                    </div>
-                </div>
-
-                <div id="deployStatus" style="display: none;"></div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="AdminApp.closeDeployModal()">取消</button>
-                <button class="btn btn-primary" id="deployButton" onclick="AdminApp.deployContract()">开始部署</button>
-            </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="AdminApp.closeContractModal()">取消</button>
+            <button class="btn btn-primary" onclick="AdminApp.addContract()">确认添加</button>
         </div>
     </div>
+</div>
 
-    <!-- 部署测试代币弹窗 -->
-    <div id="deployTokenModal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h3 class="modal-title">🪙 部署测试代币 (MockERC20)</h3>
-                <button class="modal-close" onclick="document.getElementById('deployTokenModal').classList.remove('show')">&times;</button>
+<!-- 部署合约弹窗 -->
+<div id="deployModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">🚀 部署新合约</h3>
+            <button class="modal-close" onclick="AdminApp.closeDeployModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom: 16px; padding: 12px; background: #fef3c7; border-radius: 8px; font-size: 13px; color: #92400e;">
+                ⚠️ 部署合约需要支付 Gas 费用，请确保钱包中有足够的原生代币。部署完成后合约将自动添加到管理列表。
             </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>代币名称</label>
-                    <input type="text" id="deployTokenName" value="Mock USDC" placeholder="Mock USDC">
-                </div>
-                <div class="form-group">
-                    <label>代币符号</label>
-                    <input type="text" id="deployTokenSymbol" value="USDC" placeholder="USDC">
-                </div>
-                <div class="form-group">
-                    <label>小数位数</label>
-                    <input type="number" id="deployTokenDecimals" value="6" min="0" max="18">
-                </div>
-                <div class="form-group">
-                    <label>初始供应量 (个)</label>
-                    <input type="number" id="deployTokenSupply" value="1000000" min="1">
+
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>部署网络</label>
+                <select id="deployNetwork">
+                    <option value="localhost">本地ChainRPS测试网</option>
+                    <option value="amoy">Polygon Amoy (测试网)</option>
+                    <option value="polygon">Polygon 主网</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>手续费接收地址</label>
+                <input type="text" id="deployFeeCollector" placeholder="0x...">
+                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">收取游戏手续费的钱包地址
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="document.getElementById('deployTokenModal').classList.remove('show')">取消</button>
-                <button class="btn btn-primary" id="deployTokenButton" onclick="AdminApp.deployToken()">部署代币</button>
+
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>官方开发者地址</label>
+                <input type="text" id="deployDeveloper" placeholder="0x...">
+                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">合约 Owner
+                    地址，拥有修改配置权限
+                </div>
             </div>
+
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>合约名称</label>
+                <input type="text" id="deployContractName" value="ChainRPS" readonly>
+            </div>
+
+            <div id="deploySteps" style="display: none;">
+                <div class="deploy-step" id="deployStep1">
+                    <span class="step-number">1</span>
+                    <span>准备部署...</span>
+                </div>
+                <div class="deploy-step" id="deployStep2">
+                    <span class="step-number">2</span>
+                    <span>签署交易...</span>
+                </div>
+                <div class="deploy-step" id="deployStep3">
+                    <span class="step-number">3</span>
+                    <span>等待链上确认...</span>
+                </div>
+                <div class="deploy-step" id="deployStep4">
+                    <span class="step-number">4</span>
+                    <span>部署完成</span>
+                </div>
+            </div>
+
+            <div id="deployStatus" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="AdminApp.closeDeployModal()">关闭</button>
+            <button class="btn btn-primary" id="deployButton" onclick="AdminApp.deployContract()">开始部署</button>
         </div>
     </div>
+</div>
 
-    <!-- Mint 测试代币弹窗 -->
-    <div id="mintTokenModal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h3 class="modal-title">💸 Mint 测试代币</h3>
-                <button class="modal-close" onclick="document.getElementById('mintTokenModal').classList.remove('show')">&times;</button>
+<!-- 部署测试代币弹窗 -->
+<div id="deployTokenModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🪙 部署测试代币 (MockERC20)</h3>
+            <button class="modal-close" onclick="document.getElementById('deployTokenModal').classList.remove('show')">
+                &times;
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>代币名称</label>
+                <input type="text" id="deployTokenName" value="Mock USDC" placeholder="Mock USDC">
             </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>代币合约地址</label>
-                    <input type="text" id="mintTokenAddress" placeholder="0x...">
-                </div>
-                <div class="form-group">
-                    <label>接收地址</label>
-                    <input type="text" id="mintToAddress" placeholder="0x...">
-                </div>
-                <div class="form-group">
-                    <label>Mint 数量 (个)</label>
-                    <input type="number" id="mintAmount" value="10000" min="1">
-                </div>
+            <div class="form-group">
+                <label>代币符号</label>
+                <input type="text" id="deployTokenSymbol" value="USDC" placeholder="USDC">
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="document.getElementById('mintTokenModal').classList.remove('show')">取消</button>
-                <button class="btn btn-primary" onclick="AdminApp.mintToken()">Mint</button>
+            <div class="form-group">
+                <label>小数位数</label>
+                <input type="number" id="deployTokenDecimals" value="6" min="0" max="18">
+            </div>
+            <div class="form-group">
+                <label>初始供应量 (个)</label>
+                <input type="number" id="deployTokenSupply" value="1000000" min="1">
             </div>
         </div>
-    </div>
-
-    <!-- 部署本地测试代币弹窗 -->
-    <div id="deployLocalTokenModal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h3 class="modal-title">🪙 部署本地测试代币</h3>
-                <button class="modal-close" onclick="document.getElementById('deployLocalTokenModal').classList.remove('show')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>代币名称</label>
-                    <input type="text" id="deployLocalTokenName" value="Mock USDC" placeholder="Mock USDC">
-                </div>
-                <div class="form-group">
-                    <label>代币符号</label>
-                    <input type="text" id="deployLocalTokenSymbol" value="USDC" placeholder="USDC">
-                </div>
-                <div class="form-group">
-                    <label>小数位数</label>
-                    <input type="number" id="deployLocalTokenDecimals" value="6" min="0" max="18">
-                </div>
-                <div class="form-group">
-                    <label>初始供应量 (个)</label>
-                    <input type="number" id="deployLocalTokenSupply" value="1000000" min="1">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="document.getElementById('deployLocalTokenModal').classList.remove('show')">取消</button>
-                <button class="btn btn-primary" id="deployLocalTokenBtn" onclick="AdminApp.deployLocalToken()">部署</button>
-            </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary"
+                    onclick="document.getElementById('deployTokenModal').classList.remove('show')">取消
+            </button>
+            <button class="btn btn-primary" id="deployTokenButton" onclick="AdminApp.deployToken()">部署代币</button>
         </div>
     </div>
+</div>
 
-    <script src="../js/config.js"></script>
-    <script src="../js/FWUI/modal.js"></script>
-    <script src="../js/FWUI/toast.js"></script>
-    <script src="/static/js/ethers.umd.min.js"></script>
-    <script src="../js/admin.js"></script>
+<!-- Mint 测试代币弹窗 -->
+<div id="mintTokenModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">💸 Mint 测试代币</h3>
+            <button class="modal-close" onclick="document.getElementById('mintTokenModal').classList.remove('show')">
+                &times;
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>代币合约地址</label>
+                <input type="text" id="mintTokenAddress" placeholder="0x...">
+            </div>
+            <div class="form-group">
+                <label>接收地址</label>
+                <input type="text" id="mintToAddress" placeholder="0x...">
+            </div>
+            <div class="form-group">
+                <label>Mint 数量 (个)</label>
+                <input type="number" id="mintAmount" value="10000" min="1">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary"
+                    onclick="document.getElementById('mintTokenModal').classList.remove('show')">取消
+            </button>
+            <button class="btn btn-primary" onclick="AdminApp.mintToken()">Mint</button>
+        </div>
+    </div>
+</div>
+
+<!-- 部署本地测试代币弹窗 -->
+<div id="deployLocalTokenModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🪙 部署本地测试代币</h3>
+            <button class="modal-close"
+                    onclick="document.getElementById('deployLocalTokenModal').classList.remove('show')">&times;
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>代币名称</label>
+                <input type="text" id="deployLocalTokenName" value="Mock USDC" placeholder="Mock USDC">
+            </div>
+            <div class="form-group">
+                <label>代币符号</label>
+                <input type="text" id="deployLocalTokenSymbol" value="USDC" placeholder="USDC">
+            </div>
+            <div class="form-group">
+                <label>小数位数</label>
+                <input type="number" id="deployLocalTokenDecimals" value="6" min="0" max="18">
+            </div>
+            <div class="form-group">
+                <label>初始供应量 (个)</label>
+                <input type="number" id="deployLocalTokenSupply" value="1000000" min="1">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary"
+                    onclick="document.getElementById('deployLocalTokenModal').classList.remove('show')">取消
+            </button>
+            <button class="btn btn-primary" id="deployLocalTokenBtn" onclick="AdminApp.deployLocalToken()">部署</button>
+        </div>
+    </div>
+</div>
+
+<script src="../js/config.js?v=20260728a"></script>
+<script src="../js/FWUI/modal.js?v=20260728a"></script>
+<script src="../js/FWUI/toast.js?v=20260728a"></script>
+<script src="/static/js/ethers.umd.min.js"></script>
+<script src="../js/admin.js?v=20260728f"></script>
 </body>
 </html>

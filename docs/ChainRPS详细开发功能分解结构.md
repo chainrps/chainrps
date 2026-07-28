@@ -388,7 +388,7 @@ redis-cli ping
 
 | 参数 | 值 |
 |------|------|
-| RPC URL | `https://rpc-amoy.polygon.technology/` |
+| RPC URL | `https://polygon-amoy-bor-rpc.publicnode.com` |
 | Chain ID | `80002` |
 | 区块浏览器 | `https://www.oklink.com/amoy` |
 | 测试币水龙头 | https://www.alchemy.com/faucets/polygon-amoy |
@@ -439,7 +439,7 @@ DATABASE_PATH=./data/rps.db
 
 # 合约配置
 CONTRACT_ADDRESS=0xYourContractAddressHere
-RPC_URL=https://rpc-amoy.polygon.technology/
+RPC_URL=https://polygon-amoy-bor-rpc.publicnode.com
 
 # 超时配置（秒）
 COMMIT_TIMEOUT=66    # 提交哈希超时
@@ -500,7 +500,7 @@ gunicorn backend.main:app --workers 4 --worker-class uvicorn.workers.UvicornWork
 编辑 `web/static/js/config.js`：
 ```javascript
 const CONFIG = {
-    rpcUrl: 'https://rpc-amoy.polygon.technology/',
+    rpcUrl: 'https://polygon-amoy-bor-rpc.publicnode.com',
     chainId: 80002,
     contractAddress: '0xYourContractAddressHere',
     backendUrl: 'http://localhost:8000',

@@ -300,7 +300,7 @@ v1.1.0 已定义占位 mapping，便于二期平滑升级：
 ## 部署网络
 
 ### Polygon Amoy 测试网
-- RPC: `https://rpc-amoy.polygon.technology/`
+- RPC: `https://polygon-amoy-bor-rpc.publicnode.com`
 - Chain ID: `80002`
 - 区块浏览器: `https://www.oklink.com/amoy`
 - 水龙头: `https://www.alchemy.com/faucets/polygon-amoy`

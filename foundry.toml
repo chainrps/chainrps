@@ -8,7 +8,7 @@ optimizer_runs = 200
 gas_reports = ["*"]
 
 [profile.default.rpc_endpoints]
-amoy = "https://rpc-amoy.polygon.technology/"
+amoy = "https://polygon-amoy-bor-rpc.publicnode.com"
 polygon = "https://polygon-rpc.com"
 
 # 见 remappings.txt

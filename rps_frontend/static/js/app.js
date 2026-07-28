@@ -813,7 +813,7 @@ const App = (function() {
         );
 
         if (isLocalHttp) {
-            FWUI.Modal({
+            FWUI.Modal.confirm({
                 title: '切换到本地测试链',
                 content: `
                     <div style="line-height:1.8;">
@@ -830,7 +830,9 @@ const App = (function() {
                         <p style="color:#888;font-size:12px;">操作路径：钱包 -> 网络 -> 添加自定义网络 -> 填入以上信息</p>
                     </div>
                 `,
-                onConfirm: () => {
+                okText: '我知道了',
+                cancelText: '关闭',
+                onOk: () => {
                     FWUI.Toast.success('请在钱包中添加网络后刷新页面');
                 }
             });
@@ -1126,7 +1128,12 @@ const App = (function() {
         Settings.loadFromServer(address).then(() => {
             Settings.renderSettingsForm();
             const prefs = Settings.getPreferences();
-            if (prefs && prefs.theme) {
+            // 主题统一以 localStorage.rps_theme 为准（顶部按钮和设置面板共用同一来源）
+            // 服务端返回的 prefs.theme 只用于回填设置面板的显示值，不强制覆盖当前主题
+            const localTheme = localStorage.getItem('rps_theme');
+            if (localTheme) {
+                Settings.setPreference('theme', localTheme);
+            } else if (prefs && prefs.theme) {
                 Settings.applyTheme(prefs.theme);
             }
         });

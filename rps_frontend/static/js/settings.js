@@ -167,14 +167,20 @@ const Settings = (function() {
         return currentPreferences;
     }
 
-    // 应用主题
+    // 应用主题（统一委托给 UI.setTheme，避免两套实现互相覆盖）
     function applyTheme(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('theme', theme);
-        const toggle = document.getElementById('themeToggle');
-        if (toggle) {
-            toggle.querySelector('.theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
+        if (typeof UI !== 'undefined' && UI && typeof UI.setTheme === 'function') {
+            UI.setTheme(theme);
+        } else {
+            // 兜底：UI 模块未加载时直接操作 DOM
+            document.documentElement.setAttribute('data-theme', theme);
+            const toggle = document.getElementById('themeToggle');
+            if (toggle) {
+                const icon = toggle.querySelector('.theme-icon');
+                if (icon) icon.textContent = theme === 'dark' ? '☀️' : '🌙';
+            }
         }
+        localStorage.setItem('rps_theme', theme);
     }
 
     // 检查音效是否启用

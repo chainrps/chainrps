@@ -61,6 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# 本地链持久化数据（Ganache/Hardhat chaindata，含链状态和已部署合约）
+data/chaindata_*/
+data/rps.db
+
 # Flask stuff:
 instance/
 .webassets-cache

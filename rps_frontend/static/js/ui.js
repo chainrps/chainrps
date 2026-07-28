@@ -190,6 +190,10 @@ const UI = (function() {
         const current = getCurrentTheme();
         const next = current === 'dark' ? 'light' : 'dark';
         setTheme(next);
+        // 同步更新 Settings 中的主题偏好，避免后续 loadFromServer 覆盖
+        if (typeof Settings !== 'undefined' && Settings && typeof Settings.setPreference === 'function') {
+            Settings.setPreference('theme', next);
+        }
         return next;
     }
 

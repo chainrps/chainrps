@@ -338,7 +338,7 @@ web/
 // web/static/js/config.js
 const CONFIG = {
     // 链配置
-    rpcUrl: 'https://rpc-amoy.polygon.technology/',
+    rpcUrl: 'https://polygon-amoy-bor-rpc.publicnode.com',
     chainId: 80002,
     contractAddress: '0xYourContractAddress',
     

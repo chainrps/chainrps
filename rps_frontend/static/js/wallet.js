@@ -560,7 +560,7 @@ const Wallet = (function() {
                 blockExplorerUrls: params.blockExplorerUrls || [],
             };
             if (typeof FWUI !== 'undefined' && FWUI && FWUI.Modal) {
-                FWUI.Modal({
+                FWUI.Modal.confirm({
                     title: '添加本地测试网络',
                     content: `
                         <div style="line-height:1.8;">
@@ -576,7 +576,9 @@ const Wallet = (function() {
                             <p style="color:#888;font-size:12px;">操作路径：钱包 -> 网络 -> 添加自定义网络 -> 填入以上信息</p>
                         </div>
                     `,
-                    onConfirm: () => {
+                    okText: '我知道了',
+                    cancelText: '关闭',
+                    onOk: () => {
                         FWUI.Toast.success('请在钱包中手动添加网络后刷新页面');
                     }
                 });

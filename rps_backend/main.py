@@ -61,6 +61,7 @@ async def lifespan(app: FastAPI):
             True,
             deterministic=True,
             chain_id=RPC_CHAIN_ID,
+            persist=True,
         )
         status = chain_svc.get_node_status()
         if status.get("running"):

@@ -78,6 +78,53 @@ ROOM_CACHE_PREFIX = os.getenv("ROOM_CACHE_PREFIX", "rps:room:")  # 房间缓存�
 WS_PREFIX = os.getenv("WS_PREFIX", "rps:ws:")  # WebSocket 会话前缀
 REDIS_BROADCAST_CHANNEL = os.getenv("REDIS_BROADCAST_CHANNEL", "rps:broadcast")  # Redis 广播频道名称
 
+
+def reload_config():
+    """重新加载 .env 文件并更新全局变量"""
+    global HOST, PORT, REDIS_URL, DATABASE_PATH, CONTRACT_ADDRESS
+    global RPC_LOCAL_HOST, RPC_LOCAL_PORT, RPC_LOCAL_URL, RPC_URL, RPC_CHAIN_ID
+    global RPC_DEFAULT_ACCOUNT_COUNT, RPC_DEFAULT_BALANCE, RPC_SYMBOL
+    global COMMIT_TIMEOUT, REVEAL_TIMEOUT, WS_HEARTBEAT_INTERVAL
+    global ADMIN_WHITELIST, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS
+    global DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, DEBUG
+    global MATCH_QUEUE_PREFIX, GAME_CACHE_PREFIX, ROOM_CACHE_PREFIX
+    global WS_PREFIX, REDIS_BROADCAST_CHANNEL
+
+    # 重新加载 .env 文件
+    load_dotenv(override=True)
+
+    HOST = os.getenv("HOST", "0.0.0.0")
+    PORT = int(os.getenv("PORT", 8000))
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rps.db")
+    CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "")
+    RPC_LOCAL_HOST = os.getenv("RPC_LOCAL_HOST", "127.0.0.1")
+    RPC_LOCAL_PORT = int(os.getenv("RPC_LOCAL_PORT", 8686))
+    RPC_LOCAL_URL = f"http://{RPC_LOCAL_HOST}:{RPC_LOCAL_PORT}"
+    RPC_URL = os.getenv("RPC_URL", RPC_LOCAL_URL)
+    RPC_CHAIN_ID = int(os.getenv("CHAIN_ID", 5208888))
+    RPC_DEFAULT_ACCOUNT_COUNT = int(os.getenv("RPC_DEFAULT_ACCOUNT_COUNT", 10))
+    RPC_DEFAULT_BALANCE = float(os.getenv("RPC_DEFAULT_BALANCE", 100000))
+    RPC_SYMBOL = os.getenv("RPC_SYMBOL", "ETH")
+    COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))
+    REVEAL_TIMEOUT = int(os.getenv("REVEAL_TIMEOUT", 88))
+    WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", 30))
+    ADMIN_WHITELIST = [
+        addr.strip() for addr in os.getenv("ADMIN_WHITELIST", "").split(",") if addr.strip()
+    ]
+    JWT_SECRET = os.getenv("JWT_SECRET", "chainrps-dev-secret-change-in-production-please")
+    JWT_ALGORITHM = "HS256"
+    JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
+    DEFAULT_ADMIN_USERNAME = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+    DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "ADMIN")
+    DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+    MATCH_QUEUE_PREFIX = os.getenv("MATCH_QUEUE_PREFIX", "rps:match:")
+    GAME_CACHE_PREFIX = os.getenv("GAME_CACHE_PREFIX", "rps:game:")
+    ROOM_CACHE_PREFIX = os.getenv("ROOM_CACHE_PREFIX", "rps:room:")
+    WS_PREFIX = os.getenv("WS_PREFIX", "rps:ws:")
+    REDIS_BROADCAST_CHANNEL = os.getenv("REDIS_BROADCAST_CHANNEL", "rps:broadcast")
+
+
 __all__ = [
     "HOST",
     "PORT",
@@ -96,4 +143,5 @@ __all__ = [
     "ROOM_CACHE_PREFIX",
     "WS_PREFIX",
     "REDIS_BROADCAST_CHANNEL",
+    "reload_config",
 ]

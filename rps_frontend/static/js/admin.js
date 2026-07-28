@@ -73,7 +73,7 @@ const AdminApp = {
         // 验证 token 是否有效
         try {
             const res = await fetch(CONFIG.backendUrl + '/api/auth/me', {
-                headers: { 'Authorization': 'Bearer ' + token }
+                headers: {'Authorization': 'Bearer ' + token}
             });
             if (res.ok) {
                 const data = await res.json();
@@ -105,8 +105,8 @@ const AdminApp = {
         try {
             const res = await fetch(CONFIG.backendUrl + '/api/auth/login', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password})
             });
             const data = await res.json();
             if (res.ok && data.success && data.token) {
@@ -155,7 +155,10 @@ const AdminApp = {
     // 修改密码按钮点击处理
     handleChangePasswordClick() {
         // 按钮点击触发，调用表单提交逻辑
-        this.handleChangePassword({ preventDefault: () => {} });
+        this.handleChangePassword({
+            preventDefault: () => {
+            }
+        });
     },
 
     // 处理修改密码表单提交
@@ -190,7 +193,7 @@ const AdminApp = {
                     'Content-Type': 'application/json',
                     'Authorization': 'Bearer ' + this.getToken(),
                 },
-                body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+                body: JSON.stringify({old_password: oldPwd, new_password: newPwd})
             });
             const data = await res.json();
             if (res.ok && data.success) {
@@ -303,8 +306,17 @@ const AdminApp = {
     // 从 hash 获取 tab 标识
     _tabFromHash() {
         const hash = window.location.hash;
+        // 1. 精确匹配主 tab
         const entry = Object.entries(this._tabHashMap).find(([_, h]) => h === hash);
-        return entry ? entry[0] : null;
+        if (entry) return {tab: entry[0], subTab: null};
+        // 2. 匹配 config 子路由: #/config/chain, #/config/node
+        const configSubMap = {
+            '#/config': 'backend',
+            '#/config/chain': 'chain',
+            '#/config/node': 'node',
+        };
+        if (configSubMap[hash]) return {tab: 'config', subTab: configSubMap[hash]};
+        return null;
     },
 
     // 更新 URL hash
@@ -319,10 +331,10 @@ const AdminApp = {
     // 自动连接管理员钱包
     async autoConnectWallet() {
         if (!window.ethereum) return;
-        
+
         try {
             // 尝试获取已授权的账户列表
-            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+            const accounts = await window.ethereum.request({method: 'eth_accounts'});
             if (accounts.length > 0) {
                 this.adminAddress = accounts[0];
                 this.provider = new ethers.BrowserProvider(window.ethereum);
@@ -377,7 +389,7 @@ const AdminApp = {
         if (tabName === 'dashboard') this.loadDashboard();
         if (tabName === 'contracts') this.loadContracts();
         if (tabName === 'config') {
-            if (subTab && (subTab === 'backend' || subTab === 'chain')) {
+            if (subTab && (subTab === 'backend' || subTab === 'chain' || subTab === 'node')) {
                 this.switchConfigTab(subTab, false);
             } else {
                 this.switchConfigTab('backend', false);
@@ -394,14 +406,15 @@ const AdminApp = {
         if (tabName === 'redis') this.refreshRedisStatus();
         if (tabName === 'stageDemo') this._renderStageDemo();
         if (tabName === 'chainExplorer') {
-            // 进入链浏览器页面时自动加载最新区块
-            if (document.getElementById('explorerResult')) {
+            this._initChainExplorerFeatureSelector();
+            // 进入链浏览器页面时，如果当前是通用链浏览器，自动加载最新区块
+            if (this._currentChainExplorerFeature === 'general' && document.getElementById('explorerResult')) {
                 this.explorerQueryLatest();
             }
         }
     },
 
-    // 切换配置页的子 tab（后端配置 / 链上合约配置）
+    // 切换配置页的子 tab（后端配置 / 链上合约配置 / 本地链启动配置）
     switchConfigTab(tabName, updateHash) {
         if (typeof updateHash === 'undefined') updateHash = true;
         this._currentConfigTab = tabName;
@@ -419,11 +432,20 @@ const AdminApp = {
 
         const backendPanel = document.getElementById('configPanel-backend');
         const chainPanel = document.getElementById('configPanel-chain');
+        const nodePanel = document.getElementById('configPanel-node');
         if (backendPanel) backendPanel.style.display = tabName === 'backend' ? '' : 'none';
         if (chainPanel) chainPanel.style.display = tabName === 'chain' ? '' : 'none';
+        if (nodePanel) nodePanel.style.display = tabName === 'node' ? '' : 'none';
+
+        if (tabName === 'node') {
+            this._applyNodeConfigToForm();
+            this._applyRpcConfigToForm();
+            this._applyEnvConfigToForm();
+        }
 
         if (updateHash) {
-            const hash = tabName === 'backend' ? '#/config' : '#/config/' + tabName;
+            const subHashMap = {backend: '#/config', chain: '#/config/chain', node: '#/config/node'};
+            const hash = subHashMap[tabName] || '#/config';
             if (window.location.hash !== hash) {
                 history.replaceState(null, '', hash);
             }
@@ -432,7 +454,7 @@ const AdminApp = {
 
     // 发起带认证的 API 请求
     async apiRequest(path, method = 'GET', body = null) {
-        const headers = { 'Content-Type': 'application/json' };
+        const headers = {'Content-Type': 'application/json'};
         // 携带 JWT token 认证
         const token = this.getToken();
         if (token) {
@@ -442,7 +464,11 @@ const AdminApp = {
         if (this.adminAddress) {
             headers['X-Admin-Address'] = this.adminAddress;
         }
-        const res = await fetch(CONFIG.backendUrl + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+        const res = await fetch(CONFIG.backendUrl + path, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined
+        });
         // 401 表示未登录或 token 过期，清除并跳转登录
         if (res.status === 401) {
             this.clearToken();
@@ -455,7 +481,8 @@ const AdminApp = {
             try {
                 const errBody = await res.json();
                 detail = errBody.detail || errBody.message || '';
-            } catch (_) { /* 忽略解析失败 */ }
+            } catch (_) { /* 忽略解析失败 */
+            }
             const err = new Error(detail || `API error: ${res.status}`);
             err.status = res.status;
             err.detail = detail;
@@ -488,10 +515,10 @@ const AdminApp = {
             const network = document.getElementById('networkFilter').value;
             const path = network ? `/api/admin/contracts?network=${network}` : '/api/admin/contracts';
             const contracts = await this.apiRequest(path);
-            
+
             // 保存合约列表供下拉菜单使用
             this._contractList = contracts;
-            
+
             const tbody = document.getElementById('contractsTableBody');
 
             if (contracts.length === 0) {
@@ -507,7 +534,16 @@ const AdminApp = {
                     <td>${c.version}</td>
                     <td>${c.network}</td>
                     <td><span class="tag ${c.status === 'active' ? 'tag-active' : 'tag-inactive'}">${c.status}</span></td>
-                    <td>${c.deployed_at ? new Date(c.deployed_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '-'}</td>
+                    <td>${c.deployed_at ? new Date(c.deployed_at).toLocaleString('zh-CN', {
+                timeZone: 'Asia/Shanghai',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            }) : '-'}</td>
                     <td>
                         <button class="btn btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="AdminApp.viewContract(${c.id})">查看</button>
                     </td>
@@ -722,7 +758,8 @@ const AdminApp = {
                     const str = String.fromCharCode(...printable);
                     if (str.length >= 4) return '可读片段: "' + str.slice(0, 100) + '"';
                 }
-            } catch (e) { /* ignore */ }
+            } catch (e) { /* ignore */
+            }
             return null;
         };
 
@@ -799,7 +836,8 @@ const AdminApp = {
                 };
                 const obj = safeObj(error, 0);
                 if (obj) return JSON.stringify(obj, null, 1).slice(0, 600);
-            } catch (e) { /* ignore */ }
+            } catch (e) { /* ignore */
+            }
             return '';
         })();
 
@@ -812,33 +850,53 @@ const AdminApp = {
 
         // ===== 5. 按优先级匹配常见错误模式 =====
         const patterns = [
-            { test: /user rejected|action_rejected|user denied/, zh: '您在钱包中拒绝了签名请求' },
-            { test: /insufficient funds|gas required exceeds allowance/, zh: '账户余额不足，无法支付部署所需的 Gas 费用' },
-            { test: /eth_maxpriorityfeepergas.*does not exist|method.*eth_maxpriorityfeepergas/, zh: '本地链不支持 EIP-1559 方法 eth_maxPriorityFeePerGas（Ganache 旧版本常见），已自动回退到 legacy gasPrice 模式，请重试' },
-            { test: /invalid chain id.*for chain with id/, zh: 'Chain ID 不匹配：MetaMask 网络配置的 Chain ID 与本地节点不一致。请点击本地链页面的"🔗 切换到本地网络"按钮自动配置' },
-            { test: /could not coalesce error/, zh: '本地链(Ganache)返回了非标准错误响应（ethers.js v6 无法解析）。最常见原因：1) MetaMask 与节点的 Chain ID 不一致 2) 合约构造函数 revert 3) Ganache 版本与 ethers.js v6 兼容性问题。请查看下方错误详情中的 RPC 错误码和 Revert 数据' },
-            { test: /execution reverted/, zh: '合约执行被回退(revert)，通常是构造函数参数校验失败或前置条件不满足。请查看下方解码结果中的 revert 原因' },
-            { test: /nonce too low/, zh: 'Nonce 过低，请重置钱包账户的 Nonce（MetaMask → 设置 → 高级 → 清除活动数据）' },
-            { test: /nonce too high/, zh: 'Nonce 过高，请等待之前的交易打包后再试' },
-            { test: /gas price too low|underpriced/, zh: 'Gas 价格太低，被节点拒绝' },
-            { test: /intrinsic gas too low|gas limit/, zh: 'Gas Limit 太低，无法完成合约部署' },
-            { test: /network changed/i, zh: (() => {
-                // 尝试提取 chain ID 信息
-                const match = msg.match(/network changed:\s*(\d+)\s*=>\s*(\d+)/i) || msg.match(/network changed.*?(\d+).*?(\d+)/i);
-                if (match) {
-                    const fromChain = match[1];
-                    const toChain = match[2];
-                    const fromName = this.getNetworkNameByChainId(parseInt(fromChain));
-                    const toName = this.getNetworkNameByChainId(parseInt(toChain));
-                    return `⚠️ 网络切换失败\n当前钱包网络: ${fromName} (Chain ID: ${fromChain})\n期望的网络: ${toName} (Chain ID: ${toChain})\n\n请确认钱包已切换到正确网络后重试`;
-                }
-                return '网络已切换或 Chain ID 不匹配，请确认钱包连接的是正确网络';
-            })() },
-            { test: /already known/, zh: '相同的交易已存在，请勿重复提交' },
-            { test: /replacement transaction underpriced/, zh: '替换交易的价格太低' },
-            { test: /contract factory.*not defined|bytecode.*not/, zh: '未找到合约编译产物(Bytecode)，请检查后端编译是否成功' },
-            { test: /timeout|timed out/, zh: '请求超时，请检查节点是否正常运行' },
-            { test: /connect.*failed|econnrefused|fetch failed/, zh: '无法连接到 RPC 节点，请确认本地链(' + CONFIG.RPC_PORT + ')已启动' },
+            {test: /user rejected|action_rejected|user denied/, zh: '您在钱包中拒绝了签名请求'},
+            {test: /insufficient funds|gas required exceeds allowance/, zh: '账户余额不足，无法支付部署所需的 Gas 费用'},
+            {
+                test: /eth_maxpriorityfeepergas.*does not exist|method.*eth_maxpriorityfeepergas/,
+                zh: '本地链不支持 EIP-1559 方法 eth_maxPriorityFeePerGas（Ganache 旧版本常见），已自动回退到 legacy gasPrice 模式，请重试'
+            },
+            {
+                test: /invalid chain id.*for chain with id/,
+                zh: 'Chain ID 不匹配：MetaMask 网络配置的 Chain ID 与本地节点不一致。请点击本地链页面的"🔗 切换到本地网络"按钮自动配置'
+            },
+            {
+                test: /could not coalesce error/,
+                zh: '本地链(Ganache)返回了非标准错误响应（ethers.js v6 无法解析）。最常见原因：1) Gas Limit 不足导致 out-of-gas 2) MetaMask 与节点的 Chain ID 不一致 3) 合约构造函数 revert 4) Ganache 版本与 ethers.js v6 兼容性问题。建议：提高 Gas Limit、检查 Chain ID、查看下方 Revert 数据'
+            },
+            {
+                test: /execution reverted/,
+                zh: '合约执行被回退(revert)，通常是构造函数参数校验失败或前置条件不满足。请查看下方解码结果中的 revert 原因'
+            },
+            {test: /nonce too low/, zh: 'Nonce 过低，请重置钱包账户的 Nonce（MetaMask → 设置 → 高级 → 清除活动数据）'},
+            {test: /nonce too high/, zh: 'Nonce 过高，请等待之前的交易打包后再试'},
+            {test: /gas price too low|underpriced/, zh: 'Gas 价格太低，被节点拒绝'},
+            {test: /intrinsic gas too low|gas limit/, zh: 'Gas Limit 太低，无法完成合约部署'},
+            {
+                test: /network changed/i, zh: (() => {
+                    // 尝试提取 chain ID 信息
+                    const match = msg.match(/network changed:\s*(\d+)\s*=>\s*(\d+)/i) || msg.match(/network changed.*?(\d+).*?(\d+)/i);
+                    if (match) {
+                        const fromChain = match[1];
+                        const toChain = match[2];
+                        const fromName = this.getNetworkNameByChainId(parseInt(fromChain));
+                        const toName = this.getNetworkNameByChainId(parseInt(toChain));
+                        return `⚠️ 网络切换失败\n当前钱包网络: ${fromName} (Chain ID: ${fromChain})\n期望的网络: ${toName} (Chain ID: ${toChain})\n\n请确认钱包已切换到正确网络后重试`;
+                    }
+                    return '网络已切换或 Chain ID 不匹配，请确认钱包连接的是正确网络';
+                })()
+            },
+            {test: /already known/, zh: '相同的交易已存在，请勿重复提交'},
+            {test: /replacement transaction underpriced/, zh: '替换交易的价格太低'},
+            {
+                test: /contract factory.*not defined|bytecode.*not/,
+                zh: '未找到合约编译产物(Bytecode)，请检查后端编译是否成功'
+            },
+            {test: /timeout|timed out/, zh: '请求超时，请检查节点是否正常运行'},
+            {
+                test: /connect.*failed|econnrefused|fetch failed/,
+                zh: '无法连接到 RPC 节点，请确认本地链(' + CONFIG.RPC_PORT + ')已启动'
+            },
         ];
 
         for (const p of patterns) {
@@ -876,7 +934,16 @@ const AdminApp = {
         deployButton.textContent = '部署中...';
         document.getElementById('deploySteps').style.display = 'block';
         this.setDeployStep(1);
-        
+
+        // 超时保护：90 秒内未完成则自动释放按钮
+        let deployTimeout = setTimeout(() => {
+            if (deployButton.disabled) {
+                deployButton.disabled = false;
+                deployButton.textContent = '重新部署';
+                this.showDeployStatus('⏱ 部署超时（90秒），已自动释放。请检查钱包是否卡住或重试。', 'error');
+            }
+        }, 90000);
+
         setTimeout(() => {
             const deployModal = document.getElementById('deployModal');
             if (deployModal) {
@@ -903,12 +970,13 @@ const AdminApp = {
 
             this.showDeployStatus('正在准备部署交易...', 'info');
 
-            const gasLimit = 3000000n;
+            const gasLimit = 8000000n;
             const ethersNetwork = await this.provider.getNetwork();
             const chainId = Number(ethersNetwork.chainId);
-            const deployOptions = { gasLimit };
+            const deployOptions = {gasLimit};
 
-            const isLocalNet = chainId === 5208888;
+            // 本地链判断：5208888 (ChainRPS Local) 或 31337 (Ganache/Hardhat 默认)
+            const isLocalNet = chainId === 5208888 || chainId === 31337;
 
             // 本地链(Ganache)兼容性处理：
             // Ganache 旧版本不支持 eth_maxPriorityFeePerGas，调用 getFeeData() 会报错
@@ -941,7 +1009,7 @@ const AdminApp = {
 
             // 部署前检查 Chain ID 是否与 MetaMask 一致
             try {
-                const mmChainId = await window.ethereum.request({ method: 'eth_chainId' });
+                const mmChainId = await window.ethereum.request({method: 'eth_chainId'});
                 const mmChainIdDec = parseInt(mmChainId, 16);
                 if (mmChainIdDec !== chainId) {
                     throw new Error(`Chain ID 不匹配：MetaMask 网络 Chain ID 为 ${mmChainIdDec}，但 RPC 节点返回 ${chainId}。请点击本地链页面的"🔗 切换到本地网络"按钮自动配置`);
@@ -993,12 +1061,20 @@ const AdminApp = {
             }
 
             deployButton.textContent = '部署完成';
+            clearTimeout(deployTimeout);
         } catch (e) {
+            clearTimeout(deployTimeout);
             const zhError = this.translateDeployError(e);
             this.showDeployStatus('❌ 部署失败: ' + zhError, 'error');
             console.error('部署原始错误:', e);
             deployButton.disabled = false;
             deployButton.textContent = '重新部署';
+            // 检测是否为用户主动拒绝
+            const msg = (e.message || '').toLowerCase();
+            if (msg.includes('user rejected') || msg.includes('user denied') || msg.includes('4001')) {
+                this.setDeployStep(2, false);
+                this.showDeployStatus('✋ 您在钱包中取消了签名，请重新点击"部署"并在钱包中确认。', 'warning');
+            }
         }
     },
 
@@ -1158,6 +1234,57 @@ const AdminApp = {
     _chainGamesPerPage: 20,
     _chainGameCount: 0,
     _contractList: [],
+    _currentChainExplorerFeature: 'general',
+
+    // 初始化链浏览器功能选择器
+    _initChainExplorerFeatureSelector() {
+        const selector = document.getElementById('chainExplorerFeatureSelector');
+        if (!selector) return;
+        // 从 localStorage 恢复上次选择的功能
+        let saved = 'general';
+        try {
+            saved = localStorage.getItem('rps_chain_explorer_feature') || 'general';
+        } catch (e) { /* ignore */
+        }
+        if (selector.value !== saved) {
+            selector.value = saved;
+        }
+        this.switchChainExplorerFeature(saved, true);
+    },
+
+    // 切换链浏览器功能面板显示
+    switchChainExplorerFeature(feature, skipRefresh) {
+        const validFeatures = ['general', 'contract'];
+        const target = validFeatures.indexOf(feature) >= 0 ? feature : 'general';
+
+        // 切换面板 active 状态
+        validFeatures.forEach(f => {
+            const panel = document.getElementById('chain-explorer-feature-' + f);
+            if (panel) {
+                panel.classList.toggle('active', f === target);
+            }
+        });
+
+        // 同步下拉框值
+        const selector = document.getElementById('chainExplorerFeatureSelector');
+        if (selector && selector.value !== target) {
+            selector.value = target;
+        }
+
+        // 持久化选择到 localStorage
+        try {
+            localStorage.setItem('rps_chain_explorer_feature', target);
+        } catch (e) { /* ignore */
+        }
+
+        this._currentChainExplorerFeature = target;
+
+        // 切换时按需刷新数据（初始化时跳过）
+        if (skipRefresh) return;
+        if (target === 'general') {
+            this.explorerQueryLatest();
+        }
+    },
 
     // 使用当前激活的合约
     useActiveContract() {
@@ -1174,13 +1301,13 @@ const AdminApp = {
     async showContractDropdown() {
         const dropdown = document.getElementById('contractDropdown');
         const itemsContainer = document.getElementById('contractDropdownItems');
-        
+
         // 检查元素是否存在
         if (!dropdown || !itemsContainer) {
             console.error('下拉菜单元素未找到');
             return;
         }
-        
+
         // 如果合约列表为空，尝试重新加载
         if (this._contractList.length === 0) {
             try {
@@ -1193,7 +1320,7 @@ const AdminApp = {
                 console.error('加载合约列表失败:', e);
             }
         }
-        
+
         // 渲染下拉菜单内容
         if (this._contractList.length === 0) {
             itemsContainer.innerHTML = '<div class="dropdown-item disabled">暂无合约记录</div>';
@@ -1217,7 +1344,7 @@ const AdminApp = {
             }).join('');
             itemsContainer.innerHTML = html;
         }
-        
+
         // 显示下拉菜单
         dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
     },
@@ -1316,7 +1443,7 @@ const AdminApp = {
         for (let id = startId; id >= endId; id--) {
             try {
                 const g = await contract.games(id);
-                games.push({ id, ...g });
+                games.push({id, ...g});
             } catch (e) {
                 continue;
             }
@@ -1418,7 +1545,8 @@ const AdminApp = {
                     choice1 = c1 && c1.choice ? Number(c1.choice) : '已提交';
                     choice2 = c2 && c2.choice ? Number(c2.choice) : '已提交';
                 }
-            } catch (e) {}
+            } catch (e) {
+            }
 
             const detailHtml = `
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -1432,14 +1560,20 @@ const AdminApp = {
                     <div><strong>玩家2选择:</strong> ${choice2}</div>
                     <div><strong>赢家:</strong> ${isDraw ? '平局' : (winner ? '<code style="font-size: 12px;">' + winner + '</code>' : '-')}</div>
                     <div><strong>是否平局:</strong> ${isDraw ? '是' : '否'}</div>
-                    <div><strong>提交截止:</strong> ${commitDeadline ? new Date(Number(commitDeadline) * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '-'}</div>
-                    <div><strong>揭示截止:</strong> ${revealDeadline ? new Date(Number(revealDeadline) * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '-'}</div>
+                    <div><strong>提交截止:</strong> ${commitDeadline ? new Date(Number(commitDeadline) * 1000).toLocaleString('zh-CN', {
+                timeZone: 'Asia/Shanghai',
+                hour12: false
+            }) : '-'}</div>
+                    <div><strong>揭示截止:</strong> ${revealDeadline ? new Date(Number(revealDeadline) * 1000).toLocaleString('zh-CN', {
+                timeZone: 'Asia/Shanghai',
+                hour12: false
+            }) : '-'}</div>
                 </div>
             `;
 
             document.getElementById('gameDetailContent').innerHTML = detailHtml;
             document.getElementById('gameDetailCard').style.display = 'block';
-            document.getElementById('gameDetailCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            document.getElementById('gameDetailCard').scrollIntoView({behavior: 'smooth', block: 'nearest'});
         } catch (e) {
             console.error('查询游戏详情失败:', e);
             FWUI.Toast.error('查询失败: ' + e.message);
@@ -1472,6 +1606,7 @@ const AdminApp = {
         const default_balance = document.getElementById('nodeConfigBalance')?.value?.trim();
         const symbol = document.getElementById('nodeConfigSymbol')?.value?.trim();
         const deterministic = document.getElementById('nodeConfigDeterministic')?.checked;
+        const persist = document.getElementById('nodeConfigPersist')?.checked;
 
         if (chain_type != null) config.chain_type = chain_type;
         if (host != null) config.host = host;
@@ -1481,6 +1616,7 @@ const AdminApp = {
         if (default_balance != null) config.default_balance = default_balance;
         if (symbol != null) config.symbol = symbol;
         if (deterministic != null) config.deterministic = deterministic;
+        if (persist != null) config.persist = persist;
 
         this._saveNodeConfig(config);
     },
@@ -1532,38 +1668,308 @@ const AdminApp = {
             const el = document.getElementById('nodeConfigDeterministic');
             if (el) el.checked = !!cfg.deterministic;
         }
+        if (cfg.persist != null) {
+            const el = document.getElementById('nodeConfigPersist');
+            if (el) el.checked = !!cfg.persist;
+        }
     },
 
-    // ==================== 阶段模拟演示 ====================
+    // ==================== 阶段动画演示 ====================
 
-    // 渲染阶段演示卡片
-    _renderStageDemo() {
-        const grid = document.getElementById('stageDemoGrid');
-        if (!grid) return;
-
-        const stages = [
-            { mock: 'lobby',        icon: '🏠', title: '游戏大厅',     desc: '大厅房间列表，展示已创建的房间，支持创建/加入房间' },
-            { mock: 'room_wait',    icon: '⏳', title: '房间等待',     desc: '玩家进入房间后的等待界面，显示双方准备状态' },
-            { mock: 'countdown',    icon: '🔢', title: '倒计时',       desc: '双方准备就绪后的倒计时阶段，即将开始对局' },
-            { mock: 'game_commit',  icon: '✊', title: '出拳提交',     desc: '游戏进行中的出拳阶段，可选择石头/剪刀/布' },
-            { mock: 'game_reveal',  icon: '🔓', title: '揭晓出拳',     desc: '双方已提交，等待揭晓出拳结果' },
-            { mock: 'result_win',   icon: '🏆', title: '游戏结果 - 胜利', desc: '对局结束，我方获胜，展示奖金和手续费' },
-            { mock: 'result_lose',  icon: '💔', title: '游戏结果 - 失败', desc: '对局结束，我方失败' },
-            { mock: 'result_draw',  icon: '🤝', title: '游戏结果 - 平局', desc: '对局结束，双方平局退回本金' },
-        ];
-
-        const baseUrl = window.location.origin + '/';
-
-        grid.innerHTML = stages.map(s => `
-            <div class="stage-demo-card" onclick="window.open('${baseUrl}?mock=${s.mock}', '_blank')">
-                <div class="stage-demo-icon">${s.icon}</div>
-                <div class="stage-demo-body">
-                    <div class="stage-demo-title">${s.title}</div>
-                    <div class="stage-demo-desc">${s.desc}</div>
+    // 演示流程脚本：每个阶段含 name/icon/title/desc/render
+    _sdStages: [
+        {
+            key: 'lobby', icon: '🏠', title: '游戏大厅', desc: '浏览房间列表，创建或加入房间',
+            render: () => `
+                <div class="sd-lobby">
+                    <div class="sd-lobby-header">
+                        <div class="sd-lobby-title">🏠 大厅</div>
+                        <button class="sd-create-btn">+ 创建房间</button>
+                    </div>
+                    <div class="sd-room-list">
+                        <div class="sd-room-card">
+                            <div class="sd-room-info">
+                                <div class="sd-room-id">ROOM-7F3A</div>
+                                <div class="sd-room-meta">押注 50 CRPS · 等待中</div>
+                            </div>
+                            <span class="sd-room-state state-joined">可加入</span>
+                        </div>
+                        <div class="sd-room-card">
+                            <div class="sd-room-info">
+                                <div class="sd-room-id">ROOM-9B21</div>
+                                <div class="sd-room-meta">押注 100 CRPS · 进行中</div>
+                            </div>
+                            <span class="sd-room-state state-started">游戏中</span>
+                        </div>
+                        <div class="sd-room-card new-room">
+                            <div class="sd-room-info">
+                                <div class="sd-room-id">ROOM-A2C9 (我的房间)</div>
+                                <div class="sd-room-meta">押注 20 CRPS · 等待对手</div>
+                            </div>
+                            <span class="sd-room-state state-joined">已创建</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="stage-demo-arrow">↗</div>
-            </div>
-        `).join('');
+            `,
+        },
+        {
+            key: 'room_wait', icon: '⏳', title: '房间等待', desc: '玩家进入房间，双方准备就绪',
+            render: () => `
+                <div class="sd-room">
+                    <div class="sd-room-header">
+                        <div class="sd-room-name">ROOM-A2C9 · 押注 20 CRPS</div>
+                        <span class="sd-room-state state-joined">等待中</span>
+                    </div>
+                    <div class="sd-room-players">
+                        <div class="sd-player-slot me ready">
+                            <div class="sd-player-avatar">我</div>
+                            <div class="sd-player-name">0xa0ce...48b6f</div>
+                            <div class="sd-player-status is-ready">✓ 已准备</div>
+                        </div>
+                        <div class="sd-vs">VS</div>
+                        <div class="sd-player-slot ready">
+                            <div class="sd-player-avatar">P</div>
+                            <div class="sd-player-name">0xb1d4...7e2a3</div>
+                            <div class="sd-player-status is-ready">✓ 已准备</div>
+                        </div>
+                    </div>
+                </div>
+            `,
+        },
+        {
+            key: 'countdown', icon: '🔢', title: '游戏倒计时', desc: '双方已准备，3 秒后开始对局',
+            render: () => `
+                <div class="sd-countdown">
+                    <div class="sd-countdown-num">3</div>
+                    <div class="sd-countdown-label">游戏即将开始...</div>
+                </div>
+            `,
+        },
+        {
+            key: 'game_commit', icon: '✊', title: '出拳阶段', desc: '选择石头/剪刀/布并提交哈希',
+            render: () => `
+                <div class="sd-game">
+                    <div class="sd-game-arena">
+                        <div style="text-align:center;">
+                            <div class="sd-choice-display committed">✊</div>
+                            <div class="sd-player-name" style="margin-top:6px;">我（已提交）</div>
+                        </div>
+                        <div class="sd-vs">VS</div>
+                        <div style="text-align:center;">
+                            <div class="sd-choice-display hidden-choice committed"></div>
+                            <div class="sd-player-name" style="margin-top:6px;">对手（已提交）</div>
+                        </div>
+                    </div>
+                    <div class="sd-choices-row">
+                        <button class="sd-choice-btn selected">✊</button>
+                        <button class="sd-choice-btn disabled">✋</button>
+                        <button class="sd-choice-btn disabled">✌️</button>
+                    </div>
+                </div>
+            `,
+        },
+        {
+            key: 'game_reveal', icon: '🔓', title: '揭晓出拳', desc: '双方揭晓出拳，合约判定胜负',
+            render: () => `
+                <div class="sd-game">
+                    <div class="sd-game-arena">
+                        <div style="text-align:center;">
+                            <div class="sd-choice-display revealed">✊</div>
+                            <div class="sd-player-name" style="margin-top:6px;">我 · 石头</div>
+                        </div>
+                        <div class="sd-vs">VS</div>
+                        <div style="text-align:center;">
+                            <div class="sd-choice-display revealed">✌️</div>
+                            <div class="sd-player-name" style="margin-top:6px;">对手 · 剪刀</div>
+                        </div>
+                    </div>
+                    <div class="sd-choices-row">
+                        <button class="sd-choice-btn selected">✊</button>
+                        <button class="sd-choice-btn">✋</button>
+                        <button class="sd-choice-btn">✌️</button>
+                    </div>
+                </div>
+            `,
+        },
+        {
+            key: 'result', icon: '🏆', title: '游戏结果', desc: '显示胜负、结算奖金与手续费',
+            render: () => `
+                <div class="sd-result">
+                    <div class="sd-result-banner win">🏆 胜利！</div>
+                    <div class="sd-result-settle">
+                        <div class="sd-settle-item">
+                            <div class="sd-settle-label">押注</div>
+                            <div class="sd-settle-value">20 CRPS</div>
+                        </div>
+                        <div class="sd-settle-item">
+                            <div class="sd-settle-label">奖金</div>
+                            <div class="sd-settle-value positive">+40 CRPS</div>
+                        </div>
+                        <div class="sd-settle-item">
+                            <div class="sd-settle-label">手续费 (2%)</div>
+                            <div class="sd-settle-value negative">-0.4 CRPS</div>
+                        </div>
+                        <div class="sd-settle-item">
+                            <div class="sd-settle-label">净收益</div>
+                            <div class="sd-settle-value positive">+19.6 CRPS</div>
+                        </div>
+                    </div>
+                </div>
+            `,
+        },
+        {
+            key: 'end', icon: '🎉', title: '游戏结束', desc: '开始下一局或退出游戏',
+            render: () => `
+                <div class="sd-end">
+                    <div style="font-size: 48px;">🎉</div>
+                    <div style="font-size: 16px; font-weight: 600; color: var(--text-primary);">本局游戏结束</div>
+                    <div style="font-size: 12px; color: var(--text-secondary);">感谢参与，继续挑战或返回大厅</div>
+                    <div class="sd-end-actions">
+                        <button class="btn btn-primary">🔄 开始下一局</button>
+                        <button class="btn btn-outline">🚪 退出游戏</button>
+                    </div>
+                </div>
+            `,
+        },
+    ],
+
+    // 演示状态
+    _sdIndex: 0,
+    _sdPlaying: false,
+    _sdTimer: null,
+    _sdSpeed: 1200,
+
+    // 渲染阶段演示（入口）
+    _renderStageDemo() {
+        // 渲染进度条
+        const bar = document.getElementById('sdProgressBar');
+        if (bar) {
+            bar.innerHTML = this._sdStages.map((s, i) =>
+                `<div class="sd-step-pill${i < this._sdIndex ? ' done' : i === this._sdIndex ? ' active' : ''}" data-i="${i}" title="${s.title}"></div>`
+            ).join('');
+        }
+        // 渲染快捷跳转
+        const jumps = document.getElementById('sdJumps');
+        if (jumps) {
+            jumps.innerHTML = this._sdStages.map((s, i) =>
+                `<button class="sd-jump-btn${i === this._sdIndex ? ' current' : ''}" onclick="AdminApp.sdJumpTo(${i})">${s.icon} ${s.title}</button>`
+            ).join('');
+        }
+        this._sdRenderStage();
+    },
+
+    // 渲染当前阶段场景
+    _sdRenderStage() {
+        const stage = this._sdStages[this._sdIndex];
+        if (!stage) return;
+        const el = document.getElementById('sdStage');
+        if (el) {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(8px)';
+            setTimeout(() => {
+                el.innerHTML = stage.render();
+                el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                el.style.opacity = '1';
+                el.style.transform = 'translateY(0)';
+            }, 80);
+        }
+        document.getElementById('sdInfoIcon').textContent = stage.icon;
+        document.getElementById('sdInfoTitle').textContent = stage.title;
+        document.getElementById('sdInfoDesc').textContent = stage.desc;
+        // 更新进度条状态
+        document.querySelectorAll('.sd-step-pill').forEach((p, i) => {
+            p.classList.remove('active', 'done');
+            if (i < this._sdIndex) p.classList.add('done');
+            else if (i === this._sdIndex) p.classList.add('active');
+        });
+        // 更新快捷跳转当前态
+        document.querySelectorAll('.sd-jump-btn').forEach((b, i) => {
+            b.classList.toggle('current', i === this._sdIndex);
+        });
+        // 更新播放按钮文案
+        const playBtn = document.getElementById('sdPlayBtn');
+        if (playBtn) playBtn.textContent = this._sdPlaying ? '⏸ 暂停' : '▶ 播放';
+    },
+
+    // 播放/暂停
+    sdTogglePlay() {
+        this._sdPlaying = !this._sdPlaying;
+        if (this._sdPlaying) {
+            this._sdScheduleNext();
+        } else {
+            this._sdClearTimer();
+        }
+        this._sdRenderStage();
+    },
+
+    // 安排下一步
+    _sdScheduleNext() {
+        this._sdClearTimer();
+        if (!this._sdPlaying) return;
+        this._sdTimer = setTimeout(() => {
+            if (this._sdIndex < this._sdStages.length - 1) {
+                this._sdIndex++;
+                this._sdRenderStage();
+                this._sdScheduleNext();
+            } else {
+                // 演示结束，自动停止
+                this._sdPlaying = false;
+                this._sdRenderStage();
+            }
+        }, this._sdSpeed);
+    },
+
+    _sdClearTimer() {
+        if (this._sdTimer) {
+            clearTimeout(this._sdTimer);
+            this._sdTimer = null;
+        }
+    },
+
+    // 重新开始
+    sdRestart() {
+        this._sdIndex = 0;
+        this._sdPlaying = false;
+        this._sdClearTimer();
+        this._sdRenderStage();
+    },
+
+    // 上一步
+    sdPrev() {
+        if (this._sdIndex > 0) {
+            this._sdIndex--;
+            this._sdPlaying = false;
+            this._sdClearTimer();
+            this._sdRenderStage();
+        }
+    },
+
+    // 下一步
+    sdNext() {
+        if (this._sdIndex < this._sdStages.length - 1) {
+            this._sdIndex++;
+            this._sdPlaying = false;
+            this._sdClearTimer();
+            this._sdRenderStage();
+        }
+    },
+
+    // 跳转到指定阶段
+    sdJumpTo(i) {
+        if (i >= 0 && i < this._sdStages.length) {
+            this._sdIndex = i;
+            this._sdPlaying = false;
+            this._sdClearTimer();
+            this._sdRenderStage();
+        }
+    },
+
+    // 切换播放速度
+    sdChangeSpeed(val) {
+        this._sdSpeed = parseInt(val) || 1200;
+        if (this._sdPlaying) {
+            this._sdScheduleNext();
+        }
     },
 
     // 刷新本地节点状态
@@ -1676,7 +2082,7 @@ const AdminApp = {
         const chainType = (status.chain_type || '').toLowerCase();
         const engineLabel = chainType === 'ganache' ? 'Ganache'
             : chainType === 'hardhat' ? 'Hardhat'
-            : (status.chain_type || '未知');
+                : (status.chain_type || '未知');
         const engineEl = document.getElementById('nodeEngine');
         if (engineEl) engineEl.textContent = engineLabel;
         const engineBadge = document.getElementById('nodeEngineBadge');
@@ -1691,6 +2097,31 @@ const AdminApp = {
         document.getElementById('nodeGasPrice').textContent = status.gas_price != null ? status.gas_price + ' Gwei' : '-';
         document.getElementById('nodeAccountsCount').textContent = status.accounts_count != null ? status.accounts_count : '-';
         document.getElementById('nodeSymbol').textContent = status.symbol || '-';
+        const recNameEl = document.getElementById('nodeRecommendedChainName');
+        if (recNameEl) recNameEl.textContent = status.recommended_chain_name || 'ChainRPS Chain';
+
+        // 持久化状态显示：仅 Ganache 支持，Hardhat 始终显示"不支持"
+        const persistStatusEl = document.getElementById('nodePersistStatus');
+        const persistDirRow = document.getElementById('nodePersistDirRow');
+        const persistDirEl = document.getElementById('nodePersistDir');
+        if (persistStatusEl) {
+            if (status.persist_supported === false) {
+                persistStatusEl.textContent = '不支持';
+                persistStatusEl.style.color = 'var(--text-secondary)';
+            } else if (status.persist_enabled) {
+                persistStatusEl.textContent = '已启用';
+                persistStatusEl.style.color = '#22c55e';
+            } else {
+                persistStatusEl.textContent = '已禁用';
+                persistStatusEl.style.color = '#f59e0b';
+            }
+        }
+        if (persistDirRow && persistDirEl) {
+            // 仅在支持持久化且返回了数据目录时显示
+            const showDir = status.persist_supported !== false && status.persist_data_dir;
+            persistDirRow.style.display = showDir ? '' : 'none';
+            if (showDir) persistDirEl.textContent = status.persist_data_dir;
+        }
 
         const keepAliveCheckbox = document.getElementById('nodeKeepAliveToggle');
         const keepAliveToggle = keepAliveCheckbox ? keepAliveCheckbox.closest('.node-keepalive-toggle') : null;
@@ -1752,7 +2183,8 @@ const AdminApp = {
         let saved = 'accounts';
         try {
             saved = localStorage.getItem('rps_local_chain_feature') || 'accounts';
-        } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */
+        }
         if (selector.value !== saved) {
             selector.value = saved;
         }
@@ -1762,7 +2194,15 @@ const AdminApp = {
 
     // 切换本地链功能面板显示
     switchLocalChainFeature(feature, skipRefresh) {
-        const validFeatures = ['accounts', 'fund', 'tokens', 'mint', 'config'];
+        const validFeatures = ['accounts', 'fund', 'tokens', 'mint'];
+
+        // "启动配置" 已移至配置页，点击时跳转到配置页的本地链启动配置
+        if (feature === 'config') {
+            this.switchTab('config');
+            this.switchConfigTab('node');
+            return;
+        }
+
         const target = validFeatures.indexOf(feature) >= 0 ? feature : 'accounts';
 
         // 切换面板 active 状态
@@ -1782,7 +2222,8 @@ const AdminApp = {
         // 持久化选择到 localStorage
         try {
             localStorage.setItem('rps_local_chain_feature', target);
-        } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */
+        }
 
         // 切换到对应面板时按需刷新数据（初始化时跳过，避免与 refreshNodeStatus 重复请求）
         if (skipRefresh) return;
@@ -1800,7 +2241,7 @@ const AdminApp = {
         this._startNodeStatusAutoRefresh(enabled);
 
         try {
-            const payload = { enabled };
+            const payload = {enabled};
             const chain_type = document.getElementById('nodeConfigChainType')?.value;
             if (chain_type) payload.chain_type = chain_type;
 
@@ -1812,6 +2253,7 @@ const AdminApp = {
                 const default_balance = document.getElementById('nodeConfigBalance')?.value?.trim();
                 const symbol = document.getElementById('nodeConfigSymbol')?.value?.trim();
                 const deterministic = document.getElementById('nodeConfigDeterministic')?.checked;
+                const persist = document.getElementById('nodeConfigPersist')?.checked;
 
                 if (host) payload.host = host;
                 if (port) payload.port = port;
@@ -1820,6 +2262,7 @@ const AdminApp = {
                 if (default_balance) payload.default_balance = default_balance;
                 if (symbol) payload.symbol = symbol;
                 if (deterministic != null) payload.deterministic = deterministic;
+                if (persist != null) payload.persist = persist;
             }
 
             if (enabled) {
@@ -1888,7 +2331,7 @@ const AdminApp = {
             try {
                 await window.ethereum.request({
                     method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: hexChainId }],
+                    params: [{chainId: hexChainId}],
                 });
                 FWUI.Toast.success('已切换到本地网络');
                 this._afterNetworkSwitch();
@@ -1907,7 +2350,7 @@ const AdminApp = {
             );
 
             if (isLocalHttp) {
-                FWUI.Modal({
+                FWUI.Modal.confirm({
                     title: '添加本地测试网络到钱包',
                     content: `
                         <div style="line-height:1.8;">
@@ -1923,7 +2366,9 @@ const AdminApp = {
                             <p style="color:#888;font-size:12px;">操作路径：钱包 -> 网络 -> 添加自定义网络 -> 填入以上信息</p>
                         </div>
                     `,
-                    onConfirm: () => {
+                    okText: '我知道了',
+                    cancelText: '关闭',
+                    onOk: () => {
                         FWUI.Toast.success('请在钱包中添加网络后，再点击「切换钱包网络」');
                     }
                 });
@@ -1936,7 +2381,7 @@ const AdminApp = {
                     params: [{
                         chainId: hexChainId,
                         chainName: `Localhost ${port}`,
-                        nativeCurrency: { name: symbol, symbol: symbol, decimals: 18 },
+                        nativeCurrency: {name: symbol, symbol: symbol, decimals: 18},
                         rpcUrls: [rpcUrl],
                         blockExplorerUrls: null,
                     }],
@@ -1957,7 +2402,7 @@ const AdminApp = {
                     try {
                         await window.ethereum.request({
                             method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: existingHex }],
+                            params: [{chainId: existingHex}],
                         });
                         // 自动同步配置面板的 chain ID
                         const chainIdInput = document.getElementById('nodeConfigChainId');
@@ -1983,7 +2428,8 @@ const AdminApp = {
         if (this.provider) {
             this.provider.getNetwork().then(network => {
                 this.adminChainId = Number(network.chainId);
-            }).catch(() => {});
+            }).catch(() => {
+            });
         }
     },
 
@@ -2004,6 +2450,8 @@ const AdminApp = {
             const host = getVal('nodeConfigHost');
             const deterministicEl = document.getElementById('nodeConfigDeterministic');
             const deterministic = deterministicEl ? deterministicEl.checked : true;
+            const persistEl = document.getElementById('nodeConfigPersist');
+            const persist = persistEl ? persistEl.checked : true;
 
             const payload = {};
             if (host) payload.host = host;
@@ -2013,6 +2461,7 @@ const AdminApp = {
             if (balance) payload.default_balance = parseFloat(balance);
             if (symbol) payload.symbol = symbol;
             payload.deterministic = deterministic;
+            payload.persist = persist;
 
             FWUI.Toast.info('正在启动节点...');
             const result = await this.apiRequest('/api/admin/local-chain/start', 'POST', payload);
@@ -2037,6 +2486,29 @@ const AdminApp = {
                     this.refreshNodeStatus();
                 } catch (e) {
                     FWUI.Toast.error('停止失败: ' + e.message);
+                }
+            }
+        });
+    },
+
+    // 清空持久化链数据（停止节点 → 删除数据目录 → 重启）
+    async resetChainData() {
+        FWUI.Modal.confirm({
+            title: '⚠️ 清空链数据',
+            content: '此操作将：<br>1. 停止当前运行的节点<br>2. 删除持久化数据目录<br>3. 重启节点（恢复到创世状态）<br><br><b style="color:#ef4444;">所有已部署的合约和链上状态将永久丢失！</b><br>确定继续吗？',
+            onOk: async () => {
+                try {
+                    FWUI.Toast.info('正在清空链数据...');
+                    const result = await this.apiRequest('/api/admin/local-chain/reset-data', 'POST', {});
+                    if (result.success) {
+                        FWUI.Toast.success(result.message || '链数据已重置');
+                        // 重置完成后，若保活开启，节点会自动重启；否则手动刷新状态
+                        setTimeout(() => this.refreshNodeStatus(), 1500);
+                    } else {
+                        FWUI.Toast.error(result.message || '重置失败');
+                    }
+                } catch (e) {
+                    FWUI.Toast.error('重置失败: ' + (e.detail || e.message));
                 }
             }
         });
@@ -2310,7 +2782,7 @@ const AdminApp = {
 
         const formatTime = (ts) => {
             if (!ts) return '-';
-            return new Date(ts * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) + ' (UTC+8)';
+            return new Date(ts * 1000).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'}) + ' (UTC+8)';
         };
         const shortHash = (h) => h ? h.slice(0, 12) + '...' + h.slice(-8) : '-';
         const linkStyle = 'color: var(--primary-color); cursor: pointer; text-decoration: underline;';
@@ -2333,12 +2805,12 @@ const AdminApp = {
                 </div>
                 <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color);">
                     <strong>交易列表:</strong> ${txList}
-                    ${data.tx_count > 10 ? `<span style="color: var(--text-secondary);">（仅显示前10笔）</span>` : ''}
+                    ${data.tx_count > 10 ? '<span style="color: var(--text-secondary);">（仅显示前10笔）</span>' : ''}
                 </div>
             `;
         } else if (type === 'transaction') {
             const statusText = data.status === 1 ? '<span style="color: var(--success-color);">✅ 成功</span>' :
-                               data.status === 0 ? '<span style="color: var(--danger-color);">❌ 失败</span>' : '⏳ 待确认';
+                data.status === 0 ? '<span style="color: var(--danger-color);">❌ 失败</span>' : '⏳ 待确认';
             resultEl.innerHTML = `
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
                     <div><strong>交易哈希:</strong> <span title="${data.hash}">${shortHash(data.hash)}</span></div>
@@ -2350,7 +2822,7 @@ const AdminApp = {
                     <div><strong>Gas:</strong> ${data.gas} (实际 ${data.gas_used || '-'})</div>
                     <div><strong>Gas 价格:</strong> ${data.gas_price} gwei</div>
                     <div><strong>Nonce:</strong> ${data.nonce}</div>
-                    ${data.contract_address ? `<div><strong>合约地址:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.contract_address}')" title="${data.contract_address}">${data.contract_address.slice(0, 10) + '...'}</span> <span style="color: var(--success-color);">📋 合约部署</span></div>` : ''}
+                    ${data.contract_address ? '<div><strong>合约地址:</strong> <span style="' + linkStyle + '" onclick="AdminApp._explorerQueryFill(\'' + data.contract_address + '\')" title="' + data.contract_address + '">' + data.contract_address.slice(0, 10) + '...</span> <span style="color: var(--success-color);">📋 合约部署</span></div>' : ''}
                 </div>
             `;
         } else if (type === 'address') {
@@ -2391,7 +2863,7 @@ const AdminApp = {
 
             const formatTime = (ts) => {
                 if (!ts) return '-';
-                return new Date(ts * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+                return new Date(ts * 1000).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'});
             };
             const shortHash = (h) => h ? h.slice(0, 10) + '...' + h.slice(-6) : '-';
             const linkStyle = 'color: var(--primary-color); cursor: pointer; text-decoration: underline;';
@@ -2450,7 +2922,10 @@ const AdminApp = {
 
         const btn = event?.target;
         const originalText = btn?.textContent;
-        if (btn) { btn.disabled = true; btn.textContent = 'Mint中...'; }
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Mint中...';
+        }
 
         try {
             FWUI.Toast.info('正在 Mint...');
@@ -2468,7 +2943,10 @@ const AdminApp = {
         } catch (e) {
             FWUI.Toast.error('Mint 失败: ' + e.message);
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = originalText || '铸造'; }
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = originalText || '铸造';
+            }
         }
     },
 
@@ -2509,7 +2987,7 @@ const AdminApp = {
         document.getElementById('redisTotalKeys').textContent = status.total_keys != null ? status.total_keys : '-';
         document.getElementById('redisCommands').textContent = status.total_commands_processed != null ? status.total_commands_processed.toLocaleString() : '-';
         document.getElementById('redisRole').textContent = status.role || '-';
-        
+
         // 更新按钮状态
         const startBtn = document.getElementById('startRedisBtn');
         const stopBtn = document.getElementById('stopRedisBtn');
@@ -2617,7 +3095,7 @@ const AdminApp = {
             content: `确定删除键 "${key}" 吗？`,
             onOk: async () => {
                 try {
-                    await this.apiRequest('/api/admin/redis/delete-key', 'POST', { key });
+                    await this.apiRequest('/api/admin/redis/delete-key', 'POST', {key});
                     FWUI.Toast.success('已删除');
                     this.loadRedisKeys();
                     this.refreshRedisStatus();
@@ -2641,7 +3119,10 @@ const AdminApp = {
                     okType: 'danger',
                     onOk: async () => {
                         try {
-                            const result = await this.apiRequest('/api/admin/redis/flush-db', 'POST', { confirm: true, db: 0 });
+                            const result = await this.apiRequest('/api/admin/redis/flush-db', 'POST', {
+                                confirm: true,
+                                db: 0
+                            });
                             FWUI.Toast.success(result.message || '数据库已清空');
                             this.refreshRedisStatus();
                         } catch (e) {
@@ -2669,30 +3150,43 @@ const AdminApp = {
             // 分类标签颜色映射
             const categoryBadge = (cat) => {
                 const map = {
-                    'chain':   '<span style="background:#dbeafe; color:#1e40af; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">主链</span>',
-                    'game':    '<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">游戏</span>',
-                    'contract':'<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">合约</span>',
-                    'system':  '<span style="background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">系统</span>',
+                    'chain': '<span style="background:#dbeafe; color:#1e40af; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">主链</span>',
+                    'game': '<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">游戏</span>',
+                    'contract': '<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">合约</span>',
+                    'system': '<span style="background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">系统</span>',
                 };
                 return map[cat] || `<span style="background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:4px; font-size:11px;">${cat || '未分类'}</span>`;
             };
 
-            container.innerHTML = configs.map(c => `
+            container.innerHTML = configs.map(c => {
+                const isDefault = c.default_value != null && String(c.config_value) === String(c.default_value);
+                const defaultValLabel = c.default_value != null
+                    ? '<span style="font-size:11px; color:var(--text-secondary);" title="默认值: ' + c.default_value + '">默认: <code style="font-size:11px;">' + (c.default_value || '(空)') + '</code></span>'
+                    : '';
+                const titleDefault = c.default_value != null ? '（默认: ' + c.default_value + ')' : '';
+                const defaultBtnStyle = isDefault ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : '';
+                return `
                 <div class="config-item" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border-color);">
                     <div style="flex:1; min-width:0;">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
                             ${categoryBadge(c.category)}
                             <span style="font-family:monospace; font-size:13px; font-weight:600; color:var(--text-primary);">${c.config_key}</span>
+                            ${defaultValLabel}
                         </div>
                         <div style="font-size:12px; color:var(--text-secondary);">${c.description || '-'}</div>
                     </div>
                     <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
                         <input type="text" id="config-${c.config_key}" value="${c.config_value || ''}" data-key="${c.config_key}"
-                            style="width:${c.config_key === 'contract_address' ? '320px' : '200px'}; padding:6px 10px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-input); color:var(--text-primary); font-family:monospace; font-size:13px;">
+                            style="width:${c.config_key === 'contract_address' ? '320px' : '200px'}; padding:6px 10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-primary); font-family:monospace; font-size:13px;">
+                        <button class="btn btn-outline" style="padding:6px 10px; font-size:12px; white-space:nowrap;"
+                            onclick="AdminApp.resetSingleConfig('${c.config_key}')"
+                            title="恢复为默认值${titleDefault}"
+                            ${defaultBtnStyle}>↺ 默认</button>
                         <button class="btn btn-primary" style="padding:6px 14px; font-size:12px; white-space:nowrap;" onclick="AdminApp.updateConfig('${c.config_key}')">保存</button>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } catch (e) {
             console.error('Failed to load config:', e);
             const container = document.getElementById('configList');
@@ -2707,12 +3201,36 @@ const AdminApp = {
         const input = document.getElementById('config-' + key);
         const value = input.value;
         try {
-            await this.apiRequest(`/api/admin/config/${key}`, 'PUT', { value, admin_address: this.adminAddress });
+            await this.apiRequest(`/api/admin/config/${key}`, 'PUT', {value, admin_address: this.adminAddress});
             FWUI.Toast.success(`配置 ${key} 更新成功`);
             this.loadAuditLogs();
+            // 刷新当前项的默认值状态（按钮置灰等）
+            this.loadConfig();
         } catch (e) {
             FWUI.Toast.error('更新失败: ' + e.message);
         }
+    },
+
+    // 重置单项配置为默认值
+    async resetSingleConfig(key) {
+        FWUI.Modal.confirm({
+            title: '恢复默认值',
+            content: `确定要将配置项 <b>${key}</b> 恢复为默认值吗？`,
+            onOk: async () => {
+                try {
+                    const result = await this.apiRequest(`/api/admin/config/${key}/reset`, 'POST', {admin_address: this.adminAddress});
+                    if (result.unchanged) {
+                        FWUI.Toast.info(`配置 ${key} 已是默认值`);
+                    } else {
+                        FWUI.Toast.success(`配置 ${key} 已恢复为默认值`);
+                        this.loadAuditLogs();
+                    }
+                    this.loadConfig();
+                } catch (e) {
+                    FWUI.Toast.error('恢复失败: ' + e.message);
+                }
+            }
+        });
     },
 
     // 使用当前钱包网络 Chain ID 填入配置
@@ -2723,7 +3241,7 @@ const AdminApp = {
                 return;
             }
 
-            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            const chainIdHex = await window.ethereum.request({method: 'eth_chainId'});
             const chainId = parseInt(chainIdHex, 16);
 
             // 直接通过 API 更新 chain_id 配置项
@@ -2765,8 +3283,8 @@ const AdminApp = {
                         请输入 JSON 格式的批量配置，如: {"key1":"val1","key2":"val2"}
                     </div>
                 `,
-                width: '480px',
-                footer: `
+            width: '480px',
+            footer: `
                     <button class="fwui-btn fwui-btn-default" style="
                         padding: 8px 20px;
                         border-radius: 10px;
@@ -2800,7 +3318,7 @@ const AdminApp = {
         }
         try {
             const items = JSON.parse(json);
-            await this.apiRequest('/api/admin/config/batch', 'POST', { items, admin_address: this.adminAddress });
+            await this.apiRequest('/api/admin/config/batch', 'POST', {items, admin_address: this.adminAddress});
             document.querySelector('.fwui-modal-mask').remove();
             FWUI.Toast.success('批量更新成功');
             this.loadConfig();
@@ -2817,7 +3335,7 @@ const AdminApp = {
             content: '此操作将把所有系统配置项恢复为默认值，且不可逆。确定要继续吗？',
             onOk: async () => {
                 try {
-                    const result = await this.apiRequest('/api/admin/config/reset', 'POST', { admin_address: this.adminAddress });
+                    const result = await this.apiRequest('/api/admin/config/reset', 'POST', {admin_address: this.adminAddress});
                     FWUI.Toast.success(result.message || '配置已重置');
                     this.loadConfig();
                     this.loadAuditLogs();
@@ -2849,7 +3367,10 @@ const AdminApp = {
                     <td>${log.target || '-'}</td>
                     <td style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${log.old_value || '-'}</td>
                     <td style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${log.new_value || '-'}</td>
-                    <td>${log.created_at ? new Date(log.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '-'}</td>
+                    <td>${log.created_at ? new Date(log.created_at).toLocaleString('zh-CN', {
+                timeZone: 'Asia/Shanghai',
+                hour12: false
+            }) : '-'}</td>
                 </tr>
             `).join('');
         } catch (e) {
@@ -2932,7 +3453,7 @@ const AdminApp = {
             return;
         }
         try {
-            const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+            const accounts = await window.ethereum.request({method: 'eth_requestAccounts'});
             this.adminAddress = accounts[0];
             this.provider = new ethers.BrowserProvider(window.ethereum);
             this.signer = await this.provider.getSigner();
@@ -2960,7 +3481,7 @@ const AdminApp = {
             try {
                 await window.ethereum.request({
                     method: 'wallet_revokePermissions',
-                    params: [{ eth_accounts: {} }]
+                    params: [{eth_accounts: {}}]
                 });
             } catch (e) {
                 console.warn('钱包不支持 wallet_revokePermissions，仅清理本地状态');
@@ -2994,7 +3515,10 @@ const AdminApp = {
     // 设置手续费率
     async setFeeRate() {
         const rate = document.getElementById('newFeeRate').value;
-        if (!rate) { FWUI.Toast.warning('请输入新费率'); return; }
+        if (!rate) {
+            FWUI.Toast.warning('请输入新费率');
+            return;
+        }
         try {
             const contract = await this.getContractWithSigner();
             if (!contract) return;
@@ -3012,7 +3536,10 @@ const AdminApp = {
     async setTimeouts() {
         const commit = document.getElementById('newCommitTimeout').value;
         const reveal = document.getElementById('newRevealTimeout').value;
-        if (!commit || !reveal) { FWUI.Toast.warning('请输入超时时间'); return; }
+        if (!commit || !reveal) {
+            FWUI.Toast.warning('请输入超时时间');
+            return;
+        }
         try {
             const contract = await this.getContractWithSigner();
             if (!contract) return;
@@ -3043,7 +3570,10 @@ const AdminApp = {
     // 设置开发者地址
     async setDeveloperAddress() {
         const addr = document.getElementById('newDeveloperAddress').value;
-        if (!addr) { FWUI.Toast.warning('请输入新地址'); return; }
+        if (!addr) {
+            FWUI.Toast.warning('请输入新地址');
+            return;
+        }
         try {
             const contract = await this.getContractWithSigner();
             if (!contract) return;
@@ -3059,7 +3589,10 @@ const AdminApp = {
     async setTokenSupport() {
         const tokenAddr = document.getElementById('tokenAddress').value;
         const supported = document.getElementById('tokenSupported').value === 'true';
-        if (!tokenAddr) { FWUI.Toast.warning('请输入代币地址'); return; }
+        if (!tokenAddr) {
+            FWUI.Toast.warning('请输入代币地址');
+            return;
+        }
         try {
             const contract = await this.getContractWithSigner();
             if (!contract) return;
@@ -3108,7 +3641,10 @@ const AdminApp = {
     // 取消对局
     async cancelMatch() {
         const gameId = document.getElementById('cancelGameId').value;
-        if (!gameId) { FWUI.Toast.warning('请输入对局 ID'); return; }
+        if (!gameId) {
+            FWUI.Toast.warning('请输入对局 ID');
+            return;
+        }
         FWUI.Modal.confirm({
             title: '确认取消对局',
             content: '确定要取消该对局吗？双方资金将被退回。',
@@ -3125,6 +3661,132 @@ const AdminApp = {
                     FWUI.Toast.error('取消失败: ' + e.message);
                 }
             }
+        });
+    },
+
+    // ==================== 本地链启动配置 ====================
+
+    // 保存节点配置（暴露给 HTML 调用）
+    saveNodeConfig() {
+        this._saveNodeConfigFromForm();
+        FWUI.Toast.success('节点配置已保存到本地存储');
+    },
+
+    // 测试 RPC 连接
+    async testRpcConnection() {
+        const getVal = (id) => {
+            const el = document.getElementById(id);
+            return el && el.value.trim() !== '' ? el.value.trim() : null;
+        };
+        const port = getVal('nodeConfigPort') || String(CONFIG.RPC_PORT);
+        const host = getVal('nodeConfigHost') || '127.0.0.1';
+        const rpcUrl = `http://${host}:${port}`;
+        FWUI.Toast.info(`正在测试 RPC 节点 ${rpcUrl} ...`);
+        try {
+            const result = await this.apiRequest(`/api/admin/local-chain/test-rpc?url=${encodeURIComponent(rpcUrl)}`);
+            if (result.ok) {
+                FWUI.Toast.success(`连接成功！链 ID: ${result.chainId}, 区块高度: ${result.blockNumber}`);
+            } else {
+                FWUI.Toast.error(`连接失败: ${result.error || '未知错误'}`);
+            }
+        } catch (e) {
+            FWUI.Toast.error(`测试请求失败: ${e.message}`);
+        }
+    },
+
+    // 保存 RPC 配置
+    async saveRpcConfig() {
+        const mainRpc = document.getElementById('mainRpcUrl')?.value?.trim();
+        const backupRpc = document.getElementById('backupRpcUrl')?.value?.trim();
+        const contractAddr = document.getElementById('configContractAddress')?.value?.trim();
+
+        try {
+            const items = [];
+            if (mainRpc) items.push({key: 'rpc_url', value: mainRpc});
+            if (backupRpc) items.push({key: 'backup_rpc_url', value: backupRpc});
+            if (contractAddr) items.push({key: 'contract_address', value: contractAddr});
+
+            if (items.length === 0) {
+                FWUI.Toast.warning('没有需要保存的配置');
+                return;
+            }
+
+            await this.apiRequest('/api/admin/config/batch', 'POST', {
+                items: items,
+                admin_address: this.adminAddress
+            });
+            FWUI.Toast.success('RPC 配置已保存');
+        } catch (e) {
+            FWUI.Toast.error('保存失败: ' + e.message);
+        }
+    },
+
+    // 加载 RPC 配置到表单
+    _applyRpcConfigToForm() {
+        this.apiRequest('/api/admin/config/rpc-config').then(data => {
+            if (!data) return;
+            const mainRpcEl = document.getElementById('mainRpcUrl');
+            const backupRpcEl = document.getElementById('backupRpcUrl');
+            const contractEl = document.getElementById('configContractAddress');
+            if (mainRpcEl && data.rpc_url) mainRpcEl.value = data.rpc_url;
+            if (backupRpcEl && data.backup_rpc_url) backupRpcEl.value = data.backup_rpc_url;
+            if (contractEl && data.contract_address) contractEl.value = data.contract_address;
+        }).catch(() => {
+        });
+    },
+
+    // 保存环境配置
+    async saveEnvConfig() {
+        const getVal = (id) => {
+            const el = document.getElementById(id);
+            return el && el.value.trim() !== '' ? el.value.trim() : null;
+        };
+        const host = getVal('envHost');
+        const port = getVal('envPort');
+        const redisUrl = getVal('envRedisUrl');
+        const debug = getVal('envDebug');
+
+        try {
+            const items = [];
+            if (host) items.push({key: 'env_host', value: host});
+            if (port) items.push({key: 'env_port', value: port});
+            if (redisUrl) items.push({key: 'env_redis_url', value: redisUrl});
+            if (debug != null) items.push({key: 'env_debug', value: debug});
+
+            await this.apiRequest('/api/admin/config/batch', 'POST', {
+                items: items,
+                admin_address: this.adminAddress
+            });
+            FWUI.Toast.success('环境配置已保存（服务重启后生效）');
+        } catch (e) {
+            FWUI.Toast.error('保存失败: ' + e.message);
+        }
+    },
+
+    // 重新加载环境配置
+    async reloadEnv() {
+        try {
+            const result = await this.apiRequest('/api/admin/config/reload-env', 'POST', {});
+            FWUI.Toast.success(result.message || '环境配置已重新加载');
+            this._applyEnvConfigToForm();
+        } catch (e) {
+            FWUI.Toast.error('重新加载失败: ' + e.message);
+        }
+    },
+
+    // 加载环境配置到表单
+    _applyEnvConfigToForm() {
+        this.apiRequest('/api/admin/config/env-config').then(data => {
+            if (!data) return;
+            const hostEl = document.getElementById('envHost');
+            const portEl = document.getElementById('envPort');
+            const redisEl = document.getElementById('envRedisUrl');
+            const debugEl = document.getElementById('envDebug');
+            if (hostEl && data.host) hostEl.value = data.host;
+            if (portEl && data.port) portEl.value = data.port;
+            if (redisEl && data.redis_url) redisEl.value = data.redis_url;
+            if (debugEl && data.debug != null) debugEl.value = data.debug;
+        }).catch(() => {
         });
     },
 };

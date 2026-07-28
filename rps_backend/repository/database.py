@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional, List
 
-from ..config import DATABASE_PATH
+from ..config import DATABASE_PATH, RPC_LOCAL_PORT
 from ..models import GameState
 
 
@@ -512,37 +512,49 @@ def get_player_stats(address: str) -> Optional[dict]:
 # ==================== 默认配置初始化 ====================
 
 # 初始化默认配置
+# 系统配置默认值（唯一来源，初始化和重置都使用此表）
+# 格式: { config_key: (default_value, category, description)
+SYSTEM_CONFIG_DEFAULTS = {
+    # 合约配置
+    "fee_rate": ("200", "contract", "手续费率（基点，100=1%）"),
+    # 游戏配置
+    "commit_timeout": ("66", "game", "提交哈希超时时间（秒）"),
+    "reveal_timeout": ("88", "game", "揭晓出拳超时时间（秒）"),
+    "supported_tokens": ("USDC,USDT", "game", "支持的代币列表（逗号分隔）"),
+    "max_bet_amount": ("10000", "game", "最大下注金额"),
+    "min_bet_amount": ("1", "game", "最小下注金额"),
+    # 主链配置
+    "chain_id": ("5208888", "chain", "目标区块链网络 Chain ID"),
+    "recommended_chain_name": ("ChainRPS Chain", "chain", "推荐主链名称（统一标识名）"),
+    "network_name": ("ChainRPS Local", "chain", "网络显示名称"),
+    "rpc_url": (f"http://127.0.0.1:{RPC_LOCAL_PORT}", "chain", "RPC 节点 URL"),
+    "block_explorer": ("", "chain", "区块浏览器 URL（可选）"),
+    "contract_address": ("", "chain", "ChainRPS 游戏合约地址"),
+    "native_symbol": ("ETH", "chain", "网络原生代币符号"),
+    "native_name": ("Ether", "chain", "网络原生代币名称"),
+    "native_decimals": ("18", "chain", "原生代币精度"),
+    # 系统配置
+    "maintenance_mode": ("0", "system", "维护模式开关（0=关闭, 1=开启）"),
+    "official_website": ("https://chainrps.io", "system", "官方网站"),
+    "official_twitter": ("@ChainRPS", "system", "官方 Twitter"),
+    "official_discord": ("discord.gg/chainrps", "system", "官方 Discord"),
+}
+
+
 def _init_default_config(cursor):
-    defaults = [
-        # 合约配置
-        ("fee_rate", "200", "contract", "手续费率（基点，100=1%）"),
-        # 游戏配置
-        ("commit_timeout", "66", "game", "提交哈希超时时间（秒）"),
-        ("reveal_timeout", "88", "game", "揭晓出拳超时时间（秒）"),
-        ("supported_tokens", "USDC,USDT", "game", "支持的代币列表（逗号分隔）"),
-        ("max_bet_amount", "10000", "game", "最大下注金额"),
-        ("min_bet_amount", "1", "game", "最小下注金额"),
-        # 主链配置
-        ("chain_id", "5208888", "chain", "目标区块链网络 Chain ID"),
-        ("network_name", "ChainRPS Local", "chain", "网络显示名称"),
-        ("rpc_url", "http://127.0.0.1:8686", "chain", "RPC 节点 URL"),
-        ("block_explorer", "", "chain", "区块浏览器 URL（可选）"),
-        ("contract_address", "", "chain", "ChainRPS 游戏合约地址"),
-        ("native_symbol", "ETH", "chain", "网络原生代币符号"),
-        ("native_name", "Ether", "chain", "网络原生代币名称"),
-        ("native_decimals", "18", "chain", "原生代币精度"),
-        # 系统配置
-        ("maintenance_mode", "0", "system", "维护模式开关（0=关闭, 1=开启）"),
-        ("official_website", "https://chainrps.io", "system", "官方网站"),
-        ("official_twitter", "@ChainRPS", "system", "官方 Twitter"),
-        ("official_discord", "discord.gg/chainrps", "system", "官方 Discord"),
-    ]
     now = datetime.utcnow().isoformat()
-    for key, value, category, desc in defaults:
+    for key, (value, category, desc) in SYSTEM_CONFIG_DEFAULTS.items():
         cursor.execute(
             "INSERT OR IGNORE INTO system_config (config_key, config_value, category, description, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             [key, value, category, desc, None, now]
         )
+
+    # 历史遗留修正：曾使用 108108 作为本地链端口，已统一改为 8686。
+    # INSERT OR IGNORE 不会覆盖已存在的旧值，这里显式 UPDATE 修正残留记录。
+    cursor.execute(
+        "UPDATE system_config SET config_value = ? WHERE config_key = 'rpc_url' AND config_value LIKE '%:108108%'",
+        [f"http://127.0.0.1:{RPC_LOCAL_PORT}"],
+    )
 
 
 # ==================== 用户配置操作 ====================
@@ -596,6 +608,17 @@ def set_user_notifications(address: str, enabled: bool) -> bool:
 # ==================== 系统配置操作 ====================
 
 # 获取所有系统配置
+def get_system_config_default(key: str) -> Optional[str]:
+    """获取指定配置项的默认值"""
+    entry = SYSTEM_CONFIG_DEFAULTS.get(key)
+    return entry[0] if entry else None
+
+
+def get_all_system_config_defaults() -> Dict[str, str]:
+    """获取所有配置项的默认值字典 {config_key: default_value}"""
+    return {k: v[0] for k, v in SYSTEM_CONFIG_DEFAULTS.items()}
+
+
 def get_all_system_config(category: str = None) -> List[dict]:
     conn = get_connection()
     try:

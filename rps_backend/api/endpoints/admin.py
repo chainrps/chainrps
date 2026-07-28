@@ -486,19 +486,27 @@ async def update_contract(contract_id: int, body: dict, request: Request):
 # 获取系统配置列表
 @router.get("/config", response_model=List[SystemConfigItem])
 async def get_config_list(category: Optional[str] = None):
-    """获取系统配置列表"""
+    """获取系统配置列表（附带每项的默认值）"""
+    from rps_backend.repository import get_all_system_config_defaults
     configs = get_all_system_config(category=category)
-    return [SystemConfigItem(**c) for c in configs]
+    defaults = get_all_system_config_defaults()
+    result = []
+    for c in configs:
+        item = dict(c)
+        item["default_value"] = defaults.get(item["config_key"])
+        result.append(SystemConfigItem(**item))
+    return result
 
 
 # 获取单个配置项
 @router.get("/config/{key}")
 async def get_config(key: str):
-    """获取单个配置项"""
+    """获取单个配置项（含默认值）"""
     value = get_system_config_value(key)
     if value is None:
         raise HTTPException(status_code=404, detail="Config key not found")
-    return {"key": key, "value": value}
+    from rps_backend.repository import get_system_config_default
+    return {"key": key, "value": value, "default_value": get_system_config_default(key)}
 
 
 # 更新单个配置项
@@ -516,6 +524,33 @@ async def update_config(key: str, body: SystemConfigUpdate, request: Request):
     )
 
     return {"success": True, "key": key, "value": body.value}
+
+
+# 重置单个配置项为默认值
+@router.post("/config/{key}/reset")
+async def reset_single_config(key: str, request: Request):
+    """将单个配置项恢复为默认值"""
+    from rps_backend.repository import get_system_config_default, SYSTEM_CONFIG_DEFAULTS
+    admin_addr = _verify_admin(None, request)
+
+    # 检查该配置项是否有默认值
+    if key not in SYSTEM_CONFIG_DEFAULTS:
+        raise HTTPException(status_code=404, detail=f"配置项 {key} 不存在或无默认值")
+
+    old_value = get_system_config_value(key)
+    default_value = get_system_config_default(key)
+
+    if str(old_value) == str(default_value):
+        return {"success": True, "key": key, "value": default_value, "unchanged": True}
+
+    set_system_config(key, default_value, updated_by=admin_addr)
+
+    add_audit_log(
+        admin_addr, "reset_single_config",
+        target=key, old_value=str(old_value), new_value=str(default_value)
+    )
+
+    return {"success": True, "key": key, "value": default_value, "unchanged": False}
 
 
 # 批量更新配置
@@ -538,36 +573,11 @@ async def reset_config(body: dict, request: Request):
 
     将所有系统配置项恢复为初始化时的默认值，并记录每项变更到审计日志。
     """
+    from rps_backend.repository import SYSTEM_CONFIG_DEFAULTS
     admin_addr = _verify_admin(body.get("admin_address"), request)
 
-    # 默认配置定义（与 database._init_default_config 保持一致）
-    DEFAULT_CONFIG = {
-        # 合约配置
-        "fee_rate": ("200", "contract", "手续费率（基点，100=1%）"),
-        # 游戏配置
-        "commit_timeout": ("66", "game", "提交哈希超时时间（秒）"),
-        "reveal_timeout": ("88", "game", "揭晓出拳超时时间（秒）"),
-        "supported_tokens": ("USDC,USDT", "game", "支持的代币列表（逗号分隔）"),
-        "max_bet_amount": ("10000", "game", "最大下注金额"),
-        "min_bet_amount": ("1", "game", "最小下注金额"),
-        # 主链配置
-        "chain_id": ("5208888", "chain", "目标区块链网络 Chain ID"),
-        "network_name": ("ChainRPS Local", "chain", "网络显示名称"),
-        "rpc_url": ("http://127.0.0.1:8686", "chain", "RPC 节点 URL"),
-        "block_explorer": ("", "chain", "区块浏览器 URL（可选）"),
-        "contract_address": ("", "chain", "ChainRPS 游戏合约地址"),
-        "native_symbol": ("ETH", "chain", "网络原生代币符号"),
-        "native_name": ("Ether", "chain", "网络原生代币名称"),
-        "native_decimals": ("18", "chain", "原生代币精度"),
-        # 系统配置
-        "maintenance_mode": ("0", "system", "维护模式开关（0=关闭, 1=开启）"),
-        "official_website": ("https://chainrps.io", "system", "官方网站"),
-        "official_twitter": ("@ChainRPS", "system", "官方 Twitter"),
-        "official_discord": ("discord.gg/chainrps", "system", "官方 Discord"),
-    }
-
     reset_count = 0
-    for key, (default_value, category, desc) in DEFAULT_CONFIG.items():
+    for key, (default_value, category, desc) in SYSTEM_CONFIG_DEFAULTS.items():
         old_value = get_system_config_value(key)
         if old_value != default_value:
             set_system_config(key, default_value, updated_by=admin_addr, description=desc)
@@ -601,6 +611,98 @@ async def config_history(
         "page": page,
         "size": size,
     }
+
+
+# 获取 RPC 配置（聚合多个配置项）
+@router.get("/config/rpc-config")
+async def get_rpc_config():
+    """获取 RPC 和合约地址配置"""
+    return {
+        "rpc_url": get_system_config_value("rpc_url") or "",
+        "backup_rpc_url": get_system_config_value("backup_rpc_url") or "",
+        "contract_address": get_system_config_value("contract_address") or "",
+    }
+
+
+# 获取环境配置
+@router.get("/config/env-config")
+async def get_env_config():
+    """获取 .env 环境配置"""
+    from rps_backend.config import HOST, PORT, REDIS_URL, DEBUG
+    return {
+        "host": HOST,
+        "port": str(PORT),
+        "redis_url": REDIS_URL,
+        "debug": str(DEBUG).lower(),
+    }
+
+
+# 重新加载环境配置
+@router.post("/config/reload-env")
+async def reload_env_config(request: Request):
+    """重新加载 .env 文件配置（服务端重新读取环境变量）"""
+    try:
+        from rps_backend.config import reload_config
+        reload_config()
+        return {"success": True, "message": "环境配置已重新加载"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重新加载失败: {str(e)}")
+
+
+# 测试 RPC 连接
+@router.get("/local-chain/test-rpc")
+async def test_rpc_connection(url: str = Query(..., description="RPC 节点 URL")):
+    """测试 RPC 节点连通性"""
+    import urllib.request
+    import json as json_mod
+
+    payload = json_mod.dumps({
+        "jsonrpc": "2.0",
+        "method": "eth_chainId",
+        "params": [],
+        "id": 1
+    }).encode()
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"}
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json_mod.loads(resp.read().decode())
+            chain_id_hex = data.get("result", "0x0")
+            chain_id = int(chain_id_hex, 16) if chain_id_hex.startswith("0x") else int(chain_id_hex)
+
+            # 尝试获取区块高度
+            payload2 = json_mod.dumps({
+                "jsonrpc": "2.0",
+                "method": "eth_blockNumber",
+                "params": [],
+                "id": 2
+            }).encode()
+            req2 = urllib.request.Request(
+                url,
+                data=payload2,
+                headers={"Content-Type": "application/json"}
+            )
+            block_number = 0
+            try:
+                with urllib.request.urlopen(req2, timeout=5) as resp2:
+                    data2 = json_mod.loads(resp2.read().decode())
+                    block_hex = data2.get("result", "0x0")
+                    block_number = int(block_hex, 16) if block_hex.startswith("0x") else int(block_hex)
+            except Exception:
+                pass
+
+            return {
+                "ok": True,
+                "chainId": chain_id,
+                "blockNumber": block_number,
+            }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # ==================== 审计日志 ====================
@@ -714,6 +816,8 @@ async def start_local_chain(request: Request):
         kwargs["symbol"] = str(body["symbol"]).strip()
     if "deterministic" in body:
         kwargs["deterministic"] = bool(body["deterministic"])
+    if "persist" in body and body["persist"] is not None:
+        kwargs["persist"] = bool(body["persist"])
 
     result = await _run_chain_async(service.start_node, **kwargs)
     if not result.get("success"):
@@ -730,6 +834,23 @@ async def stop_local_chain():
     result = await _run_chain_async(service.stop_node)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("message", "停止失败"))
+    return result
+
+
+# 重置（清空）持久化链数据
+@router.post("/local-chain/reset-data")
+async def reset_local_chain_data():
+    """清空持久化链数据目录（开发环境功能）。
+
+    停止运行中的节点 → 删除 data/chaindata_<chain_type> 目录 → 重启节点。
+    重置后链状态恢复到创世，已部署合约将丢失。
+    仅对启用了持久化存储的 Ganache 生效；Hardhat 不支持持久化，操作无效。
+    """
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    result = await _run_chain_async(service.reset_chain_data)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "重置失败"))
     return result
 
 
@@ -752,6 +873,7 @@ async def set_keep_alive(request: Request):
     请求体：
     - enabled: bool 是否开启保活
     - chain_type: 链类型，可选 "ganache" | "hardhat"，默认 ganache
+    - persist: bool 是否启用持久化存储（仅 Ganache 支持，默认 true）
     - 其余参数同 start_node（host, port, chain_id 等，可选，用于首次启动或重启时使用）
     """
     try:
@@ -765,7 +887,7 @@ async def set_keep_alive(request: Request):
     service = get_local_chain_service()
 
     kwargs = {}
-    for key in ["chain_type", "host", "port", "chain_id", "accounts_count", "default_balance", "symbol", "deterministic"]:
+    for key in ["chain_type", "host", "port", "chain_id", "accounts_count", "default_balance", "symbol", "deterministic", "persist"]:
         if key in body and body[key] is not None:
             if key == "chain_type":
                 kwargs[key] = str(body[key]).strip().lower()
@@ -773,7 +895,7 @@ async def set_keep_alive(request: Request):
                 kwargs[key] = int(body[key])
             elif key == "default_balance":
                 kwargs[key] = float(body[key])
-            elif key == "deterministic":
+            elif key in ("deterministic", "persist"):
                 kwargs[key] = bool(body[key])
             else:
                 kwargs[key] = str(body[key])

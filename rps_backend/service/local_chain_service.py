@@ -112,6 +112,7 @@ class LocalChainService:
     _tokens: Dict[str, Dict[str, Any]] = {}
 
     _chain_type: str = "ganache"  # "ganache" | "hardhat"
+    _persist_enabled: bool = True  # 是否启用持久化存储（仅 Ganache 生效）
 
     _keep_alive_enabled: bool = False
     _keep_alive_config: Dict[str, Any] = {}
@@ -248,14 +249,19 @@ class LocalChainService:
         default_balance: float = 100000,      # 每个账户的默认原生代币余额
         symbol: str = "ETH",
         chain_type: str = "ganache",
+        persist: bool = True,                 # 是否启用持久化存储（仅 Ganache 支持）
     ) -> Dict[str, Any]:
         if self.is_running():
             return {"success": True, "message": "本地链已在运行", "rpc_url": self._rpc_url}
 
         self._chain_type = chain_type
+        self._persist_enabled = bool(persist) and chain_type == "ganache"
 
         try:
             if chain_type == "hardhat":
+                # Hardhat node 原生不支持持久化存储，强制忽略 persist
+                if persist:
+                    print("⚠️  Hardhat node 不支持持久化存储，已自动忽略 persist 参数")
                 return self._start_hardhat_node(
                     host=host, port=port, chain_id=chain_id,
                     accounts_count=accounts_count, default_balance=default_balance,
@@ -266,12 +272,58 @@ class LocalChainService:
                     deterministic=deterministic, host=host, port=port,
                     chain_id=chain_id, accounts_count=accounts_count,
                     default_balance=default_balance, symbol=symbol,
+                    persist=self._persist_enabled,
                 )
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
             print(f"🔴 启动本地链异常: {error_trace}")
             return {"success": False, "message": f"启动失败: {str(e)}"}
+
+    # 获取链数据持久化目录路径
+    def _get_chain_data_dir(self) -> str:
+        """获取本地链数据持久化目录路径。
+
+        目录位于项目根目录下的 data/chaindata_<chain_type>，按链类型隔离避免冲突。
+        """
+        project_root = _get_project_root()
+        data_dir = os.path.join(project_root, "data", f"chaindata_{self._chain_type or 'ganache'}")
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+
+    # 重置（清空）链数据持久化目录
+    def reset_chain_data(self) -> Dict[str, Any]:
+        """清空持久化链数据目录。
+
+        停止运行中的节点 → 删除数据目录 → 重新创建空目录。
+        重启后链状态将恢复到初始（创世）状态，已部署合约将丢失。
+        """
+        try:
+            # 必须先停止节点，否则文件占用无法删除
+            if self.is_running():
+                print("🛑 重置链数据：先停止运行中的节点")
+                self.stop_node(keep_alive=True)
+
+            data_dir = self._get_chain_data_dir()
+            if os.path.exists(data_dir):
+                # 重试机制：Windows 下文件可能被短暂占用
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        shutil.rmtree(data_dir, ignore_errors=False)
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        time.sleep(1)
+                if last_err:
+                    return {"success": False, "message": f"删除数据目录失败: {last_err}"}
+                print(f"🗑️  已清空链数据目录: {data_dir}")
+
+            os.makedirs(data_dir, exist_ok=True)
+            return {"success": True, "message": "链数据已重置，下次启动将使用全新状态"}
+        except Exception as e:
+            return {"success": False, "message": f"重置失败: {str(e)}"}
 
     # 启动 Ganache 节点
     def _start_ganache_node(
@@ -283,6 +335,7 @@ class LocalChainService:
         accounts_count: int = 10,
         default_balance: float = 1000,
             symbol: str = "ETH",
+            persist: bool = True,
     ) -> Dict[str, Any]:
         ganache_path = _find_ganache_executable()
         if not ganache_path:
@@ -300,6 +353,13 @@ class LocalChainService:
             cmd.append("--wallet.deterministic")
         cmd.extend(["--wallet.totalAccounts", str(accounts_count)])
         cmd.extend(["--wallet.defaultBalance", str(default_balance)])
+
+        # 持久化存储：将链数据写入磁盘，重启后保留已部署合约和状态
+        # 仅在 persist=True 时启用，目录按 chain_type 隔离
+        if persist:
+            data_dir = self._get_chain_data_dir()
+            cmd.extend(["--database.dbPath", data_dir])
+            print(f"💾 持久化存储已启用: {data_dir}")
 
         print(f"🚀 启动 ganache: {' '.join(cmd)}")
 
@@ -529,15 +589,30 @@ class LocalChainService:
         # 说明：Ganache v7.9.2 不支持 --chain.nativeTokenSymbol 参数，节点本身默认返回 "GO"，
         # 因此这里返回用户配置的 symbol（保存在 _keep_alive_config 中），而非节点默认值
         configured_symbol = (self._keep_alive_config.get("symbol") if self._keep_alive_config else None) or "ETH"
+        # 持久化支持信息：仅 Ganache 支持，Hardhat 始终为 False
+        persist_supported = self._chain_type != "hardhat"
+        persist_enabled = bool(self._persist_enabled) and persist_supported
+
+        # 读取推荐主链名称
+        try:
+            from rps_backend.repository import get_system_config_value
+            recommended_chain_name = get_system_config_value("recommended_chain_name") or "ChainRPS Chain"
+        except Exception:
+            recommended_chain_name = "ChainRPS Chain"
+
         result = {
             "running": running,
             "rpc_url": self._rpc_url,
             "chain_id": self._chain_id,
             "chain_type": self._chain_type,
             "symbol": configured_symbol,
+            "recommended_chain_name": recommended_chain_name,
             "keep_alive": self._keep_alive_enabled,
             "keep_alive_restart_count": self._keep_alive_restart_count,
             "keep_alive_last_restart_at": self._keep_alive_last_restart_at,
+            "persist_supported": persist_supported,
+            "persist_enabled": persist_enabled,
+            "persist_data_dir": self._get_chain_data_dir() if persist_supported else None,
         }
 
         if running and self._w3:

@@ -259,6 +259,7 @@ class SystemConfigItem(BaseModel):
     description: Optional[str] = None
     updated_by: Optional[str] = None
     updated_at: Optional[datetime] = None
+    default_value: Optional[str] = None
 
 
 class SystemConfigUpdate(BaseModel):
