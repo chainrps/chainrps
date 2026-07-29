@@ -1,0 +1,43 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "node": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  },
+  "globals": {
+    "ethers": "readonly",
+    "Wallet": "readonly",
+    "RPSCrypto": "readonly",
+    "Contract": "readonly",
+    "UI": "readonly",
+    "P2PManager": "readonly",
+    "FWUI": "readonly",
+    "CONFIG": "readonly",
+    "fetch": "readonly",
+    "navigator": "readonly",
+    "document": "readonly",
+    "window": "readonly",
+    "WebSocket": "readonly",
+    "console": "readonly",
+    "setTimeout": "readonly",
+    "clearTimeout": "readonly",
+    "setInterval": "readonly",
+    "clearInterval": "readonly"
+  },
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-console": "off",
+    "prefer-const": "warn",
+    "eqeqeq": ["error", "always"],
+    "no-var": "warn",
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-with": "error"
+  }
+}
