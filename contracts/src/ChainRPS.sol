@@ -23,13 +23,22 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  *      - 超时后无论双方都未操作或仅一方操作，统一全额退款，不判超时方负。
  *
  *      平局机制：零手续费，原路退回。
+ *
+ *      签名代提交机制（v1.2.0 引入）：
+ *      - 方案A（每局一次签名）：玩家对 commit/reveal 数据做 EIP-712 链下签名，
+ *        由 relayer 调用 submitCommitWithSig/revealChoiceWithSig 代为上链，
+ *        每局玩家只需在揭晓阶段亲自签名 1 次（或全部由 relayer 代提交）。
+ *      - 方案B（7天长期授权）：玩家调用 authorizeRelayer 授权 relayer 地址，
+ *        在 7 天有效期内 relayer 可直接以 msg.sender 身份代提交 commit/reveal，
+ *        玩家完全无需每次签名。
+ *      - 防重放：每地址维护 nonce，签名中必须包含 nonce，每次代提交后递增。
  */
 // 链上公平猜拳游戏合约 - 基于哈希承诺的石头剪刀布
 contract chainrps is Ownable, ReentrancyGuard, Pausable {
     // ==================== 常量与防仿标识 ====================
 
     // 版本号
-    string public constant VERSION = "v1.1.0";
+    string public constant VERSION = "v1.2.0";
     // 合约部署时间戳
     uint256 public immutable deployTimestamp;
     // 官方开发者地址
@@ -112,6 +121,39 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
     mapping(uint256 => uint256) public extRoomType;       // 房间类型（预留）
     mapping(address => bool) public extNftHolder;         // NFT 权益（预留）
 
+    // ==================== EIP-712 签名代提交（v1.2.0） ====================
+
+    // EIP-712 域分隔符（构造函数中按 chainId + 合约地址计算）
+    bytes32 private immutable _domainSeparator;
+
+    // EIP-712 类型哈希常量
+    bytes32 private constant _EIP712_DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
+    // commit 签名类型：玩家授权 relayer 代提交 commit
+    bytes32 private constant _COMMIT_TYPEHASH = keccak256(
+        "Commit(uint256 gameId,address player,bytes32 commit,uint256 nonce)"
+    );
+    // reveal 签名类型：玩家授权 relayer 代揭晓
+    bytes32 private constant _REVEAL_TYPEHASH = keccak256(
+        "Reveal(uint256 gameId,address player,uint8 choice,bytes32 salt,uint256 nonce)"
+    );
+
+    // 每地址防重放 nonce：每完成一次代提交自增
+    mapping(address => uint256) public nonces;
+
+    // ==================== Relayer 长期授权（方案B） ====================
+
+    // 玩家 => 授权的 relayer 信息
+    struct RelayerAuthorization {
+        address relayer;     // 被授权的 relayer 地址（address(0) 表示未授权）
+        uint256 deadline;    // 授权截止时间戳（0 表示永久，但建议设置 7 天）
+    }
+    mapping(address => RelayerAuthorization) public relayerAuthorizations;
+
+    // 授权默认有效期：7 天
+    uint256 public constant DEFAULT_AUTH_DURATION = 7 days;
+
     // ==================== 事件定义 ====================
 
     // 创建游戏事件
@@ -144,10 +186,18 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
     event TimeoutChanged(uint256 oldCommit, uint256 newCommit, uint256 oldReveal, uint256 newReveal);
     // 紧急提取事件
     event EmergencyWithdraw(address indexed token, uint256 amount, address indexed to);
+    // Relayer 授权变更事件（方案B）
+    event RelayerAuthorized(address indexed player, address indexed relayer, uint256 deadline);
+    // Relayer 授权撤销事件（方案B）
+    event RelayerRevoked(address indexed player, address indexed oldRelayer);
+    // 代提交 commit 事件（方案A）
+    event CommitSubmittedWithSig(uint256 indexed gameId, address indexed player, bytes32 commit, address indexed relayer);
+    // 代提交 reveal 事件（方案A）
+    event ChoiceRevealedWithSig(uint256 indexed gameId, address indexed player, uint8 choice, address indexed relayer);
 
     // ==================== 构造函数 ====================
 
-    // 构造函数 - 初始化手续费接收地址和开发者地址
+    // 构造函数 - 初始化手续费接收地址、开发者地址与 EIP-712 域分隔符
     constructor(address _feeCollector, address _officialDeveloper) Ownable(msg.sender) {
         require(_feeCollector != address(0), "Invalid fee collector");
         require(_officialDeveloper != address(0), "Invalid developer address");
@@ -161,6 +211,15 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         officialDiscord = "discord.gg/chainrps";
 
         supportedTokens[address(0)] = true;
+
+        // 初始化 EIP-712 域分隔符（绑定 chainId + 合约地址，防跨链/跨合约重放）
+        _domainSeparator = keccak256(abi.encode(
+            _EIP712_DOMAIN_TYPEHASH,
+            keccak256(bytes("ChainRPS")),
+            keccak256(bytes(VERSION)),
+            block.chainid,
+            address(this)
+        ));
     }
 
     // ==================== 核心对局函数 ====================
@@ -238,21 +297,71 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
      * @param commit 哈希承诺 keccak256(choice + salt + address)
      */
     function submitCommit(uint256 gameId, bytes32 commit) external whenNotPaused {
+        _submitCommit(gameId, msg.sender, commit);
+    }
+
+    // 代提交哈希承诺（带 EIP-712 签名） - relayer 凭玩家签名代为提交
+    /**
+     * @notice 代提交哈希承诺（方案A） - relayer 凭玩家 EIP-712 签名代为提交
+     * @dev 玩家链下签名内容：Commit(gameId, player, commit, nonce)
+     *      合约用 ecrecover 恢复签名者，校验为对局玩家本人后存储 commit
+     * @param gameId 对局ID
+     * @param player 玩家地址
+     * @param commit 哈希承诺
+     * @param nonce 玩家当前 nonce（防重放）
+     * @param v,r,s EIP-712 签名分量
+     */
+    function submitCommitWithSig(
+        uint256 gameId,
+        address player,
+        bytes32 commit,
+        uint256 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external whenNotPaused {
+        require(player == games[gameId].player1 || player == games[gameId].player2, "Not a player");
+        require(nonce == nonces[player], "Nonce mismatch");
+
+        // 校验签名
+        bytes32 structHash = keccak256(abi.encode(
+            _COMMIT_TYPEHASH,
+            gameId,
+            player,
+            commit,
+            nonce
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator, structHash));
+        address signer = ecrecover(digest, v, r, s);
+        require(signer != address(0) && signer == player, "Invalid signature");
+
+        // 执行 commit（复用内部逻辑）
+        _submitCommit(gameId, player, commit);
+
+        // nonce 自增（防重放）
+        nonces[player] = nonce + 1;
+
+        emit CommitSubmittedWithSig(gameId, player, commit, msg.sender);
+    }
+
+    // 内部：实际写入 commit（被 submitCommit 与 submitCommitWithSig 复用）
+    function _submitCommit(uint256 gameId, address player, bytes32 commit) internal {
         Game storage game = games[gameId];
 
         require(game.status == GameStatus.CommitPhase, "Not in commit phase");
         require(block.timestamp <= game.commitDeadline, "Commit deadline passed");
-        require(msg.sender == game.player1 || msg.sender == game.player2, "Not a player");
 
-        if (msg.sender == game.player1) {
+        if (player == game.player1) {
             require(game.commit1 == bytes32(0), "Already committed");
             game.commit1 = commit;
-        } else {
+        } else if (player == game.player2) {
             require(game.commit2 == bytes32(0), "Already committed");
             game.commit2 = commit;
+        } else {
+            revert("Not a player");
         }
 
-        emit CommitSubmitted(gameId, msg.sender, commit);
+        emit CommitSubmitted(gameId, player, commit);
 
         if (game.commit1 != bytes32(0) && game.commit2 != bytes32(0)) {
             game.status = GameStatus.RevealPhase;
@@ -272,19 +381,72 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
     nonReentrant
     whenNotPaused
     {
+        _revealChoice(gameId, msg.sender, choice, salt);
+    }
+
+    // 代揭晓出拳（带 EIP-712 签名） - relayer 凭玩家签名代为揭晓
+    /**
+     * @notice 代揭晓出拳（方案A） - relayer 凭玩家 EIP-712 签名代为揭晓
+     * @dev 玩家链下签名内容：Reveal(gameId, player, choice, salt, nonce)
+     *      合约用 ecrecover 恢复签名者，校验为对局玩家本人后揭晓
+     *      注意：reveal 阶段必须上链（用户要求），此函数将签名数据一次性上链完成揭晓
+     * @param gameId 对局ID
+     * @param player 玩家地址
+     * @param choice 出拳 (1=石头, 2=布, 3=剪刀)
+     * @param salt 盐值
+     * @param nonce 玩家当前 nonce
+     * @param v,r,s EIP-712 签名分量
+     */
+    function revealChoiceWithSig(
+        uint256 gameId,
+        address player,
+        uint8 choice,
+        bytes32 salt,
+        uint256 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external nonReentrant whenNotPaused {
+        require(player == games[gameId].player1 || player == games[gameId].player2, "Not a player");
+        require(nonce == nonces[player], "Nonce mismatch");
+
+        // 校验签名
+        bytes32 structHash = keccak256(abi.encode(
+            _REVEAL_TYPEHASH,
+            gameId,
+            player,
+            choice,
+            salt,
+            nonce
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator, structHash));
+        address signer = ecrecover(digest, v, r, s);
+        require(signer != address(0) && signer == player, "Invalid signature");
+
+        // 执行 reveal（复用内部逻辑）
+        _revealChoice(gameId, player, choice, salt);
+
+        // nonce 自增（防重放）
+        nonces[player] = nonce + 1;
+
+        emit ChoiceRevealedWithSig(gameId, player, choice, msg.sender);
+    }
+
+    // 内部：实际写入 reveal（被 revealChoice 与 revealChoiceWithSig 复用）
+    function _revealChoice(uint256 gameId, address player, uint8 choice, bytes32 salt) internal {
         Game storage game = games[gameId];
 
         require(game.status == GameStatus.RevealPhase, "Not in reveal phase");
         require(block.timestamp <= game.revealDeadline, "Reveal deadline passed");
         require(choice >= 1 && choice <= 3, "Invalid choice");
 
-        bytes32 commit = keccak256(abi.encodePacked(choice, salt, msg.sender));
+        bytes32 commit = keccak256(abi.encodePacked(choice, salt, player));
 
-        if (msg.sender == game.player1) {
+        if (player == game.player1) {
             require(commit == game.commit1, "Commit mismatch");
             require(game.choice1 == 0, "Already revealed");
             game.choice1 = choice;
-        } else if (msg.sender == game.player2) {
+        } else if (player == game.player2) {
             require(commit == game.commit2, "Commit mismatch");
             require(game.choice2 == 0, "Already revealed");
             game.choice2 = choice;
@@ -292,11 +454,73 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
             revert("Not a player");
         }
 
-        emit ChoiceRevealed(gameId, msg.sender, choice);
+        emit ChoiceRevealed(gameId, player, choice);
 
         if (game.choice1 != 0 && game.choice2 != 0) {
             _settleGame(gameId);
         }
+    }
+
+    // 方案B：授权 relayer（7 天有效期）
+    /**
+     * @notice 授权 relayer（方案B） - 玩家授权某地址在 7 天内代为提交 commit/reveal
+     * @dev 调用后 relayer 在 deadline 前可使用 submitCommit/revealChoice 代提交
+     *      可传入 duration=0 使用默认 7 天，或自定义更短期限
+     * @param relayer 被授权的 relayer 地址
+     * @param duration 授权时长（秒），0 表示使用默认 7 天
+     */
+    function authorizeRelayer(address relayer, uint256 duration) external {
+        require(relayer != address(0), "Invalid relayer");
+        require(relayer != msg.sender, "Cannot authorize self");
+        if (duration == 0) duration = DEFAULT_AUTH_DURATION;
+        // 限制最长 30 天，防止误授权
+        require(duration <= 30 days, "Duration too long");
+
+        uint256 deadline = block.timestamp + duration;
+        relayerAuthorizations[msg.sender] = RelayerAuthorization({
+            relayer: relayer,
+            deadline: deadline
+        });
+
+        emit RelayerAuthorized(msg.sender, relayer, deadline);
+    }
+
+    // 方案B：撤销 relayer 授权
+    /**
+     * @notice 撤销 relayer 授权（方案B） - 玩家随时可撤销已授权的 relayer
+     */
+    function revokeRelayer() external {
+        address oldRelayer = relayerAuthorizations[msg.sender].relayer;
+        require(oldRelayer != address(0), "No active authorization");
+
+        delete relayerAuthorizations[msg.sender];
+        emit RelayerRevoked(msg.sender, oldRelayer);
+    }
+
+    // 方案B：查询某玩家当前的 relayer 授权状态
+    /**
+     * @notice 查询 relayer 授权状态（方案B）
+     * @return active 是否有效
+     * @return relayer 当前授权的 relayer 地址
+     * @return deadline 授权截止时间
+     */
+    function getRelayerAuthorization(address player)
+    external
+    view
+    returns (bool active, address relayer, uint256 deadline)
+    {
+        RelayerAuthorization storage auth = relayerAuthorizations[player];
+        active = auth.relayer != address(0) && block.timestamp <= auth.deadline;
+        relayer = auth.relayer;
+        deadline = auth.deadline;
+    }
+
+    // 查询 EIP-712 域分隔符
+    /**
+     * @notice 查询 EIP-712 域分隔符（前端签名时需要）
+     */
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparator;
     }
 
     // 超时处理 - 提交/揭晓阶段超时后，统一全额退款，不判超时方负

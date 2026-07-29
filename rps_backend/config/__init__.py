@@ -24,6 +24,13 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rps.db")
 # ==================== 合约配置 ====================
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "")
 
+# ==================== Relayer 配置（方案A/B 代提交） ====================
+# Relayer 私钥：用于调用合约 submitCommitWithSig/revealChoiceWithSig 代玩家上链
+# 生产环境必须通过环境变量设置，禁止代码硬编码
+RELAYER_PRIVATE_KEY = os.getenv("RELAYER_PRIVATE_KEY", "")
+# Relayer 地址（从私钥派生，启动时自动计算；若未配置私钥则代提交功能不可用）
+RELAYER_ADDRESS = os.getenv("RELAYER_ADDRESS", "")
+
 # ==================== 本地链配置(RPC) ====================
 RPC_LOCAL_HOST = os.getenv("RPC_LOCAL_HOST", "127.0.0.1")
 RPC_LOCAL_PORT = int(os.getenv("RPC_LOCAL_PORT", 8686))
@@ -90,6 +97,7 @@ def reload_config():
     global DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, DEBUG
     global MATCH_QUEUE_PREFIX, GAME_CACHE_PREFIX, ROOM_CACHE_PREFIX
     global WS_PREFIX, REDIS_BROADCAST_CHANNEL, REDIS_DIRECT_CHANNEL
+    global RELAYER_PRIVATE_KEY, RELAYER_ADDRESS
 
     # 重新加载 .env 文件
     load_dotenv(override=True)
@@ -99,6 +107,8 @@ def reload_config():
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/rps.db")
     CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "")
+    RELAYER_PRIVATE_KEY = os.getenv("RELAYER_PRIVATE_KEY", "")
+    RELAYER_ADDRESS = os.getenv("RELAYER_ADDRESS", "")
     RPC_LOCAL_HOST = os.getenv("RPC_LOCAL_HOST", "127.0.0.1")
     RPC_LOCAL_PORT = int(os.getenv("RPC_LOCAL_PORT", 8686))
     RPC_LOCAL_URL = f"http://{RPC_LOCAL_HOST}:{RPC_LOCAL_PORT}"
@@ -133,6 +143,8 @@ __all__ = [
     "REDIS_URL",
     "DATABASE_PATH",
     "CONTRACT_ADDRESS",
+    "RELAYER_PRIVATE_KEY",
+    "RELAYER_ADDRESS",
     "RPC_URL",
     "RPC_CHAIN_ID",
     "COMMIT_TIMEOUT",

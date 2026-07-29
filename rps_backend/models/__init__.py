@@ -82,6 +82,45 @@ class RevealChoiceRequest(BaseModel):
     salt: str
 
 
+# ==================== 方案A：EIP-712 签名代提交请求 ====================
+
+class SubmitCommitSigRequest(BaseModel):
+    """代提交 commit 请求（方案A）
+
+    玩家用 EIP-712 链下签名授权 relayer 代为上链 submitCommitWithSig。
+    r/s 为 bytes32 的 hex 字符串。
+    """
+    game_id: int
+    player_address: str
+    commit_hash: str
+    nonce: int
+    v: int
+    r: str
+    s: str
+
+
+class RevealChoiceSigRequest(BaseModel):
+    """代提交 reveal 请求（方案A）
+
+    玩家用 EIP-712 链下签名授权 relayer 代为上链 revealChoiceWithSig。
+    salt 为 bytes32 的 hex 字符串。
+    """
+    game_id: int
+    player_address: str
+    choice: int  # 1=石头, 2=布, 3=剪刀
+    salt: str
+    nonce: int
+    v: int
+    r: str
+    s: str
+
+
+class AuthorizeRelayerRequest(BaseModel):
+    """查询/授权 relayer 请求（方案B）"""
+    player_address: str
+    duration: int = 0  # 0 表示默认 7 天
+
+
 class HandleDrawRequest(BaseModel):
     """处理平局请求"""
     game_id: int

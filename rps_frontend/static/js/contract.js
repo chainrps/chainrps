@@ -3,6 +3,8 @@ const Contract = (function() {
     let contractAddress = null;
     let provider = null;
     let signer = null;
+    // 当前链 ID（EIP-712 签名用，init 时从 provider 获取）
+    let _chainId = null;
 
     // 钱包交互操作的总超时（秒）：用户签名 + 链上打包都算入，超时后给出明确错误避免永久卡住
     const DEFAULT_TX_TIMEOUT = 120 * 1000;
@@ -52,6 +54,15 @@ const Contract = (function() {
         'function joinMatch(uint256 gameId) external',
         'function submitCommit(uint256 gameId, bytes32 commit) external',
         'function revealChoice(uint256 gameId, uint8 choice, bytes32 salt) external',
+        // 方案A：带 EIP-712 签名的代提交版本
+        'function submitCommitWithSig(uint256 gameId, address player, bytes32 commit, uint256 nonce, uint8 v, bytes32 r, bytes32 s) external',
+        'function revealChoiceWithSig(uint256 gameId, address player, uint8 choice, bytes32 salt, uint256 nonce, uint8 v, bytes32 r, bytes32 s) external',
+        // 方案B：relayer 长期授权
+        'function authorizeRelayer(address relayer, uint256 duration) external',
+        'function revokeRelayer() external',
+        'function getRelayerAuthorization(address player) external view returns (bool active, address relayer, uint256 deadline)',
+        'function nonces(address player) external view returns (uint256)',
+        'function domainSeparator() external view returns (bytes32)',
         'function claimTimeout(uint256 gameId) external',
         'function handleDraw(uint256 gameId) external',
         'function getGame(uint256 gameId) external view returns (address player1, address player2, uint256 amount, address token, uint8 status, uint256 commitDeadline, uint256 revealDeadline, address winner, bool isDraw)',
@@ -90,7 +101,12 @@ const Contract = (function() {
         'event FeeRateChanged(uint256 oldRate, uint256 newRate)',
         'event DeveloperAddressChanged(address oldAddr, address newAddr)',
         'event OfficialInfoUpdated(string website, string twitter, string discord)',
-        'event TokenSupportUpdated(address indexed token, bool supported)'
+        'event TokenSupportUpdated(address indexed token, bool supported)',
+        // 方案A/B 新增事件
+        'event RelayerAuthorized(address indexed player, address indexed relayer, uint256 deadline)',
+        'event RelayerRevoked(address indexed player, address indexed oldRelayer)',
+        'event CommitSubmittedWithSig(uint256 indexed gameId, address indexed player, bytes32 commit, address indexed relayer)',
+        'event ChoiceRevealedWithSig(uint256 indexed gameId, address indexed player, uint8 choice, address indexed relayer)'
     ];
 
     // ERC20 合约 ABI 定义
@@ -122,7 +138,7 @@ const Contract = (function() {
     }
 
     // 初始化合约
-    function init(address, providerInstance, signerInstance = null) {
+    async function init(address, providerInstance, signerInstance = null) {
         if (typeof ethers === 'undefined') {
             throw new Error('ethers.js 未加载');
         }
@@ -144,6 +160,11 @@ const Contract = (function() {
                 contract = new ethers.Contract(address, CHAinRPS_ABI, signer);
             } else {
                 contract = new ethers.Contract(address, CHAinRPS_ABI, provider);
+            }
+            // 获取当前链 ID（EIP-712 签名必需）
+            if (provider) {
+                const network = await provider.getNetwork();
+                _chainId = Number(network.chainId);
             }
         } catch (e) {
             console.error('合约初始化失败:', e.message);
@@ -352,6 +373,191 @@ const Contract = (function() {
         });
     }
 
+    // ==================== 方案A：EIP-712 链下签名 ====================
+
+    // 获取 EIP-712 域分隔符（与合约保持一致）
+    /**
+     * @notice 获取 EIP-712 域分隔符
+     * @dev 必须与合约 constructor 中计算的 domainSeparator 一致
+     *      前端本地构造，避免额外链上调用
+     */
+    function _getEip712Domain() {
+        if (!contractAddress) {
+            throw new Error('合约地址未配置');
+        }
+        return {
+            name: 'ChainRPS',
+            version: 'v1.2.0',
+            chainId: _chainId,
+            verifyingContract: contractAddress
+        };
+    }
+
+    // 查询玩家当前 nonce（签名时必须包含）
+    /**
+     * @notice 查询玩家当前 nonce
+     * @param player 玩家地址
+     * @return 当前 nonce 值
+     */
+    async function getNonce(player) {
+        if (!contract) {
+            throw new Error('合约未初始化');
+        }
+        return Number(await contract.nonces(player));
+    }
+
+    // 生成 commit 的 EIP-712 链下签名（方案A）
+    /**
+     * @notice 生成 commit 的 EIP-712 链下签名（方案A）
+     * @dev 签名内容：Commit(gameId, player, commit, nonce)
+     *      MetaMask 会弹出轻量签名确认（非交易，无 gas，秒级完成）
+     * @param gameId 对局ID
+     * @param player 玩家地址（即签名者）
+     * @param commit 哈希承诺
+     * @return {nonce, v, r, s, signature} 签名分量与原签名
+     */
+    async function signCommit(gameId, player, commit) {
+        if (!signer) {
+            throw new Error('钱包未连接');
+        }
+        const nonce = await getNonce(player);
+        const domain = _getEip712Domain();
+        const types = {
+            Commit: [
+                { name: 'gameId', type: 'uint256' },
+                { name: 'player', type: 'address' },
+                { name: 'commit', type: 'bytes32' },
+                { name: 'nonce', type: 'uint256' }
+            ]
+        };
+        const value = { gameId, player, commit, nonce };
+
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「提交出拳」的签名请求（无 gas 费）');
+        }
+        // signTypedData 是 EIP-712 标准签名，MetaMask 不会弹出交易确认，只弹签名确认
+        const signature = await withWalletTimeout('签名提交出拳', async () => {
+            return await signer.signTypedData(domain, types, value);
+        });
+
+        // 拆分签名为 v,r,s（合约需要）
+        const sig = ethers.Signature.from(signature);
+        return {
+            nonce,
+            v: sig.v,
+            r: sig.r,
+            s: sig.s,
+            signature
+        };
+    }
+
+    // 生成 reveal 的 EIP-712 链下签名（方案A）
+    /**
+     * @notice 生成 reveal 的 EIP-712 链下签名（方案A）
+     * @dev 签名内容：Reveal(gameId, player, choice, salt, nonce)
+     *      一次签名后由后端代为上链，玩家无需亲自发交易
+     * @param gameId 对局ID
+     * @param player 玩家地址
+     * @param choice 出拳 (1=石头, 2=布, 3=剪刀)
+     * @param salt 盐值（bytes32 的 hex 字符串）
+     * @return {nonce, v, r, s, signature}
+     */
+    async function signReveal(gameId, player, choice, salt) {
+        if (!signer) {
+            throw new Error('钱包未连接');
+        }
+        const nonce = await getNonce(player);
+        const domain = _getEip712Domain();
+        const types = {
+            Reveal: [
+                { name: 'gameId', type: 'uint256' },
+                { name: 'player', type: 'address' },
+                { name: 'choice', type: 'uint8' },
+                { name: 'salt', type: 'bytes32' },
+                { name: 'nonce', type: 'uint256' }
+            ]
+        };
+        // salt 统一转成 bytes32 格式
+        const saltBytes32 = ethers.zeroPadValue(ethers.getBytes(salt), 32);
+        const value = { gameId, player, choice, salt: saltBytes32, nonce };
+
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「揭晓出拳」的签名请求（无 gas 费）');
+        }
+        const signature = await withWalletTimeout('签名揭晓出拳', async () => {
+            return await signer.signTypedData(domain, types, value);
+        });
+
+        const sig = ethers.Signature.from(signature);
+        return {
+            nonce,
+            v: sig.v,
+            r: sig.r,
+            s: sig.s,
+            signature
+        };
+    }
+
+    // ==================== 方案B：Relayer 长期授权 ====================
+
+    // 授权 relayer（7 天有效期）
+    /**
+     * @notice 授权 relayer（方案B） - 玩家签名授权后端 relayer 地址 7 天代提交权限
+     * @dev 调用合约 authorizeRelayer，需上链交易（一次性）
+     * @param relayerAddress 后端 relayer 地址
+     * @param durationSeconds 授权时长（秒），0 表示默认 7 天
+     */
+    async function authorizeRelayer(relayerAddress, durationSeconds = 0) {
+        if (!contract || !signer) {
+            throw new Error('合约未初始化或钱包未连接');
+        }
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            const days = durationSeconds === 0 ? 7 : Math.floor(durationSeconds / 86400);
+            FWUI.Toast.info(`请在钱包中确认「授权代提交」的签名请求（有效期 ${days} 天）`);
+        }
+        return withWalletTimeout('授权代提交', async () => {
+            const tx = await contract.authorizeRelayer(relayerAddress, durationSeconds);
+            await tx.wait();
+            return tx;
+        });
+    }
+
+    // 撤销 relayer 授权
+    /**
+     * @notice 撤销 relayer 授权（方案B） - 玩家随时可撤销
+     */
+    async function revokeRelayer() {
+        if (!contract || !signer) {
+            throw new Error('合约未初始化或钱包未连接');
+        }
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「撤销授权」的签名请求');
+        }
+        return withWalletTimeout('撤销授权', async () => {
+            const tx = await contract.revokeRelayer();
+            await tx.wait();
+            return tx;
+        });
+    }
+
+    // 查询当前玩家的 relayer 授权状态
+    /**
+     * @notice 查询 relayer 授权状态
+     * @param player 玩家地址
+     * @return {active, relayer, deadline}
+     */
+    async function getRelayerAuthorization(player) {
+        if (!contract) {
+            throw new Error('合约未初始化');
+        }
+        const result = await contract.getRelayerAuthorization(player);
+        return {
+            active: result[0],
+            relayer: result[1],
+            deadline: Number(result[2])
+        };
+    }
+
     // 申领超时胜利
     async function claimTimeout(gameId) {
         if (!contract || !signer) {
@@ -542,6 +748,14 @@ const Contract = (function() {
         joinMatch,
         submitCommit,
         revealChoice,
+        // 方案A：EIP-712 链下签名
+        signCommit,
+        signReveal,
+        getNonce,
+        // 方案B：Relayer 长期授权
+        authorizeRelayer,
+        revokeRelayer,
+        getRelayerAuthorization,
         claimTimeout,
         handleDraw,
         getGame,

@@ -3763,7 +3763,7 @@ const App = (function () {
         });
     }
 
-    // 确认并提交出拳
+    // 确认并提交出拳（方案A：EIP-712 链下签名 + 后端 relayer 代提交）
     async function selectChoice(choice) {
         if (gamePhase !== 'commit' || myCommitSubmitted) return;
 
@@ -3779,9 +3779,31 @@ const App = (function () {
             const myAddress = Wallet.getAddress();
             const commitHash = RPSCrypto.computeCommit(choice, currentSalt, myAddress);
 
-            UI.setMyStatus('提交中...');
+            UI.setMyStatus('签名中...');
 
-            await Contract.submitCommit(currentGameId, commitHash);
+            // 方案A：玩家做 EIP-712 链下签名（无 gas 费，秒级完成）
+            const sigResult = await Contract.signCommit(currentGameId, myAddress, commitHash);
+
+            UI.setMyStatus('代提交中...');
+
+            // 将签名发给后端，由 relayer 调用合约 submitCommitWithSig 代为上链
+            const res = await fetch(`${CONFIG.backendUrl}/api/game/submit-commit-sig`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    game_id: currentGameId,
+                    player_address: myAddress,
+                    commit_hash: commitHash,
+                    nonce: sigResult.nonce,
+                    v: sigResult.v,
+                    r: sigResult.r,
+                    s: sigResult.s,
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.message || '代提交失败');
+            }
 
             myCommitSubmitted = true;
             UI.setMyStatus('已提交');
@@ -3789,9 +3811,9 @@ const App = (function () {
 
             RPSCrypto.storeSalt(currentGameId, currentSalt, choice);
 
-            FWUI.Toast.success('出拳已提交');
+            FWUI.Toast.success('出拳已提交（签名代提交）');
 
-            // 通过 P2P 即时通知对端已提交（P2P 未就绪时由后端 WS 推送兜底）
+            // 通过 P2P 即时通知对端已提交（P2P 不带出拳数据，仅通知状态）
             sendPeerNotify('opponent_commit', {
                 game_id: currentGameId,
                 player: myAddress,
@@ -3816,7 +3838,7 @@ const App = (function () {
         }
     }
 
-    // 揭晓出拳
+    // 揭晓出拳（方案A：EIP-712 链下签名 + 后端 relayer 代提交上链）
     async function revealChoice() {
         if (!selectedChoice || !currentSalt || !myCommitSubmitted || myRevealed) return;
 
@@ -3825,25 +3847,54 @@ const App = (function () {
             stopAutoReveal();
             if (revealBtn) {
                 revealBtn.disabled = true;
-                revealBtn.textContent = '揭晓中...';
+                revealBtn.textContent = '签名中...';
             }
 
-            await Contract.revealChoice(currentGameId, selectedChoice, currentSalt);
+            const myAddress = Wallet.getAddress();
+
+            // 方案A：玩家对 reveal 数据做 EIP-712 链下签名（无 gas 费）
+            const sigResult = await Contract.signReveal(
+                currentGameId, myAddress, selectedChoice, currentSalt
+            );
+
+            if (revealBtn) {
+                revealBtn.textContent = '代提交中...';
+            }
+
+            // 将签名发给后端，由 relayer 调用合约 revealChoiceWithSig 一次性上链完成揭晓
+            // （用户要求：reveal 阶段必须上链，此步把签名数据一次性上链）
+            const res = await fetch(`${CONFIG.backendUrl}/api/game/reveal-choice-sig`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    game_id: currentGameId,
+                    player_address: myAddress,
+                    choice: selectedChoice,
+                    salt: currentSalt,
+                    nonce: sigResult.nonce,
+                    v: sigResult.v,
+                    r: sigResult.r,
+                    s: sigResult.s,
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.message || '代提交揭晓失败');
+            }
 
             myRevealed = true;
             UI.showRevealButton(false);
             UI.setMyStatus('已揭晓');
             UI.setMyChoice(selectedChoice, true);
 
-            FWUI.Toast.success('揭晓成功');
+            FWUI.Toast.success('揭晓成功（签名代提交）');
 
             RPSCrypto.clearSalt(currentGameId);
 
-            // 通过 P2P 即时通知对端已揭晓（含出拳内容，P2P 未就绪时由后端 WS 推送兜底）
+            // 通过 P2P 即时通知对端已揭晓（P2P 不带出拳数据，出拳内容由链上事件同步）
             sendPeerNotify('opponent_reveal', {
                 game_id: currentGameId,
-                player: Wallet.getAddress(),
-                choice: selectedChoice,
+                player: myAddress,
             });
 
         } catch (e) {

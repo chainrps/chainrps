@@ -29,9 +29,15 @@ from rps_backend.models import (
     RoomListResponse,
     SubmitCommitRequest,
     ToggleReadyRequest,
+    # 方案A：EIP-712 签名代提交
+    SubmitCommitSigRequest,
+    RevealChoiceSigRequest,
+    # 方案B：Relayer 长期授权
+    AuthorizeRelayerRequest,
 )
 from rps_backend.repository import get_game_record
 from rps_backend.service import game_manager, match_manager, room_manager
+from rps_backend.service.relayer_service import relayer_service
 
 
 # 游戏相关路由，统一前缀 /game
@@ -562,6 +568,82 @@ async def get_match_status(player_address: str, token: str, bet_amount: float):
         queue_position=result.get("queue_position"),
         estimated_wait=None,
     )
+
+
+# ==================== 方案A：EIP-712 签名代提交 ====================
+
+# 代提交 commit（玩家签名授权 relayer 代为上链）
+@router.post("/submit-commit-sig")
+async def submit_commit_with_sig(request: SubmitCommitSigRequest):
+    """代提交 commit（方案A）
+
+    玩家用 EIP-712 链下签名授权，relayer 调用合约 submitCommitWithSig 代为上链。
+    无需玩家亲自发交易，无 gas 费，秒级完成。
+    """
+    if not relayer_service.is_available():
+        return {"success": False, "message": "代提交服务未启用（未配置 RELAYER_PRIVATE_KEY）"}
+
+    result = await relayer_service.submit_commit_with_sig(
+        game_id=request.game_id,
+        player=request.player_address,
+        commit_hash=request.commit_hash,
+        nonce=request.nonce,
+        v=request.v,
+        r=request.r,
+        s=request.s,
+    )
+    return result
+
+
+# 代提交 reveal（玩家签名授权 relayer 代为上链揭晓）
+@router.post("/reveal-choice-sig")
+async def reveal_choice_with_sig(request: RevealChoiceSigRequest):
+    """代提交 reveal（方案A）
+
+    玩家用 EIP-712 链下签名授权，relayer 调用合约 revealChoiceWithSig 代为上链揭晓。
+    reveal 数据一次性上链完成结算。
+    """
+    if not relayer_service.is_available():
+        return {"success": False, "message": "代提交服务未启用（未配置 RELAYER_PRIVATE_KEY）"}
+
+    # 参数校验：choice 必须 1-3
+    if request.choice not in (1, 2, 3):
+        return {"success": False, "message": "出拳无效（1=石头, 2=布, 3=剪刀）"}
+
+    result = await relayer_service.reveal_choice_with_sig(
+        game_id=request.game_id,
+        player=request.player_address,
+        choice=request.choice,
+        salt=request.salt,
+        nonce=request.nonce,
+        v=request.v,
+        r=request.r,
+        s=request.s,
+    )
+    return result
+
+
+# ==================== 方案B：Relayer 长期授权 ====================
+
+# 获取 relayer 地址（前端用此地址调用合约 authorizeRelayer）
+@router.get("/relayer/address")
+async def get_relayer_address():
+    """获取 relayer 钱包地址
+
+    前端拿到此地址后调用合约 authorizeRelayer(relayerAddress, 0) 授权 7 天。
+    """
+    addr = relayer_service.get_relayer_address()
+    if not addr:
+        return {"success": False, "message": "Relayer 未配置", "available": False}
+    return {"success": True, "available": True, "relayer_address": addr}
+
+
+# 查询玩家 relayer 授权状态
+@router.get("/relayer/authorization/{player_address}")
+async def get_relayer_authorization(player_address: str):
+    """查询玩家的 relayer 授权状态（方案B）"""
+    result = await relayer_service.get_relayer_authorization(player_address)
+    return {"success": True, **result}
 
 
 # ==================== 游戏流程相关 ====================
