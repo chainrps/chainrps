@@ -16,8 +16,8 @@ from typing import Optional, List, Dict, Any
 from web3 import Web3
 from web3.exceptions import TimeExhausted
 
-from rps_backend.config import RPC_CHAIN_ID, RPC_URL, RPC_LOCAL_PORT, RPC_DEFAULT_BALANCE, RPC_SYMBOL, \
-    RPC_DEFAULT_ACCOUNT_COUNT
+from rps_backend.config import RPC_CHAIN_ID, RPC_URL, RPC_LOCAL_PORT, RPC_LOCAL_BALANCE, RPC_LOCAL_SYMBOL, \
+    RPC_LOCAL_ACCOUNT_COUNT, RPC_LOCAL_NETWORK
 
 # RPC 连接配置
 RPC_TIMEOUT = 15  # 连接超时时间（秒）
@@ -388,9 +388,9 @@ class LocalChainService:
         host: str = "127.0.0.1",
         port: int = RPC_LOCAL_PORT,
             chain_id: int = RPC_CHAIN_ID,
-            accounts_count: int = RPC_DEFAULT_ACCOUNT_COUNT,
-            default_balance: float = RPC_DEFAULT_BALANCE,
-            symbol: str = RPC_SYMBOL,
+            accounts_count: int = RPC_LOCAL_ACCOUNT_COUNT,
+            default_balance: float = RPC_LOCAL_BALANCE,
+            symbol: str = RPC_LOCAL_SYMBOL,
     ) -> Dict[str, Any]:
         npx_path = _find_npx_executable()
         if not npx_path:
@@ -596,7 +596,7 @@ class LocalChainService:
         # 读取推荐主链名称
         try:
             from rps_backend.repository import get_system_config_value
-            recommended_chain_name = get_system_config_value("recommended_chain_name") or "ChainRPS_Sim"
+            recommended_chain_name = get_system_config_value("recommended_chain_name") or RPC_LOCAL_NETWORK
         except Exception:
             recommended_chain_name = f"Localhost {RPC_LOCAL_PORT}"
 

@@ -786,8 +786,8 @@ class RoomManager:
         获取游戏大厅的房间列表
 
         返回所有活跃房间（准备中、倒计时中、游戏中），供大厅展示完整状态。
-        对于 CREATED/JOINED/COUNTDOWN 状态的房间，若创建者不在线则不展示
-        （避免大厅出现无人值守的空房间）。
+        无人在线的房间由 handle_player_disconnect 延迟 10 秒后自动关闭，
+        关闭后状态变为 CLOSED 自然从列表中消失，无需在此额外过滤。
         """
         now = now_timestamp()
         active_rooms = []
@@ -806,16 +806,6 @@ class RoomManager:
                 continue
             if now - room["created_at"] >= lifetime:
                 continue
-
-            # CREATED/JOINED/COUNTDOWN 房间：创建者不在线则不展示（空房间过滤）
-            if room["status"] in [
-                ROOM_STATUS["CREATED"],
-                ROOM_STATUS["JOINED"],
-                ROOM_STATUS["COUNTDOWN"],
-            ]:
-                creator_online = room["creator"].lower() in ws_manager.active_connections
-                if not creator_online:
-                    continue
 
             active_rooms.append({
                 "room_id": room_id,

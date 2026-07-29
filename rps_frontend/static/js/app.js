@@ -3763,7 +3763,7 @@ const App = (function () {
         });
     }
 
-    // 确认并提交出拳（方案A：EIP-712 链下签名 + 后端 relayer 代提交）
+    // 确认并提交出拳（方案A：EIP-712 链下签名 + 后端 relayer 代提交；失败回退方案B：直接上链）
     async function selectChoice(choice) {
         if (gamePhase !== 'commit' || myCommitSubmitted) return;
 
@@ -3781,28 +3781,42 @@ const App = (function () {
 
             UI.setMyStatus('签名中...');
 
+            let committed = false;
             // 方案A：玩家做 EIP-712 链下签名（无 gas 费，秒级完成）
-            const sigResult = await Contract.signCommit(currentGameId, myAddress, commitHash);
+            try {
+                const sigResult = await Contract.signCommit(currentGameId, myAddress, commitHash);
 
-            UI.setMyStatus('代提交中...');
+                UI.setMyStatus('代提交中...');
 
-            // 将签名发给后端，由 relayer 调用合约 submitCommitWithSig 代为上链
-            const res = await fetch(`${CONFIG.backendUrl}/api/game/submit-commit-sig`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    game_id: currentGameId,
-                    player_address: myAddress,
-                    commit_hash: commitHash,
-                    nonce: sigResult.nonce,
-                    v: sigResult.v,
-                    r: sigResult.r,
-                    s: sigResult.s,
-                })
-            });
-            const data = await res.json();
-            if (!res.ok || !data.success) {
-                throw new Error(data.message || '代提交失败');
+                // 将签名发给后端，由 relayer 调用合约 submitCommitWithSig 代为上链
+                const res = await fetch(`${CONFIG.backendUrl}/api/game/submit-commit-sig`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        game_id: currentGameId,
+                        player_address: myAddress,
+                        commit_hash: commitHash,
+                        nonce: sigResult.nonce,
+                        v: sigResult.v,
+                        r: sigResult.r,
+                        s: sigResult.s,
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    committed = true;
+                } else {
+                    console.warn('[Commit] 方案A代提交失败，回退到直接上链:', data.message);
+                }
+            } catch (sigErr) {
+                console.warn('[Commit] 方案A签名失败，回退到直接上链:', sigErr.message || sigErr);
+            }
+
+            // 方案B回退：直接上链 submitCommit（需要 gas 费）
+            if (!committed) {
+                UI.setMyStatus('直接上链提交中...');
+                FWUI.Toast.info('签名代提交不可用，将直接上链提交（需要 gas 费）');
+                await Contract.submitCommit(currentGameId, commitHash);
             }
 
             myCommitSubmitted = true;
@@ -3811,7 +3825,7 @@ const App = (function () {
 
             RPSCrypto.storeSalt(currentGameId, currentSalt, choice);
 
-            FWUI.Toast.success('出拳已提交（签名代提交）');
+            FWUI.Toast.success('出拳已提交');
 
             // 通过 P2P 即时通知对端已提交（P2P 不带出拳数据，仅通知状态）
             sendPeerNotify('opponent_commit', {
@@ -3838,7 +3852,7 @@ const App = (function () {
         }
     }
 
-    // 揭晓出拳（方案A：EIP-712 链下签名 + 后端 relayer 代提交上链）
+    // 揭晓出拳（方案A：EIP-712 链下签名 + 后端 relayer 代提交；失败回退方案B：直接上链）
     async function revealChoice() {
         if (!selectedChoice || !currentSalt || !myCommitSubmitted || myRevealed) return;
 
@@ -3852,34 +3866,49 @@ const App = (function () {
 
             const myAddress = Wallet.getAddress();
 
+            let revealed = false;
             // 方案A：玩家对 reveal 数据做 EIP-712 链下签名（无 gas 费）
-            const sigResult = await Contract.signReveal(
-                currentGameId, myAddress, selectedChoice, currentSalt
-            );
+            try {
+                const sigResult = await Contract.signReveal(
+                    currentGameId, myAddress, selectedChoice, currentSalt
+                );
 
-            if (revealBtn) {
-                revealBtn.textContent = '代提交中...';
+                if (revealBtn) {
+                    revealBtn.textContent = '代提交中...';
+                }
+
+                // 将签名发给后端，由 relayer 调用合约 revealChoiceWithSig 一次性上链完成揭晓
+                const res = await fetch(`${CONFIG.backendUrl}/api/game/reveal-choice-sig`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        game_id: currentGameId,
+                        player_address: myAddress,
+                        choice: selectedChoice,
+                        salt: currentSalt,
+                        nonce: sigResult.nonce,
+                        v: sigResult.v,
+                        r: sigResult.r,
+                        s: sigResult.s,
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    revealed = true;
+                } else {
+                    console.warn('[Reveal] 方案A代提交失败，回退到直接上链:', data.message);
+                }
+            } catch (sigErr) {
+                console.warn('[Reveal] 方案A签名失败，回退到直接上链:', sigErr.message || sigErr);
             }
 
-            // 将签名发给后端，由 relayer 调用合约 revealChoiceWithSig 一次性上链完成揭晓
-            // （用户要求：reveal 阶段必须上链，此步把签名数据一次性上链）
-            const res = await fetch(`${CONFIG.backendUrl}/api/game/reveal-choice-sig`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    game_id: currentGameId,
-                    player_address: myAddress,
-                    choice: selectedChoice,
-                    salt: currentSalt,
-                    nonce: sigResult.nonce,
-                    v: sigResult.v,
-                    r: sigResult.r,
-                    s: sigResult.s,
-                })
-            });
-            const data = await res.json();
-            if (!res.ok || !data.success) {
-                throw new Error(data.message || '代提交揭晓失败');
+            // 方案B回退：直接上链 revealChoice（需要 gas 费）
+            if (!revealed) {
+                if (revealBtn) {
+                    revealBtn.textContent = '直接上链揭晓中...';
+                }
+                FWUI.Toast.info('签名代提交不可用，将直接上链揭晓（需要 gas 费）');
+                await Contract.revealChoice(currentGameId, selectedChoice, currentSalt);
             }
 
             myRevealed = true;
@@ -3887,7 +3916,7 @@ const App = (function () {
             UI.setMyStatus('已揭晓');
             UI.setMyChoice(selectedChoice, true);
 
-            FWUI.Toast.success('揭晓成功（签名代提交）');
+            FWUI.Toast.success('揭晓成功');
 
             RPSCrypto.clearSalt(currentGameId);
 

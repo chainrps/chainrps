@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional, List
 
-from ..config import DATABASE_PATH, RPC_LOCAL_PORT
+from ..config import DATABASE_PATH, RPC_LOCAL_PORT, RPC_LOCAL_NETWORK
 from ..models import GameState
 
 
@@ -526,7 +526,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     "min_bet_amount": ("1", "game", "最小下注金额"),
     # 主链配置
     "chain_id": ("5208888", "chain", "目标区块链网络 Chain ID"),
-    "recommended_chain_name": ("ChainRPS_Sim", "chain", "推荐主链名称（统一标识名）"),
+    "recommended_chain_name": (RPC_LOCAL_NETWORK, "chain", "推荐主链名称（统一标识名）"),
     "network_name": ("ChainRPS Local", "chain", "网络显示名称"),
     "rpc_url": (f"http://127.0.0.1:{RPC_LOCAL_PORT}", "chain", "RPC 节点 URL"),
     "block_explorer": ("", "chain", "区块浏览器 URL（可选）"),

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from web3 import Web3
 
-from rps_backend.config import RPC_CHAIN_ID, RPC_LOCAL_URL, RPC_LOCAL_PORT
+from rps_backend.config import RPC_CHAIN_ID, RPC_LOCAL_URL, RPC_LOCAL_PORT, RPC_LOCAL_NETWORK
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -155,7 +155,7 @@ def deploy_contract():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("ChainRPS_Sim 本地测试网部署")
+    print(f"{RPC_LOCAL_NETWORK} 本地测试网部署")
     print("=" * 60)
 
     ensure_compiled()

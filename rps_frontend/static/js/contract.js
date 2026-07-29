@@ -403,7 +403,13 @@ const Contract = (function() {
         if (!contract) {
             throw new Error('合约未初始化');
         }
-        return Number(await contract.nonces(player));
+        try {
+            return Number(await contract.nonces(player));
+        } catch (e) {
+            // 合约可能是不支持 nonces 的旧版本，默认返回 0
+            console.warn('[Contract] nonces() 调用失败，默认 nonce=0:', e.message || e);
+            return 0;
+        }
     }
 
     // 生成 commit 的 EIP-712 链下签名（方案A）

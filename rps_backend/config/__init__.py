@@ -31,15 +31,21 @@ RELAYER_PRIVATE_KEY = os.getenv("RELAYER_PRIVATE_KEY", "")
 # Relayer 地址（从私钥派生，启动时自动计算；若未配置私钥则代提交功能不可用）
 RELAYER_ADDRESS = os.getenv("RELAYER_ADDRESS", "")
 
-# ==================== 本地链配置(RPC) ====================
+# ==================== 本地链配置(RPC[Ganache|Hardhat]) ====================
+RPC_LOCAL_NETWORK = os.getenv("RPC_LOCAL_NETWORK", "ChainRPS_Local")
 RPC_LOCAL_HOST = os.getenv("RPC_LOCAL_HOST", "127.0.0.1")
 RPC_LOCAL_PORT = int(os.getenv("RPC_LOCAL_PORT", 8686))
 RPC_LOCAL_URL = f"http://{RPC_LOCAL_HOST}:{RPC_LOCAL_PORT}"
+
+RPC_LOCAL_ACCOUNT_COUNT = int(os.getenv("RPC_LOCAL_ACCOUNT_COUNT", 10))
+RPC_LOCAL_BALANCE = float(os.getenv("RPC_LOCAL_BALANCE", 100000))
+RPC_LOCAL_SYMBOL = os.getenv("RPC_LOCAL_SYMBOL", "CRPS")
+
+# ChainRPS 配置链(RPC) ==
+RPC_NETWORK = os.getenv("RPC_NETWORK", "ChainRPS_Local")
 RPC_URL = os.getenv("RPC_URL", RPC_LOCAL_URL)
-RPC_CHAIN_ID = int(os.getenv("CHAIN_ID", 5208888))
-RPC_DEFAULT_ACCOUNT_COUNT = int(os.getenv("RPC_DEFAULT_ACCOUNT_COUNT", 10))
-RPC_DEFAULT_BALANCE = float(os.getenv("RPC_DEFAULT_BALANCE", 100000))
-RPC_SYMBOL = os.getenv("RPC_SYMBOL", "ETH")
+RPC_CHAIN_ID = int(os.getenv("RPC_CHAIN_ID", 5208888))
+RPC_SYMBOL = os.getenv("RPC_SYMBOL", "CRPS")
 
 # ==================== 超时配置（秒） ====================
 COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))  # 提交哈希超时
@@ -91,7 +97,7 @@ def reload_config():
     """重新加载 .env 文件并更新全局变量"""
     global HOST, PORT, REDIS_URL, DATABASE_PATH, CONTRACT_ADDRESS
     global RPC_LOCAL_HOST, RPC_LOCAL_PORT, RPC_LOCAL_URL, RPC_URL, RPC_CHAIN_ID
-    global RPC_DEFAULT_ACCOUNT_COUNT, RPC_DEFAULT_BALANCE, RPC_SYMBOL
+    global RPC_LOCAL_ACCOUNT_COUNT, RPC_LOCAL_BALANCE, RPC_LOCAL_SYMBOL
     global COMMIT_TIMEOUT, REVEAL_TIMEOUT, WS_HEARTBEAT_INTERVAL
     global ADMIN_WHITELIST, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS
     global DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, DEBUG
@@ -114,9 +120,9 @@ def reload_config():
     RPC_LOCAL_URL = f"http://{RPC_LOCAL_HOST}:{RPC_LOCAL_PORT}"
     RPC_URL = os.getenv("RPC_URL", RPC_LOCAL_URL)
     RPC_CHAIN_ID = int(os.getenv("CHAIN_ID", 5208888))
-    RPC_DEFAULT_ACCOUNT_COUNT = int(os.getenv("RPC_DEFAULT_ACCOUNT_COUNT", 10))
-    RPC_DEFAULT_BALANCE = float(os.getenv("RPC_DEFAULT_BALANCE", 100000))
-    RPC_SYMBOL = os.getenv("RPC_SYMBOL", "ETH")
+    RPC_LOCAL_ACCOUNT_COUNT = int(os.getenv("RPC_DEFAULT_ACCOUNT_COUNT", 10))
+    RPC_LOCAL_BALANCE = float(os.getenv("RPC_DEFAULT_BALANCE", 100000))
+    RPC_LOCAL_SYMBOL = os.getenv("RPC_SYMBOL", "ETH")
     COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))
     REVEAL_TIMEOUT = int(os.getenv("REVEAL_TIMEOUT", 88))
     WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", 30))
@@ -138,25 +144,56 @@ def reload_config():
 
 
 __all__ = [
+    # 服务配置
     "HOST",
     "PORT",
+
+    # Redis 配置
     "REDIS_URL",
+
+    # SQLite 配置
     "DATABASE_PATH",
+    # 合约配置
     "CONTRACT_ADDRESS",
+
+    # Relayer 配置
     "RELAYER_PRIVATE_KEY",
     "RELAYER_ADDRESS",
+
+    # 本地链配置 (RPC[Ganache|Hardhat])
+    "RPC_LOCAL_NETWORK",
+    "RPC_LOCAL_HOST",
+    "RPC_LOCAL_PORT",
+    "RPC_LOCAL_URL",
+    "RPC_LOCAL_ACCOUNT_COUNT",
+    "RPC_LOCAL_BALANCE",
+    "RPC_LOCAL_SYMBOL",
+    "RPC_NETWORK",
     "RPC_URL",
     "RPC_CHAIN_ID",
+    "RPC_SYMBOL",
+
+    # 超时配置
     "COMMIT_TIMEOUT",
     "REVEAL_TIMEOUT",
+    # WebSocket 配置
     "WS_HEARTBEAT_INTERVAL",
+    # 管理员配置
     "ADMIN_WHITELIST",
+    # 认证配置
+    "JWT_SECRET",
+    "JWT_ALGORITHM",
+    "JWT_EXPIRE_HOURS",
+    "DEFAULT_ADMIN_USERNAME",
+    "DEFAULT_ADMIN_PASSWORD",
     "DEBUG",
+    # Redis Key 前缀配置
     "MATCH_QUEUE_PREFIX",
     "GAME_CACHE_PREFIX",
     "ROOM_CACHE_PREFIX",
     "WS_PREFIX",
     "REDIS_BROADCAST_CHANNEL",
     "REDIS_DIRECT_CHANNEL",
+    # 工具函数
     "reload_config",
 ]
