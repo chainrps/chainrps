@@ -646,6 +646,64 @@ async def get_relayer_authorization(player_address: str):
     return {"success": True, **result}
 
 
+# 查询 relayer 健康状态（F1-05：Gasless 开关 + 降级）
+@router.get("/relayer/status")
+async def get_relayer_status():
+    """
+    查询 Relayer 健康状态（F1-05）
+
+    返回：
+    - success: 检测动作是否完成
+    - available: Relayer 是否已初始化（配置是否就绪）
+    - healthy: 综合健康判定（RPC 可达 + 余额充足 + nonce 同步）
+    - gasless_available: 前端是否可使用 gasless 模式（等同于 healthy）
+    - rpc_reachable / balance_sufficient / nonce_synced: 分项状态
+    - balance_wei: relayer 钱包余额（wei 字符串）
+    - local_nonce / chain_nonce: 本地与链上 nonce
+    - last_check: 上次检测时间（UTC ISO）
+    - error: 不健康时的原因
+
+    前端可定期轮询此端点；当 healthy 由 true 变为 false 时，
+    后端会通过 WebSocket 推送 type="relayer_status_changed" 消息通知前端降级。
+    本端点不返回任何私钥或敏感信息（S1-02）。
+    """
+    status = relayer_service.get_health_status()
+    return {
+        "success": True,
+        "available": status.get("available", False),
+        "healthy": status.get("healthy", False),
+        "gasless_available": status.get("healthy", False),
+        "rpc_reachable": status.get("rpc_reachable", False),
+        "balance_sufficient": status.get("balance_sufficient", False),
+        "nonce_synced": status.get("nonce_synced", False),
+        "balance_wei": status.get("balance_wei", "0"),
+        "local_nonce": status.get("local_nonce", 0),
+        "chain_nonce": status.get("chain_nonce", 0),
+        "last_check": status.get("last_check"),
+        "error": status.get("error"),
+        "relayer_address": relayer_service.get_relayer_address(),
+    }
+
+
+# 手动触发一次 Relayer 健康检测（运维/前端降级排查用）
+@router.post("/relayer/status/check")
+async def trigger_relayer_health_check():
+    """
+    手动触发一次 Relayer 健康检测（F1-05）
+
+    通常后端周期性自动检测（60 秒一次），此端点供运维或前端在关键操作前主动触发。
+    检测完成后若状态翻转，仍会通过 WebSocket 通知前端降级/恢复。
+    """
+    status = await relayer_service.check_health()
+    return {
+        "success": True,
+        "healthy": status.get("healthy", False),
+        "gasless_available": status.get("healthy", False),
+        "error": status.get("error"),
+        "last_check": status.get("last_check"),
+    }
+
+
 # ==================== 游戏流程相关 ====================
 
 # 提交哈希承诺

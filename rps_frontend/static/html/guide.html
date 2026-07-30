@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChainRPS 使用文档与演示 - 链上公平猜拳">
+    <title>ChainRPS - 使用文档</title>
+    <link rel="icon" href="../favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../css/theme.css?v=20260728a">
+    <link rel="stylesheet" href="../css/style.css?v=20260728a">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .guide-header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .guide-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .guide-logo img { height: 32px; }
+        .guide-logo span { font-size: 20px; font-weight: 700; }
+
+        .guide-back {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: color var(--transition-fast);
+        }
+        .guide-back:hover { color: var(--primary-color); }
+
+        .guide-header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .guide-theme-toggle {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px;
+            color: var(--text-secondary);
+            transition: color var(--transition-fast);
+        }
+        .guide-theme-toggle:hover { color: var(--primary-color); }
+
+        .guide-nav {
+            display: flex;
+            gap: 0;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 24px;
+            overflow-x: auto;
+        }
+
+        .guide-nav-item {
+            padding: 12px 20px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            white-space: nowrap;
+            transition: all var(--transition-fast);
+            text-decoration: none;
+        }
+        .guide-nav-item:hover { color: var(--text-primary); }
+        .guide-nav-item.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+            font-weight: 500;
+        }
+
+        .guide-body {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 32px 24px 80px;
+        }
+
+        .guide-section { display: none; }
+        .guide-section.active { display: block; }
+
+        .guide-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+
+        .guide-card h3 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .guide-card p, .guide-card li {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        .guide-card ul, .guide-card ol {
+            padding-left: 20px;
+            margin-bottom: 12px;
+        }
+
+        .guide-card li { margin-bottom: 4px; }
+
+        .guide-step {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+        }
+
+        .guide-step-num {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .guide-step-content h4 {
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
+        .guide-step-content p {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .guide-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .guide-tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 14px;
+            transition: all var(--transition-fast);
+        }
+        .guide-tab-btn:hover { color: var(--text-primary); }
+        .guide-tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+            font-weight: 500;
+        }
+
+        .guide-tab-panel { display: none; }
+        .guide-tab-panel.active { display: block; }
+
+        .guide-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .guide-feature-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            text-align: center;
+            transition: all var(--transition-fast);
+        }
+        .guide-feature-item:hover {
+            border-color: var(--primary-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .guide-feature-icon { font-size: 32px; margin-bottom: 8px; }
+        .guide-feature-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .guide-feature-desc { font-size: 12px; color: var(--text-secondary); }
+
+        .guide-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 24px;
+            background: var(--primary-color);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background var(--transition-fast);
+        }
+        .guide-cta:hover { background: var(--primary-hover); }
+
+        .guide-cta-outline {
+            background: var(--bg-card);
+            color: var(--primary-color);
+            border: 1px solid var(--primary-color);
+        }
+        .guide-cta-outline:hover { background: var(--primary-lighter); }
+
+        .guide-flow {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 16px 0;
+        }
+
+        .guide-flow-step {
+            padding: 6px 14px;
+            background: var(--primary-lighter);
+            color: var(--primary-color);
+            border-radius: var(--radius-full);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .guide-flow-arrow { color: var(--text-tertiary); font-size: 16px; }
+
+        .guide-warn {
+            padding: 12px 16px;
+            background: var(--warning-light);
+            border-left: 3px solid var(--warning-color);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            font-size: 13px;
+            color: #92400e;
+            margin-bottom: 16px;
+        }
+
+        .guide-info {
+            padding: 12px 16px;
+            background: var(--info-light);
+            border-left: 3px solid var(--info-color);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            font-size: 13px;
+            color: #1e40af;
+            margin-bottom: 16px;
+        }
+
+        .guide-code {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            margin: 8px 0 16px;
+        }
+
+        .guide-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0 20px;
+            font-size: 13px;
+        }
+        .guide-table th, .guide-table td {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            text-align: left;
+        }
+        .guide-table th {
+            background: var(--bg-secondary);
+            font-weight: 600;
+        }
+
+        .stage-demo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .stage-demo-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .stage-demo-card:hover {
+            border-color: var(--primary-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .stage-demo-icon { font-size: 28px; flex-shrink: 0; }
+        .stage-demo-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .stage-demo-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+        .stage-demo-arrow { margin-left: auto; color: var(--text-tertiary); font-size: 16px; flex-shrink: 0; }
+
+        .chain-explorer-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+
+        .chain-explorer-section h3 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .explorer-input-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            align-items: flex-end;
+        }
+
+        .explorer-input-row input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            background: var(--input-bg);
+            color: var(--text-primary);
+        }
+
+        .explorer-result {
+            min-height: 40px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 768px) {
+            .guide-header { padding: 12px 16px; }
+            .guide-nav { padding: 0 16px; }
+            .guide-body { padding: 20px 16px 60px; }
+            .guide-card { padding: 16px; }
+            .guide-feature-grid { grid-template-columns: 1fr 1fr; }
+            .guide-flow { flex-direction: column; align-items: flex-start; }
+            .guide-flow-arrow { display: none; }
+            .explorer-input-row { flex-direction: column; }
+            .stage-demo-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 480px) {
+            .guide-feature-grid { grid-template-columns: 1fr; }
+        }
+
+        [data-theme="dark"] .guide-step { background: var(--bg-tertiary); }
+        [data-theme="dark"] .guide-feature-item { background: var(--bg-tertiary); }
+        [data-theme="dark"] .guide-code { background: #0f172a; }
+    </style>
+</head>
+<body>
+    <header class="guide-header">
+        <a href="/" class="guide-logo">
+            <img src="../img/ChainRPS.png" alt="ChainRPS">
+            <span>ChainRPS</span>
+        </a>
+        <div class="guide-header-right">
+            <button class="guide-theme-toggle" id="guideThemeToggle" title="切换主题">🌙</button>
+            <a href="/" class="guide-back">← 返回游戏</a>
+        </div>
+    </header>
+
+    <nav class="guide-nav" id="guideNav">
+        <a class="guide-nav-item active" data-section="doc" onclick="GuideApp.switchSection('doc')">📖 使用文档</a>
+        <a class="guide-nav-item" data-section="explorer" onclick="GuideApp.switchSection('explorer')">🔍 链上查询</a>
+        <a class="guide-nav-item" data-section="demo" onclick="GuideApp.switchSection('demo')">🎮 阶段演示</a>
+    </nav>
+
+    <div class="guide-body">
+
+        <!-- ==================== 使用文档 ==================== -->
+        <div id="section-doc" class="guide-section active">
+
+            <div class="guide-card">
+                <h3>✊✋✌️ ChainRPS 是什么？</h3>
+                <p>ChainRPS 是基于区块链的<strong>公平猜拳</strong>（石头剪刀布）游戏。所有对局逻辑在链上智能合约执行，结果公开透明、不可篡改，真正实现<strong>无后台操控</strong>的公平博弈。</p>
+                <div class="guide-flow">
+                    <span class="guide-flow-step">出拳加密上链</span>
+                    <span class="guide-flow-arrow">→</span>
+                    <span class="guide-flow-step">双方提交哈希</span>
+                    <span class="guide-flow-arrow">→</span>
+                    <span class="guide-flow-step">揭晓出拳</span>
+                    <span class="guide-flow-arrow">→</span>
+                    <span class="guide-flow-step">合约判定胜负</span>
+                    <span class="guide-flow-arrow">→</span>
+                    <span class="guide-flow-step">自动结算</span>
+                </div>
+            </div>
+
+            <div class="guide-tabs" id="docPlatformTabs">
+                <button class="guide-tab-btn active" data-platform="pc" onclick="GuideApp.switchPlatform('pc')">🖥️ PC 端</button>
+                <button class="guide-tab-btn" data-platform="mobile" onclick="GuideApp.switchPlatform('mobile')">📱 移动端</button>
+            </div>
+
+            <!-- PC 端文档 -->
+            <div id="platform-pc" class="guide-tab-panel active">
+
+                <div class="guide-card">
+                    <h3>🔑 第一步：连接钱包</h3>
+                    <div class="guide-step">
+                        <div class="guide-step-num">1</div>
+                        <div class="guide-step-content">
+                            <h4>点击「连接钱包」</h4>
+                            <p>页面右上角点击「连接钱包」按钮，在弹出的 MetaMask 授权窗口中确认连接。</p>
+                        </div>
+                    </div>
+                    <div class="guide-step">
+                        <div class="guide-step-num">2</div>
+                        <div class="guide-step-content">
+                            <h4>选择网络</h4>
+                            <p>点击钱包信息区域的网络名称，切换到目标网络（如 ChainRPS Local、Polygon Amoy 等）。确保钱包中有足够的代币用于下注和 Gas。</p>
+                        </div>
+                    </div>
+                    <div class="guide-info">首次使用本地测试网？请先在管理面板启动本地链节点，然后在 MetaMask 中添加自定义网络（Chain ID: 5208888，RPC: http://127.0.0.1:8686）。</div>
+                </div>
+
+                <div class="guide-card">
+                    <h3>🏠 第二步：进入游戏大厅</h3>
+                    <div class="guide-step">
+                        <div class="guide-step-num">1</div>
+                        <div class="guide-step-content">
+                            <h4>浏览房间列表</h4>
+                            <p>连接钱包后自动进入游戏大厅，可看到当前所有可用房间。支持列表/卡片两种视图切换。</p>
+                        </div>
+                    </div>
+                    <div class="guide-step">
+                        <div class="guide-step-num">2</div>
+                        <div class="guide-step-content">
+                            <h4>创建或加入房间</h4>
+                            <p>点击「创建房间」选择代币和下注金额；或点击已有房间的「加入」按钮加入对局。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="guide-card">
+                    <h3>✊ 第三步：出拳对局</h3>
+                    <div class="guide-step">
+                        <div class="guide-step-num">1</div>
+                        <div class="guide-step-content">
+                            <h4>双方准备</h4>
+                            <p>进入房间后，双方点击「准备」按钮。两人都准备后自动进入倒计时。</p>
+                        </div>
+                    </div>
+                    <div class="guide-step">
+                        <div class="guide-step-num">2</div>
+                        <div class="guide-step-content">
+                            <h4>选择出拳</h4>
+                            <p>倒计时结束后，选择石头 ✊、剪刀 ✌️ 或布 ✋。你的选择会在本地加密生成哈希后提交上链，对手无法偷看。</p>
+                        </div>
+                    </div>
+                    <div class="guide-step">
+                        <div class="guide-step-num">3</div>
+                        <div class="guide-step-content">
+                            <h4>揭晓结果</h4>
+                            <p>双方都提交后，点击「揭晓」公开你的出拳。合约自动判定胜负并结算资金。</p>
+                        </div>
+                    </div>
+                    <div class="guide-warn">⚠️ 请务必在超时前完成出拳和揭晓操作！超时未操作可能导致对局取消或判负。</div>
+                </div>
+
+                <div class="guide-card">
+                    <h3>🏆 对局结果</h3>
+                    <p>对局结束后自动显示结果：</p>
+                    <table class="guide-table">
+                        <tr><th>结果</th><th>说明</th></tr>
+                        <tr><td>🎉 胜利</td><td>赢得对手下注金额（扣除手续费）</td></tr>
+                        <tr><td>💔 失败</td><td>失去自己的下注金额</td></tr>
+                        <tr><td>🤝 平局</td><td>双方下注金额原路退回</td></tr>
+                    </table>
+                    <p>可点击「再来一局」继续与同一对手对局，或返回大厅寻找新对手。</p>
+                </div>
+
+                <div class="guide-card">
+                    <h3>⚙️ 偏好设置</h3>
+                    <p>点击页面右侧设置面板，可配置：</p>
+                    <ul>
+                        <li><strong>默认模式</strong>：快速匹配（模式 A）或私密纯净（模式 B）</li>
+                        <li><strong>默认代币</strong>：POL / USDC</li>
+                        <li><strong>超时策略</strong>：超时时自动随机出拳 / 固定出拳</li>
+                        <li><strong>通知与音效</strong>：开关通知推送和游戏音效</li>
+                        <li><strong>自动揭晓</strong>：提交出拳后自动揭晓（需双方都已提交）</li>
+                    </ul>
+                </div>
+
+                <div class="guide-card">
+                    <h3>🔒 两种运行模式</h3>
+                    <table class="guide-table">
+                        <tr><th>特性</th><th>模式 A：快速匹配</th><th>模式 B：私密纯净</th></tr>
+                        <tr><td>匹配方式</td><td>服务器自动撮合</td><td>手动分享房间 ID</td></tr>
+                        <tr><td>数据上传</td><td>房间信息经服务器中转</td><td>不向服务器传输对局信息</td></tr>
+                        <tr><td>信任模型</td><td>服务器仅辅助匹配，不参与胜负判定</td><td>纯链上交互，零信任服务器</td></tr>
+                        <tr><td>适用场景</td><td>陌生人快速对战</td><td>好友私密切磋</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 移动端文档 -->
+            <div id="platform-mobile" class="guide-tab-panel">
+
+                <div class="guide-card">
+                    <h3>📱 移动端使用指南</h3>
+                    <div class="guide-info">ChainRPS 支持手机浏览器直接访问，推荐使用 MetaMask 手机版 App 内置浏览器打开。</div>
+                </div>
+
+                <div class="guide-card">
+                    <h3>🔑 连接钱包</h3>
+                    <div class="guide-step">
+                        <div class="guide-step-num">1</div>
+                        <div class="guide-step-content">
+                            <h4>MetaMask App 内打开</h4>
+                            <p>在 MetaMask 手机 App 的内置浏览器中输入 ChainRPS 网址，钱包自动连接，无需额外操作。</p>
+                        </div>
+                    </div>
+                    <div class="guide-step">
+                        <div class="guide-step-num">2</div>
+                        <div class="guide-step-content">
+                            <h4>其他浏览器</h4>
+                            <p>如使用 Chrome / Safari 等，需安装 WalletConnect 兼容钱包扩展。点击「连接钱包」后按提示授权。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="guide-card">
+                    <h3>🏠 游戏大厅</h3>
+                    <p>移动端界面自动适配为竖屏布局：</p>
+                    <ul>
+                        <li>房间列表默认以<strong>卡片视图</strong>展示，方便触屏操作</li>
+                        <li>点击房间卡片直接加入对局</li>
+                        <li>底部固定「创建房间」按钮，一键开局</li>
+                    </ul>
+                </div>
+
+                <div class="guide-card">
+                    <h3>✊ 出拳操作</h3>
+                    <div class="guide-step">
+                        <div class="guide-step-num">1</div>
+                        <div class="guide-step-content">
+                            <h4>准备</h4>
+                            <p>进入房间后点击「准备」按钮，等待对手也准备。</p>
+                        </div>
+                    </div>
+                    <div class="guide-step">
+                        <div class="guide-step-num">2</div>
+                        <div class="guide-step-content">
+                            <h4>出拳</h4>
+                            <p>三个大按钮（石头 / 剪刀 / 布）方便触屏选择，点击后自动加密提交。</p>
+                        </div>
+                    </div>
+                    <div class="guide-step">
+                        <div class="guide-step-num">3</div>
+                        <div class="guide-step-content">
+                            <h4>揭晓</h4>
+                            <p>双方提交后，点击「揭晓」按钮公开出拳，合约自动结算。</p>
+                        </div>
+                    </div>
+                    <div class="guide-warn">⚠️ 移动端请保持屏幕常亮，避免因锁屏导致 WebSocket 断连。若断连可刷新页面恢复。</div>
+                </div>
+
+                <div class="guide-card">
+                    <h3>⚙️ 移动端设置</h3>
+                    <p>点击右上角 ⚙️ 图标打开设置面板：</p>
+                    <ul>
+                        <li>选择默认代币和下注金额</li>
+                        <li>开启「自动揭晓」减少操作步骤</li>
+                        <li>开启「音效」获得更佳游戏体验</li>
+                    </ul>
+                </div>
+
+                <div class="guide-card">
+                    <h3>💡 移动端提示</h3>
+                    <ul>
+                        <li>推荐使用 <strong>MetaMask 内置浏览器</strong> 获得最流畅体验</li>
+                        <li>对局中请勿切换 App，避免钱包连接中断</li>
+                        <li>网络不稳定时可切换到「私密纯净」模式，纯链上交互更可靠</li>
+                        <li>页面支持亮色/暗色主题，点击右上角 🌙 切换</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="guide-card">
+                <h3>🧪 快速体验</h3>
+                <p>不想连接钱包？点击下方卡片可在新窗口预览各游戏阶段的 UI 效果：</p>
+                <div style="margin-top: 16px;">
+                    <a class="guide-cta" onclick="GuideApp.switchSection('demo')">🎮 打开阶段演示</a>
+                </div>
+            </div>
+
+            <div class="guide-card">
+                <h3>🔍 链上验证</h3>
+                <p>所有对局结果均可通过链上查询验证，确保公平透明。支持查询 ERC20 代币余额、交易记录详情等。</p>
+                <div style="margin-top: 16px;">
+                    <a class="guide-cta guide-cta-outline" href="/explorer" target="_blank">🔍 打开链上查询</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== 链上查询 ==================== -->
+        <div id="section-explorer" class="guide-section">
+            <div class="chain-explorer-section">
+                <h3>🔍 通用链浏览器</h3>
+                <div class="guide-info">无需登录即可查询链上数据。输入区块号、交易哈希或钱包地址进行查询。</div>
+                <div class="explorer-input-row">
+                    <input type="text" id="guideExplorerInput" placeholder="区块号 / 0x交易哈希 / 0x钱包地址"
+                           onkeydown="if(event.key==='Enter')GuideApp.explorerSearch()">
+                    <button class="btn btn-primary" onclick="GuideApp.explorerSearch()">🔍 查询</button>
+                    <button class="btn btn-outline" onclick="GuideApp.explorerLatest()">📋 最新区块</button>
+                </div>
+                <div id="guideExplorerResult" class="explorer-result">
+                    <span style="color: var(--text-secondary);">💡 输入区块号、交易哈希或钱包地址，按回车或点击查询按钮。</span>
+                </div>
+            </div>
+
+            <div class="chain-explorer-section">
+                <h3>📋 合约状态查询</h3>
+                <div class="explorer-input-row">
+                    <input type="text" id="guideContractAddr" placeholder="输入合约地址（0x...）">
+                    <button class="btn btn-primary" onclick="GuideApp.queryContract()">查询合约</button>
+                </div>
+                <div id="guideContractResult" class="explorer-result"></div>
+            </div>
+        </div>
+
+        <!-- ==================== 阶段演示 ==================== -->
+        <div id="section-demo" class="guide-section">
+            <div class="guide-card">
+                <h3>🎮 阶段模拟卡片</h3>
+                <p>点击下方卡片可在新窗口中打开对应游戏阶段的模拟界面，无需连接链上即可预览各环节 UI 效果。</p>
+                <div id="guideDemoGrid" class="stage-demo-grid" style="margin-top: 16px;"></div>
+            </div>
+
+            <div class="guide-card">
+                <h3>🎬 游戏流程动画</h3>
+                <p>自动播放 ChainRPS 完整对局流程，无需连接钱包即可预览。</p>
+                <div style="margin-top: 12px;">
+                    <a class="guide-cta" href="/demo#animation" target="_blank">🎬 打开动画演示</a>
+                    <span style="margin-left: 12px; font-size: 13px; color: var(--text-secondary);">（独立公开页面，无需登录）</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="../js/ethers.umd.min.js"></script>
+    <script src="../js/FWUI/modal.js?v=20260728a"></script>
+    <script src="../js/FWUI/toast.js?v=20260728a"></script>
+    <script src="../js/FWUI/button.js?v=20260728a"></script>
+    <script src="../js/FWUI/input.js?v=20260728a"></script>
+    <script src="../js/config.js?v=20260728a"></script>
+    <script>
+    const GuideApp = {
+        _currentSection: 'doc',
+        _provider: null,
+
+        init() {
+            this._initTheme();
+            this._initThemeToggle();
+            this._renderDemoCards();
+            this._initProvider();
+            const hash = window.location.hash.replace('#', '');
+            if (hash && ['doc', 'explorer', 'demo'].includes(hash)) {
+                this.switchSection(hash);
+            }
+        },
+
+        _initTheme() {
+            const saved = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', saved);
+            this._updateThemeIcon(saved);
+        },
+
+        _initThemeToggle() {
+            const btn = document.getElementById('guideThemeToggle');
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    const current = document.documentElement.getAttribute('data-theme') || 'light';
+                    const next = current === 'dark' ? 'light' : 'dark';
+                    document.documentElement.setAttribute('data-theme', next);
+                    localStorage.setItem('theme', next);
+                    this._updateThemeIcon(next);
+                });
+            }
+        },
+
+        _updateThemeIcon(theme) {
+            const btn = document.getElementById('guideThemeToggle');
+            if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+        },
+
+        _initProvider() {
+            try {
+                const rpcUrl = 'http://' + CONFIG.RPC_HOST + ':' + CONFIG.RPC_PORT;
+                this._provider = new ethers.JsonRpcProvider(rpcUrl);
+            } catch (e) {
+                console.warn('GuideApp: RPC provider init failed', e);
+            }
+        },
+
+        switchSection(name) {
+            this._currentSection = name;
+            document.querySelectorAll('.guide-nav-item').forEach(el => {
+                el.classList.toggle('active', el.dataset.section === name);
+            });
+            document.querySelectorAll('.guide-section').forEach(el => {
+                el.classList.toggle('active', el.id === 'section-' + name);
+            });
+            window.location.hash = name;
+        },
+
+        switchPlatform(platform) {
+            document.querySelectorAll('#docPlatformTabs .guide-tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.platform === platform);
+            });
+            document.querySelectorAll('.guide-tab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === 'platform-' + platform);
+            });
+        },
+
+        _renderDemoCards() {
+            const grid = document.getElementById('guideDemoGrid');
+            if (!grid) return;
+            const stages = [
+                { mock: 'lobby',        icon: '🏠', title: '游戏大厅',     desc: '大厅房间列表，展示已创建的房间' },
+                { mock: 'room_wait',    icon: '⏳', title: '房间等待',     desc: '等待对手加入，显示双方准备状态' },
+                { mock: 'countdown',    icon: '🔢', title: '倒计时',       desc: '双方准备就绪，即将开始对局' },
+                { mock: 'game_commit',  icon: '✊', title: '出拳提交',     desc: '选择石头/剪刀/布并加密提交' },
+                { mock: 'game_reveal',  icon: '🔓', title: '揭晓出拳',     desc: '双方已提交，等待揭晓结果' },
+                { mock: 'result_win',   icon: '🏆', title: '胜利',         desc: '对局结束，我方获胜' },
+                { mock: 'result_lose',  icon: '💔', title: '失败',         desc: '对局结束，我方失败' },
+                { mock: 'result_draw',  icon: '🤝', title: '平局',         desc: '对局结束，双方平局退回本金' },
+            ];
+            const baseUrl = window.location.origin + '/';
+            grid.innerHTML = stages.map(s => `
+                <div class="stage-demo-card" onclick="window.open('${baseUrl}?mock=${s.mock}', '_blank')">
+                    <div class="stage-demo-icon">${s.icon}</div>
+                    <div>
+                        <div class="stage-demo-title">${s.title}</div>
+                        <div class="stage-demo-desc">${s.desc}</div>
+                    </div>
+                    <div class="stage-demo-arrow">↗</div>
+                </div>
+            `).join('');
+        },
+
+        async explorerSearch() {
+            const input = document.getElementById('guideExplorerInput').value.trim();
+            const resultEl = document.getElementById('guideExplorerResult');
+            if (!input) { FWUI.Toast.warning('请输入查询内容'); return; }
+            if (!this._provider) { FWUI.Toast.error('RPC 连接未就绪，请确保本地链已启动'); return; }
+
+            resultEl.innerHTML = '<span style="color:var(--text-secondary);">查询中...</span>';
+
+            try {
+                if (/^0x[a-fA-F0-9]{64}$/.test(input)) {
+                    const tx = await this._provider.getTransaction(input);
+                    const receipt = await this._provider.getTransactionReceipt(input);
+                    if (!tx) { resultEl.innerHTML = '<span style="color:var(--danger-color);">未找到该交易</span>'; return; }
+                    resultEl.innerHTML = `
+                        <div style="margin-bottom:8px;"><strong>交易哈希：</strong><span style="font-family:monospace;font-size:12px;word-break:break-all;">${tx.hash}</span></div>
+                        <div style="margin-bottom:8px;"><strong>区块号：</strong>${tx.blockNumber ?? '待确认'}</div>
+                        <div style="margin-bottom:8px;"><strong>发送者：</strong><span style="font-family:monospace;font-size:12px;">${tx.from}</span></div>
+                        <div style="margin-bottom:8px;"><strong>接收者：</strong><span style="font-family:monospace;font-size:12px;">${tx.to || '合约创建'}</span></div>
+                        <div style="margin-bottom:8px;"><strong>价值：</strong>${ethers.formatEther(tx.value)} ${CONFIG.getNativeSymbol()}</div>
+                        <div><strong>状态：</strong>${receipt && receipt.status === 1 ? '<span style="color:#22c55e;">✅ 成功</span>' : '<span style="color:#ef4444;">❌ 失败</span>'}</div>
+                    `;
+                } else if (/^0x[a-fA-F0-9]{40}$/.test(input)) {
+                    const balance = await this._provider.getBalance(input);
+                    const code = await this._provider.getCode(input);
+                    const nonce = await this._provider.getTransactionCount(input);
+                    resultEl.innerHTML = `
+                        <div style="margin-bottom:8px;"><strong>地址：</strong><span style="font-family:monospace;font-size:12px;word-break:break-all;">${input}</span></div>
+                        <div style="margin-bottom:8px;"><strong>余额：</strong>${ethers.formatEther(balance)} ${CONFIG.getNativeSymbol()}</div>
+                        <div style="margin-bottom:8px;"><strong>交易数：</strong>${nonce}</div>
+                        <div><strong>类型：</strong>${code === '0x' ? '普通账户' : '智能合约'}</div>
+                    `;
+                } else {
+                    const blockNum = parseInt(input);
+                    if (isNaN(blockNum)) { resultEl.innerHTML = '<span style="color:var(--danger-color);">无法识别输入内容</span>'; return; }
+                    const block = await this._provider.getBlock(blockNum);
+                    if (!block) { resultEl.innerHTML = '<span style="color:var(--danger-color);">未找到该区块</span>'; return; }
+                    resultEl.innerHTML = `
+                        <div style="margin-bottom:8px;"><strong>区块号：</strong>${block.number}</div>
+                        <div style="margin-bottom:8px;"><strong>哈希：</strong><span style="font-family:monospace;font-size:12px;word-break:break-all;">${block.hash}</span></div>
+                        <div style="margin-bottom:8px;"><strong>时间：</strong>${new Date(Number(block.timestamp) * 1000).toLocaleString('zh-CN')}</div>
+                        <div style="margin-bottom:8px;"><strong>交易数：</strong>${block.transactions.length}</div>
+                        <div><strong>矿工：</strong><span style="font-family:monospace;font-size:12px;">${block.miner}</span></div>
+                    `;
+                }
+            } catch (e) {
+                resultEl.innerHTML = `<span style="color:var(--danger-color);">查询失败: ${e.message}</span>`;
+            }
+        },
+
+        async explorerLatest() {
+            const resultEl = document.getElementById('guideExplorerResult');
+            if (!this._provider) { FWUI.Toast.error('RPC 连接未就绪'); return; }
+            resultEl.innerHTML = '<span style="color:var(--text-secondary);">查询中...</span>';
+            try {
+                const block = await this._provider.getBlock('latest');
+                if (!block) { resultEl.innerHTML = '<span style="color:var(--danger-color);">无法获取最新区块</span>'; return; }
+                resultEl.innerHTML = `
+                    <div style="margin-bottom:8px;"><strong>最新区块号：</strong>${block.number}</div>
+                    <div style="margin-bottom:8px;"><strong>哈希：</strong><span style="font-family:monospace;font-size:12px;word-break:break-all;">${block.hash}</span></div>
+                    <div style="margin-bottom:8px;"><strong>时间：</strong>${new Date(Number(block.timestamp) * 1000).toLocaleString('zh-CN')}</div>
+                    <div style="margin-bottom:8px;"><strong>交易数：</strong>${block.transactions.length}</div>
+                    <div><strong>Gas Used：</strong>${block.gasUsed?.toString() ?? '-'}</div>
+                `;
+                document.getElementById('guideExplorerInput').value = String(block.number);
+            } catch (e) {
+                resultEl.innerHTML = `<span style="color:var(--danger-color);">查询失败: ${e.message}</span>`;
+            }
+        },
+
+        async queryContract() {
+            const addr = document.getElementById('guideContractAddr').value.trim();
+            const resultEl = document.getElementById('guideContractResult');
+            if (!addr || !/^0x[a-fA-F0-9]{40}$/.test(addr)) { FWUI.Toast.warning('请输入有效的合约地址'); return; }
+            if (!this._provider) { FWUI.Toast.error('RPC 连接未就绪'); return; }
+
+            resultEl.innerHTML = '<span style="color:var(--text-secondary);">查询中...</span>';
+            try {
+                const code = await this._provider.getCode(addr);
+                if (code === '0x') {
+                    resultEl.innerHTML = '<span style="color:var(--danger-color);">该地址不是合约地址，或链上无此合约</span>';
+                    return;
+                }
+                const balance = await this._provider.getBalance(addr);
+                resultEl.innerHTML = `
+                    <div style="margin-bottom:8px;"><strong>合约地址：</strong><span style="font-family:monospace;font-size:12px;word-break:break-all;">${addr}</span></div>
+                    <div style="margin-bottom:8px;"><strong>合约余额：</strong>${ethers.formatEther(balance)} ${CONFIG.getNativeSymbol()}</div>
+                    <div style="margin-bottom:8px;"><strong>字节码大小：</strong>${(code.length - 2) / 2} bytes</div>
+                    <div><strong>状态：</strong><span style="color:#22c55e;">✅ 合约已部署</span></div>
+                `;
+            } catch (e) {
+                resultEl.innerHTML = `<span style="color:var(--danger-color);">查询失败: ${e.message}</span>`;
+            }
+        }
+    };
+
+    GuideApp.init();
+    </script>
+</body>
+</html>

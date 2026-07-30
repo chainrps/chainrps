@@ -37,6 +37,7 @@ const UI = (function() {
         elements.matchingTime = document.getElementById('matchingTime');
         
         elements.gameStatusBadge = document.getElementById('gameStatusBadge');
+        elements.gameFundStage = document.getElementById('gameFundStage');
         elements.gameTimer = document.getElementById('gameTimer');
         elements.gameIdDisplay = document.getElementById('gameIdDisplay');
         elements.opponentAddress = document.getElementById('opponentAddress');
@@ -94,6 +95,48 @@ const UI = (function() {
         elements.readyBtn = document.getElementById('readyBtn');
         elements.readyBtnText = document.getElementById('readyBtnText');
         elements.leaveRoomBtn = document.getElementById('leaveRoomBtn');
+
+        // 钱包余额点击展开/收起多币种面板
+        const balancesDropdown = document.getElementById('walletBalancesDropdown');
+        if (elements.walletBalance && balancesDropdown) {
+            elements.walletBalance.addEventListener('click', (e) => {
+                e.stopPropagation();
+                balancesDropdown.classList.toggle('hidden');
+            });
+            // 点击页面其他区域收起
+            document.addEventListener('click', (e) => {
+                if (!balancesDropdown.contains(e.target) && e.target !== elements.walletBalance) {
+                    balancesDropdown.classList.add('hidden');
+                }
+            });
+        }
+
+        // 钱包地址点击复制
+        if (elements.walletAddress) {
+            elements.walletAddress.addEventListener('click', () => {
+                const fullAddress = (typeof Wallet !== 'undefined' && Wallet && typeof Wallet.getAddress === 'function')
+                    ? Wallet.getAddress()
+                    : null;
+                if (!fullAddress) return;
+                navigator.clipboard.writeText(fullAddress).catch(() => {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = fullAddress;
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                });
+                // 复制反馈动画
+                const el = elements.walletAddress;
+                const original = el.textContent;
+                el.textContent = '✓ 已复制';
+                el.style.color = 'var(--success-color)';
+                setTimeout(() => {
+                    el.textContent = original;
+                    el.style.color = '';
+                }, 1200);
+            });
+        }
     }
 
     // 切换显示的舞台
@@ -113,7 +156,8 @@ const UI = (function() {
             elements.walletInfo.classList.remove('hidden');
             elements.walletAddress.textContent = formatAddress(address);
             if (balance !== undefined) {
-                elements.walletBalance.textContent = `${parseFloat(balance).toFixed(4)} ${token || 'USDC'}`;
+                const symbol = token || (typeof CONFIG !== 'undefined' ? CONFIG.getNativeSymbol() : 'POL');
+                elements.walletBalance.textContent = `${parseFloat(balance).toFixed(4)} ${symbol}`;
             }
             if (elements.walletAvatar) {
                 elements.walletAvatar.textContent = getAvatarForAddress(address);
@@ -122,6 +166,27 @@ const UI = (function() {
             elements.connectWalletBtn.classList.remove('hidden');
             elements.walletInfo.classList.add('hidden');
         }
+    }
+
+    // 更新钱包多币种余额（用于点击展开详情）
+    function updateWalletBalances(address, balances) {
+        if (!address || !balances) return;
+        const nativeSymbol = (typeof CONFIG !== 'undefined') ? CONFIG.getNativeSymbol() : 'POL';
+        const nativeBalance = balances[nativeSymbol] || '0';
+        const usdcBalance = balances['USDC'] || '0';
+
+        // 主显示优先用 USDC（结算币），无 USDC 时用原生币
+        if (usdcBalance !== '0') {
+            elements.walletBalance.textContent = `${parseFloat(usdcBalance).toFixed(2)} USDC`;
+        } else {
+            elements.walletBalance.textContent = `${parseFloat(nativeBalance).toFixed(4)} ${nativeSymbol}`;
+        }
+
+        // 更新展开面板的各币种余额
+        const nativeEl = document.getElementById('walletNativeBalance');
+        const usdcEl = document.getElementById('walletUsdcBalance');
+        if (nativeEl) nativeEl.textContent = `${parseFloat(nativeBalance).toFixed(4)} ${nativeSymbol}`;
+        if (usdcEl) usdcEl.textContent = `${parseFloat(usdcBalance).toFixed(2)} USDC`;
     }
 
     // 更新网络信息显示
@@ -180,7 +245,7 @@ const UI = (function() {
         document.documentElement.setAttribute('data-theme', theme);
         const themeIcon = document.querySelector('.theme-icon');
         if (themeIcon) {
-            themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
+            themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
         }
         localStorage.setItem('rps_theme', theme);
     }
@@ -230,6 +295,15 @@ const UI = (function() {
         if (elements.gameStatusBadge) {
             elements.gameStatusBadge.textContent = text;
         }
+    }
+
+    // 设置资金阶段指示器（在 stageGame 的 game-header 中实时显示）
+    // stage 取值：local_frozen / chain_frozen / revealing / settled / cancelled
+    function setFundStage(stage) {
+        if (!elements.gameFundStage) return;
+        const text = FUND_STAGE_TEXT[stage] || FUND_STAGE_TEXT['local_frozen'];
+        elements.gameFundStage.textContent = text;
+        elements.gameFundStage.setAttribute('data-fund-stage', stage || 'local_frozen');
     }
 
     // 设置我的出拳
@@ -725,6 +799,7 @@ const UI = (function() {
         elements,
         showStage,
         updateWalletInfo,
+        updateWalletBalances,
         formatAddress,
         setTheme,
         getCurrentTheme,
@@ -732,6 +807,7 @@ const UI = (function() {
         updateMatchingTime,
         updateGameTimer,
         setGameStatus,
+        setFundStage,
         setMyChoice,
         setOpponentChoice,
         setMyStatus,

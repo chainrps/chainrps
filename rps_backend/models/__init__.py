@@ -30,10 +30,20 @@ class GameState(str, Enum):
 
 
 class Token(str, Enum):
-    """下注代币类型"""
+    """下注代币类型（原生币符号可配置，POL 为默认原生币，ETH 为兼容旧值）"""
+    POL = "POL"
     ETH = "ETH"
     USDC = "USDC"
-    USDT = "USDT"
+
+    @classmethod
+    def native(cls) -> 'Token':
+        """获取当前默认原生币类型"""
+        try:
+            from rps_backend.repository import get_system_config_value
+            symbol = get_system_config_value("native_symbol") or "POL"
+            return cls(symbol)
+        except Exception:
+            return cls.POL
 
 
 # ==================== API 请求模型 ====================

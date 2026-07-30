@@ -56,12 +56,24 @@
                             <span class="network-icon" id="networkIcon">🔗</span>
                             <span class="network-name" id="networkName">未知网络</span>
                         </div>
-                        <div class="wallet-balance-large" id="walletBalance">-</div>
-                        <div class="wallet-address" id="walletAddress">-</div>
+                        <div class="wallet-balance-large" id="walletBalance" title="点击查看所有代币余额" style="cursor: pointer;">-</div>
+                        <div class="wallet-address" id="walletAddress" title="点击复制完整地址">-</div>
                     </div>
                     <button class="btn btn-ghost btn-disconnect" id="disconnectBtn" title="断开连接">
                         ✕
                     </button>
+                </div>
+                <!-- 多币种余额展开面板 -->
+                <div class="wallet-balances-dropdown hidden" id="walletBalancesDropdown">
+                    <div class="dropdown-header">代币余额</div>
+                    <div class="balance-item">
+                        <span class="balance-symbol" id="walletNativeSymbolLabel">原生币</span>
+                        <span class="balance-value" id="walletNativeBalance">-</span>
+                    </div>
+                    <div class="balance-item">
+                        <span class="balance-symbol">USDC</span>
+                        <span class="balance-value" id="walletUsdcBalance">-</span>
+                    </div>
                 </div>
                 <!-- 网络切换下拉菜单 -->
                 <div class="network-dropdown hidden" id="networkDropdown">
@@ -186,7 +198,7 @@
                         <div class="room-info">
                             <div class="info-item">
                                 <span class="info-label">代币</span>
-                                <span class="info-value" id="roomToken">ETH</span>
+                                <span class="info-value" id="roomToken">--</span>
                             </div>
                             <div class="info-item">
                                 <span class="info-label">下注金额</span>
@@ -238,6 +250,7 @@
                 <div class="stage-game hidden" id="stageGame">
                     <div class="game-header">
                         <div class="game-status-badge" id="gameStatusBadge">准备中</div>
+                        <div class="game-fund-stage" id="gameFundStage">🔒 资金：本地冻结（准备阶段）</div>
                         <div class="game-timer" id="gameTimer">--:--</div>
                         <div class="game-id" id="gameIdDisplay">对局 #--</div>
                         <button class="btn btn-icon btn-exit-game" id="exitGameBtn" title="退出房间">✕</button>
@@ -465,9 +478,8 @@
                         <div class="setting-item">
                             <label>默认代币</label>
                             <select id="settingDefaultToken" class="setting-select">
-                                <option value="ETH">ETH</option>
+                                <option value="POL">POL</option>
                                 <option value="USDC">USDC</option>
-                                <option value="USDT">USDT</option>
                             </select>
                         </div>
                         <div class="setting-item">
@@ -478,6 +490,27 @@
                                 <option value="paper">布</option>
                                 <option value="scissors">剪刀</option>
                             </select>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4 class="settings-title">签名模式</h4>
+                        <div class="setting-item">
+                            <label>模式选择</label>
+                            <select id="settingSignatureMode" class="setting-select">
+                                <option value="A">A 模式：单次签名（每局需签名，无 gas 费）</option>
+                                <option value="B">B 模式：7 天零签名（授权 relayer 代操作）</option>
+                            </select>
+                            <small class="setting-hint">A 模式每局需在钱包签名；B 模式一次性授权 relayer 7 天代提交，期间无需逐局签名</small>
+                        </div>
+                        <div class="setting-item mode-b-status hidden" id="modeBStatusSection">
+                            <label>授权状态</label>
+                            <div class="mode-b-status-content" id="modeBStatusContent">查询中...</div>
+                            <button class="btn btn-outline btn-block" id="revokeRelayerBtn" style="margin-top: 8px;">
+                                撤销授权
+                            </button>
+                            <button class="btn btn-primary btn-block" id="authorizeRelayerBtn" style="margin-top: 8px;">
+                                授权 Relayer（7 天）
+                            </button>
                         </div>
                     </div>
                     <div class="settings-section">
@@ -514,10 +547,10 @@
 
     <footer class="app-footer">
         <div class="footer-links">
-            <a href="#" class="footer-link">合约验证</a>
-            <a href="#" class="footer-link">使用文档</a>
-            <a href="http://127.0.0.1:8000/admin" class="footer-link" target="_blank">管理面板</a>
-            <a href="#" class="footer-link">Discord</a>
+            <a href="/explorer" class="footer-link" target="_blank">链上查询</a>
+            <a href="/guide" class="footer-link" target="_blank">使用文档</a>
+            <a href="/guide#demo" class="footer-link" target="_blank">阶段演示</a>
+            <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
             <span>ChainRPS v1.0.0 · 公平 · 透明 · 可验证</span>

@@ -364,7 +364,7 @@ const Contract = (function() {
             throw new Error('合约未初始化或钱包未连接');
         }
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「揭晓出拳」的签名请求');
+            FWUI.Toast.info('请在钱包中确认「揭晓出拳」交易（需 gas 费）');
         }
         return withWalletTimeout('揭晓出拳', async () => {
             const tx = await contract.revealChoice(gameId, choice, salt);
@@ -439,7 +439,7 @@ const Contract = (function() {
         const value = { gameId, player, commit, nonce };
 
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「提交出拳」的签名请求（无 gas 费）');
+            FWUI.Toast.info('请在钱包中确认「提交出拳」签名（无 gas 费）');
         }
         // signTypedData 是 EIP-712 标准签名，MetaMask 不会弹出交易确认，只弹签名确认
         const signature = await withWalletTimeout('签名提交出拳', async () => {
@@ -488,7 +488,7 @@ const Contract = (function() {
         const value = { gameId, player, choice, salt: saltBytes32, nonce };
 
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「揭晓出拳」的签名请求（无 gas 费）');
+            FWUI.Toast.info('请在钱包中确认「揭晓出拳」签名（无 gas 费）');
         }
         const signature = await withWalletTimeout('签名揭晓出拳', async () => {
             return await signer.signTypedData(domain, types, value);
@@ -519,7 +519,7 @@ const Contract = (function() {
         }
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
             const days = durationSeconds === 0 ? 7 : Math.floor(durationSeconds / 86400);
-            FWUI.Toast.info(`请在钱包中确认「授权代提交」的签名请求（有效期 ${days} 天）`);
+            FWUI.Toast.info(`请在钱包中确认「授权代提交」交易（需 gas 费，有效期 ${days} 天）`);
         }
         return withWalletTimeout('授权代提交', async () => {
             const tx = await contract.authorizeRelayer(relayerAddress, durationSeconds);
@@ -537,7 +537,7 @@ const Contract = (function() {
             throw new Error('合约未初始化或钱包未连接');
         }
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「撤销授权」的签名请求');
+            FWUI.Toast.info('请在钱包中确认「撤销授权」交易（需 gas 费）');
         }
         return withWalletTimeout('撤销授权', async () => {
             const tx = await contract.revokeRelayer();
@@ -570,7 +570,7 @@ const Contract = (function() {
             throw new Error('合约未初始化或钱包未连接');
         }
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「申领超时胜利」的签名请求');
+            FWUI.Toast.info('请在钱包中确认「申领超时胜利」交易（需 gas 费）');
         }
         return withWalletTimeout('申领超时胜利', async () => {
             const tx = await contract.claimTimeout(gameId);
@@ -585,7 +585,7 @@ const Contract = (function() {
             throw new Error('合约未初始化或钱包未连接');
         }
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「处理平局」的签名请求');
+            FWUI.Toast.info('请在钱包中确认「处理平局」交易（需 gas 费）');
         }
         return withWalletTimeout('处理平局', async () => {
             const tx = await contract.handleDraw(gameId);

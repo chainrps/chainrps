@@ -48,7 +48,11 @@ router = APIRouter(
 # 将同步阻塞的 local_chain_service 调用放到线程池执行，避免卡死事件循环
 async def _run_chain_async(func, *args, **kwargs):
     """在线程池中执行同步的 LocalChainService 方法"""
-    loop = asyncio.get_event_loop()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
     return await loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
@@ -921,10 +925,10 @@ async def get_local_chain_accounts():
     return {"accounts": accounts}
 
 
-# 从本地链转账 ETH
+# 从本地链转账原生代币
 @router.post("/local-chain/send-eth")
 async def send_eth_from_local_chain(request: Request):
-    """从本地链账户转账 ETH 到指定地址（开发环境功能）"""
+    """从本地链账户转账原生代币到指定地址（开发环境功能）"""
     body = await request.json()
     from_index = body.get("from_index", 0)
     to_address = body.get("to_address")
@@ -945,6 +949,33 @@ async def send_eth_from_local_chain(request: Request):
     result = await _run_chain_async(_do_send)
     if not result.get("success"):
         return {"success": False, "message": result.get("message", "转账失败")}
+    return result
+
+
+# 从本地链转账 ERC20 代币（如 USDC）
+@router.post("/local-chain/send-token")
+async def send_token_from_local_chain(request: Request):
+    """从本地链账户转账 ERC20 代币（如 USDC）到指定地址"""
+    body = await request.json()
+    from_index = body.get("from_index", 0)
+    to_address = body.get("to_address")
+    amount = body.get("amount", 1000)
+    symbol = body.get("symbol", "USDC")
+
+    if not to_address:
+        return {"success": False, "message": "接收地址必填"}
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    def _do_send_token():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        return service.send_token(symbol, to_address, float(amount), from_index)
+
+    result = await _run_chain_async(_do_send_token)
+    if not result.get("success"):
+        return {"success": False, "message": result.get("message", "代币转账失败")}
     return result
 
 
@@ -995,31 +1026,25 @@ async def deploy_local_token(request: Request):
     return result
 
 
-# Mint 测试代币
-@router.post("/local-chain/mint-token")
-async def mint_local_token(request: Request):
-    """在本地链 Mint 测试代币（开发环境功能）"""
-    body = await request.json()
-    token_symbol = body.get("symbol")
-    to_address = body.get("to_address")
-    amount = body.get("amount", 10000)
-    from_index = int(body.get("from_index", 0))
-
-    if not token_symbol or not to_address:
-        return {"success": False, "message": "代币符号和接收地址必填"}
+@router.post("/local-chain/redeploy-usdc")
+async def redeploy_usdc(request: Request):
+    """重新部署 USDC 并向所有账户分发（修复 USDC 余额为 0 的问题）"""
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    per_account_amount = float(body.get("per_account_amount", 100000))
 
     from rps_backend.service.local_chain_service import get_local_chain_service
     service = get_local_chain_service()
 
-    # Mint 涉及多次 RPC 调用和等待交易确认，必须放到线程池
-    def _do_mint():
+    def _do_redeploy():
         if not service.is_running():
             return {"success": False, "message": "本地链未运行，请先开启节点"}
-        return service.mint_tokens(token_symbol, to_address, float(amount), from_index)
+        service._tokens.pop("USDC", None)
+        return service.deploy_and_distribute_usdc(
+            from_index=0,
+            per_account_amount=per_account_amount,
+        )
 
-    result = await _run_chain_async(_do_mint)
-    if not result.get("success"):
-        return {"success": False, "message": result.get("message", "Mint 失败")}
+    result = await _run_chain_async(_do_redeploy)
     return result
 
 

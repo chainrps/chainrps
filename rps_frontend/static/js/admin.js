@@ -9,12 +9,10 @@ const AdminApp = {
     _tabHashMap: {
         'dashboard': '#/dashboard',
         'contracts': '#/contracts',
-        'chainExplorer': '#/chain-explorer',
         'localChain': '#/local-chain',
         'redis': '#/redis',
         'config': '#/config',
         'audit': '#/audit',
-        'stageDemo': '#/stage-demo',
     },
 
     _currentConfigTab: 'backend',
@@ -267,8 +265,6 @@ const AdminApp = {
                 this.switchTab(result.tab, false, result.subTab);
             } else if (result && result.tab === 'config' && result.subTab) {
                 this.switchConfigTab(result.subTab, false);
-            } else if (result && result.tab === 'stageDemo' && result.subTab) {
-                this.switchDemoTab(result.subTab);
             }
         });
     },
@@ -300,7 +296,7 @@ const AdminApp = {
             if (isFilter) {
                 el.textContent = 'Localhost ' + port;
             } else if (isContractModal || isDeploy) {
-                el.textContent = 'ChainRPS_Sim (本地测试网)';
+                el.textContent = 'ChainRPS Local (本地测试网)';
             }
         });
     },
@@ -311,18 +307,14 @@ const AdminApp = {
         // 1. 精确匹配主 tab
         const entry = Object.entries(this._tabHashMap).find(([_, h]) => h === hash);
         if (entry) return {tab: entry[0], subTab: null};
-        // 2. 匹配 config 子路由: #/config/chain, #/config/node
+        // 2. 匹配 config 子路由: #/config, #/config/chain
         const configSubMap = {
             '#/config': 'backend',
             '#/config/chain': 'chain',
-            '#/config/node': 'node',
         };
         if (configSubMap[hash]) return {tab: 'config', subTab: configSubMap[hash]};
-        // 3. 匹配 stage-demo 子路由: #/stage-demo/animation
-        if (hash.startsWith('#/stage-demo/')) {
-            const sub = hash.split('/')[2];
-            return {tab: 'stageDemo', subTab: sub};
-        }
+        // 2.1 兼容旧书签 #/config/node：本地链启动配置已迁移至 #/local-chain
+        if (hash === '#/config/node') return {tab: 'localChain', subTab: null};
         return null;
     },
 
@@ -374,9 +366,9 @@ const AdminApp = {
         }
     },
 
-    // 加载主题
+    // 加载主题（与游戏 UI 共享同一个 localStorage key）
     loadTheme() {
-        const theme = localStorage.getItem('theme') || 'light';
+        const theme = localStorage.getItem('rps_theme') || 'light';
         document.documentElement.setAttribute('data-theme', theme);
     },
 
@@ -399,7 +391,7 @@ const AdminApp = {
         if (tabName === 'dashboard') this.loadDashboard();
         if (tabName === 'contracts') this.loadContracts();
         if (tabName === 'config') {
-            if (subTab && (subTab === 'backend' || subTab === 'chain' || subTab === 'node')) {
+            if (subTab && (subTab === 'backend' || subTab === 'chain')) {
                 this.switchConfigTab(subTab, false);
             } else {
                 this.switchConfigTab('backend', false);
@@ -414,23 +406,9 @@ const AdminApp = {
             this.refreshNodeStatus();
         }
         if (tabName === 'redis') this.refreshRedisStatus();
-        if (tabName === 'stageDemo') {
-            if (subTab && (subTab === 'cards' || subTab === 'animation')) {
-                this.switchDemoTab(subTab);
-            } else {
-                this.switchDemoTab(this._currentDemoTab || 'cards');
-            }
-        }
-        if (tabName === 'chainExplorer') {
-            this._initChainExplorerFeatureSelector();
-            // 进入链浏览器页面时，如果当前是通用链浏览器，自动加载最新区块
-            if (this._currentChainExplorerFeature === 'general' && document.getElementById('explorerResult')) {
-                this.explorerQueryLatest();
-            }
-        }
     },
 
-    // 切换配置页的子 tab（后端配置 / 链上合约配置 / 本地链启动配置）
+    // 切换配置页的子 tab（后端配置 / 链上合约配置）
     switchConfigTab(tabName, updateHash) {
         if (typeof updateHash === 'undefined') updateHash = true;
         this._currentConfigTab = tabName;
@@ -448,24 +426,21 @@ const AdminApp = {
 
         const backendPanel = document.getElementById('configPanel-backend');
         const chainPanel = document.getElementById('configPanel-chain');
-        const nodePanel = document.getElementById('configPanel-node');
         if (backendPanel) backendPanel.style.display = tabName === 'backend' ? '' : 'none';
         if (chainPanel) chainPanel.style.display = tabName === 'chain' ? '' : 'none';
-        if (nodePanel) nodePanel.style.display = tabName === 'node' ? '' : 'none';
-
-        if (tabName === 'node') {
-            this._applyNodeConfigToForm();
-            this._applyRpcConfigToForm();
-            this._applyEnvConfigToForm();
-        }
 
         if (updateHash) {
-            const subHashMap = {backend: '#/config', chain: '#/config/chain', node: '#/config/node'};
+            const subHashMap = {backend: '#/config', chain: '#/config/chain'};
             const hash = subHashMap[tabName] || '#/config';
             if (window.location.hash !== hash) {
                 history.replaceState(null, '', hash);
             }
         }
+    },
+
+    // 获取当前原生代币符号（统一从 CONFIG 读取，回退到 'POL'）
+    _nativeSymbol() {
+        return (typeof CONFIG !== 'undefined' && CONFIG.getNativeSymbol) ? CONFIG.getNativeSymbol() : 'POL';
     },
 
     // 发起带认证的 API 请求
@@ -1194,408 +1169,6 @@ const AdminApp = {
         }
     },
 
-    // 显示铸造代币弹窗
-    showMintTokenModal() {
-        if (!this.signer) {
-            FWUI.Toast.warning('请先连接钱包');
-            return;
-        }
-        if (this.adminAddress) {
-            document.getElementById('mintToAddress').value = this.adminAddress;
-        }
-        document.getElementById('mintTokenModal').classList.add('show');
-    },
-
-    // 铸造代币
-    async mintToken() {
-        const tokenAddress = document.getElementById('mintTokenAddress').value.trim();
-        const toAddress = document.getElementById('mintToAddress').value.trim();
-        const amount = document.getElementById('mintAmount').value.trim();
-
-        if (!tokenAddress || !toAddress || !amount) {
-            FWUI.Toast.warning('请填写完整信息');
-            return;
-        }
-        if (!/^0x[a-fA-F0-9]{40}$/.test(tokenAddress) || !/^0x[a-fA-F0-9]{40}$/.test(toAddress)) {
-            FWUI.Toast.warning('地址格式不正确');
-            return;
-        }
-        if (!this.signer) {
-            FWUI.Toast.warning('请先连接钱包');
-            return;
-        }
-
-        try {
-            const artifacts = await this.apiRequest('/api/admin/contracts/mock-erc20-artifacts');
-            const abi = typeof artifacts.abi === 'string' ? JSON.parse(artifacts.abi) : artifacts.abi;
-
-            const tokenContract = new ethers.Contract(tokenAddress, abi, this.signer);
-            const decimals = await tokenContract.decimals();
-            const amountWei = ethers.parseUnits(amount, decimals);
-
-            const tx = await tokenContract.mint(toAddress, amountWei);
-            FWUI.Toast.info('Mint 交易已提交，等待确认...');
-
-            await tx.wait();
-            FWUI.Toast.success(`✅ 成功 Mint ${amount} 个代币给 ${toAddress.slice(0, 8)}...`);
-            document.getElementById('mintTokenModal').classList.remove('show');
-        } catch (e) {
-            console.error('Mint 失败:', e);
-            FWUI.Toast.error('Mint 失败: ' + e.message);
-        }
-    },
-
-    _chainExplorerContract: null,
-    _chainGamesPage: 1,
-    _chainGamesPerPage: 20,
-    _chainGameCount: 0,
-    _contractList: [],
-    _currentChainExplorerFeature: 'general',
-
-    // 初始化链浏览器功能选择器
-    _initChainExplorerFeatureSelector() {
-        const selector = document.getElementById('chainExplorerFeatureSelector');
-        if (!selector) return;
-        // 从 localStorage 恢复上次选择的功能
-        let saved = 'general';
-        try {
-            saved = localStorage.getItem('rps_chain_explorer_feature') || 'general';
-        } catch (e) { /* ignore */
-        }
-        if (selector.value !== saved) {
-            selector.value = saved;
-        }
-        this.switchChainExplorerFeature(saved, true);
-    },
-
-    // 切换链浏览器功能面板显示
-    switchChainExplorerFeature(feature, skipRefresh) {
-        const validFeatures = ['general', 'contract'];
-        const target = validFeatures.indexOf(feature) >= 0 ? feature : 'general';
-
-        // 切换面板 active 状态
-        validFeatures.forEach(f => {
-            const panel = document.getElementById('chain-explorer-feature-' + f);
-            if (panel) {
-                panel.classList.toggle('active', f === target);
-            }
-        });
-
-        // 同步下拉框值
-        const selector = document.getElementById('chainExplorerFeatureSelector');
-        if (selector && selector.value !== target) {
-            selector.value = target;
-        }
-
-        // 持久化选择到 localStorage
-        try {
-            localStorage.setItem('rps_chain_explorer_feature', target);
-        } catch (e) { /* ignore */
-        }
-
-        this._currentChainExplorerFeature = target;
-
-        // 切换时按需刷新数据（初始化时跳过）
-        if (skipRefresh) return;
-        if (target === 'general') {
-            this.explorerQueryLatest();
-        }
-    },
-
-    // 使用当前激活的合约
-    useActiveContract() {
-        const addr = CONFIG.getContractAddress ? CONFIG.getContractAddress() : '';
-        if (addr) {
-            document.getElementById('explorerContractAddress').value = addr;
-            this.queryContractOnChain();
-        } else {
-            FWUI.Toast.warning('当前未配置合约地址');
-        }
-    },
-
-    // 显示合约下拉菜单
-    async showContractDropdown() {
-        const dropdown = document.getElementById('contractDropdown');
-        const itemsContainer = document.getElementById('contractDropdownItems');
-
-        // 检查元素是否存在
-        if (!dropdown || !itemsContainer) {
-            console.error('下拉菜单元素未找到');
-            return;
-        }
-
-        // 如果合约列表为空，尝试重新加载
-        if (this._contractList.length === 0) {
-            try {
-                const path = '/api/admin/contracts';
-                const result = await this.apiRequest(path);
-                if (result && Array.isArray(result)) {
-                    this._contractList = result;
-                }
-            } catch (e) {
-                console.error('加载合约列表失败:', e);
-            }
-        }
-
-        // 渲染下拉菜单内容
-        if (this._contractList.length === 0) {
-            itemsContainer.innerHTML = '<div class="dropdown-item disabled">暂无合约记录</div>';
-        } else {
-            const html = this._contractList.map(c => {
-                const addr = String(c.address || '');
-                const name = String(c.name || 'Unknown');
-                const network = String(c.network || '');
-                const status = String(c.status || '');
-                return `
-                    <div class="dropdown-item" onclick="AdminApp.selectContract('${addr}', '${name}')">
-                        <span style="font-weight: 500;">${name}</span>
-                        <span style="font-family: monospace; font-size: 12px; color: #475569; display: block;">
-                            ${addr.slice(0, 10)}...${addr.slice(-8)}
-                        </span>
-                        <span style="font-size: 11px; color: #cbd5e1;">
-                            ${network} | ${status}
-                        </span>
-                    </div>
-                `;
-            }).join('');
-            itemsContainer.innerHTML = html;
-        }
-
-        // 显示下拉菜单
-        dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
-    },
-
-    // 选择合约
-    selectContract(address, name) {
-        document.getElementById('explorerContractAddress').value = address;
-        document.getElementById('contractDropdown').style.display = 'none';
-        FWUI.Toast.info(`已选择合约: ${name}`);
-    },
-
-    // 获取链浏览器合约实例
-    async _getExplorerContract() {
-        const addr = document.getElementById('explorerContractAddress').value.trim();
-        if (!addr || !/^0x[a-fA-F0-9]{40}$/.test(addr)) {
-            FWUI.Toast.warning('请输入有效的合约地址');
-            return null;
-        }
-        if (!this.provider) {
-            FWUI.Toast.warning('请先连接钱包');
-            return null;
-        }
-        try {
-            const abi = await this.loadAbi();
-            this._chainExplorerContract = new ethers.Contract(addr, abi, this.provider);
-            return this._chainExplorerContract;
-        } catch (e) {
-            FWUI.Toast.error('加载合约失败: ' + e.message);
-            return null;
-        }
-    },
-
-    // 链上查询合约信息
-    async queryContractOnChain() {
-        const contract = await this._getExplorerContract();
-        if (!contract) return;
-
-        try {
-            const [owner, feeCollector, officialDeveloper, gameCount, feeRate, paused] = await Promise.all([
-                contract.owner().catch(() => '-'),
-                contract.feeCollector().catch(() => '-'),
-                contract.officialDeveloper().catch(() => '-'),
-                contract.gameCount().catch(() => 0n),
-                contract.feeRate().catch(() => 0n),
-                contract.paused().catch(() => false),
-            ]);
-
-            document.getElementById('chainContractInfo').style.display = 'block';
-            document.getElementById('chainGamesSection').style.display = 'block';
-
-            document.getElementById('chainContractOwner').textContent = owner;
-            document.getElementById('chainFeeCollector').textContent = feeCollector;
-            document.getElementById('chainDeveloper').textContent = officialDeveloper;
-            document.getElementById('chainGameCount').textContent = Number(gameCount).toLocaleString();
-            document.getElementById('chainFeeRate').textContent = (Number(feeRate) / 100).toFixed(2) + '%';
-            document.getElementById('chainPaused').textContent = paused ? '已暂停' : '运行中';
-            document.getElementById('chainPaused').style.color = paused ? '#ef4444' : '#22c55e';
-
-            this._chainGameCount = Number(gameCount);
-            this._chainGamesPage = 1;
-            this.loadChainGames();
-
-            FWUI.Toast.success('合约信息加载成功');
-        } catch (e) {
-            console.error('查询合约失败:', e);
-            FWUI.Toast.error('查询失败: ' + e.message);
-        }
-    },
-
-    // 加载链上对局列表
-    async loadChainGames() {
-        let contract = this._chainExplorerContract;
-        if (!contract) {
-            contract = await this._getExplorerContract();
-            if (!contract) return;
-        }
-
-        const tbody = document.getElementById('chainGamesTableBody');
-        const total = this._chainGameCount;
-        const perPage = this._chainGamesPerPage;
-        const page = this._chainGamesPage;
-
-        const startId = Math.max(1, total - (page - 1) * perPage);
-        const endId = Math.max(0, total - page * perPage + 1);
-        const count = startId - endId + 1;
-
-        if (total === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: #475569;">暂无对局</td></tr>';
-            document.getElementById('chainGamesPagination').textContent = '共 0 局';
-            return;
-        }
-
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px; color: #475569;">加载中...</td></tr>';
-
-        const games = [];
-        for (let id = startId; id >= endId; id--) {
-            try {
-                const g = await contract.games(id);
-                games.push({id, ...g});
-            } catch (e) {
-                continue;
-            }
-        }
-
-        const statusMap = ['等待中', '提交阶段', '揭示阶段', '已结束', '已取消'];
-
-        tbody.innerHTML = games.map(g => {
-            const statusIdx = Number(g[4] || g.status || 0);
-            const statusText = statusMap[statusIdx] || '未知';
-            const tokenAddr = (g[3] || g.token || '').toString().toLowerCase();
-            const tokenSymbol = tokenAddr === '0x0000000000000000000000000000000000000000' ? 'ETH' : 'ERC20';
-            const decimals = tokenSymbol === 'ETH' ? 18 : 6;
-            const amount = ethers.formatUnits(g[2] || g.amount || 0n, decimals);
-            const winner = g[7] || g.winner || '';
-            const isDraw = g[8] !== undefined ? g[8] : g.isDraw;
-
-            return `
-                <tr>
-                    <td>#${g.id}</td>
-                    <td style="font-size: 12px; font-family: monospace;">${(g[0] || g.player1 || '').slice(0, 10)}...</td>
-                    <td style="font-size: 12px; font-family: monospace;">${(g[1] || g.player2 || '-').slice(0, 10)}...</td>
-                    <td>${parseFloat(amount).toLocaleString()} ${tokenSymbol}</td>
-                    <td>${tokenSymbol}</td>
-                    <td>${statusText}</td>
-                    <td style="font-size: 12px; font-family: monospace;">${isDraw ? '平局' : (winner ? winner.slice(0, 10) + '...' : '-')}</td>
-                    <td><button class="btn btn-outline" style="padding: 2px 8px; font-size: 12px;" onclick="AdminApp.showGameDetail(${g.id})">详情</button></td>
-                </tr>
-            `;
-        }).join('');
-
-        document.getElementById('chainGamesPagination').textContent =
-            `共 ${total} 局，当前第 ${page} 页 (ID: ${endId} ~ ${startId})`;
-
-        document.getElementById('prevChainGamesBtn').disabled = page <= 1;
-        document.getElementById('nextChainGamesBtn').disabled = startId <= 1 || total <= page * perPage;
-    },
-
-    // 上一页对局
-    prevChainGamesPage() {
-        if (this._chainGamesPage > 1) {
-            this._chainGamesPage--;
-            this.loadChainGames();
-        }
-    },
-
-    // 下一页对局
-    nextChainGamesPage() {
-        const maxPage = Math.ceil(this._chainGameCount / this._chainGamesPerPage);
-        if (this._chainGamesPage < maxPage) {
-            this._chainGamesPage++;
-            this.loadChainGames();
-        }
-    },
-
-    // 按ID查询对局
-    queryGameById() {
-        const id = document.getElementById('queryGameId').value.trim();
-        if (!id || isNaN(id)) {
-            FWUI.Toast.warning('请输入有效的游戏ID');
-            return;
-        }
-        this.showGameDetail(parseInt(id));
-    },
-
-    // 显示对局详情
-    async showGameDetail(gameId) {
-        const contract = this._chainExplorerContract;
-        if (!contract) {
-            FWUI.Toast.warning('请先查询合约');
-            return;
-        }
-
-        try {
-            const game = await contract.games(gameId);
-            const player1 = game[0] || game.player1 || '';
-            const player2 = game[1] || game.player2 || '';
-            const amountRaw = game[2] || game.amount || 0n;
-            const tokenAddr = (game[3] || game.token || '').toString().toLowerCase();
-            const status = Number(game[4] || game.status || 0);
-            const commitDeadline = game[5] || game.commitDeadline || 0n;
-            const revealDeadline = game[6] || game.revealDeadline || 0n;
-            const winner = game[7] || game.winner || '';
-            const isDraw = game[8] !== undefined ? game[8] : game.isDraw;
-
-            const isETH = tokenAddr === '0x0000000000000000000000000000000000000000';
-            const decimals = isETH ? 18 : 6;
-            const tokenSymbol = isETH ? 'ETH' : 'ERC20';
-            const amount = ethers.formatUnits(amountRaw, decimals);
-
-            const statusMap = ['等待中', '提交阶段', '揭示阶段', '已结束', '已取消'];
-            const statusText = statusMap[status] || '未知';
-
-            let choice1 = '-', choice2 = '-';
-            try {
-                if (status >= 2) {
-                    const c1 = await contract.commitments(player1, gameId);
-                    const c2 = await contract.commitments(player2, gameId);
-                    choice1 = c1 && c1.choice ? Number(c1.choice) : '已提交';
-                    choice2 = c2 && c2.choice ? Number(c2.choice) : '已提交';
-                }
-            } catch (e) {
-            }
-
-            const detailHtml = `
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div><strong>游戏ID:</strong> #${gameId}</div>
-                    <div><strong>状态:</strong> ${statusText}</div>
-                    <div><strong>玩家1:</strong> <code style="font-size: 12px;">${player1}</code></div>
-                    <div><strong>玩家2:</strong> <code style="font-size: 12px;">${player2 || '-'}</code></div>
-                    <div><strong>下注金额:</strong> ${parseFloat(amount).toLocaleString()} ${tokenSymbol}</div>
-                    <div><strong>代币:</strong> ${tokenSymbol} <code style="font-size: 11px;">${tokenAddr.slice(0, 12)}...</code></div>
-                    <div><strong>玩家1选择:</strong> ${choice1}</div>
-                    <div><strong>玩家2选择:</strong> ${choice2}</div>
-                    <div><strong>赢家:</strong> ${isDraw ? '平局' : (winner ? '<code style="font-size: 12px;">' + winner + '</code>' : '-')}</div>
-                    <div><strong>是否平局:</strong> ${isDraw ? '是' : '否'}</div>
-                    <div><strong>提交截止:</strong> ${commitDeadline ? new Date(Number(commitDeadline) * 1000).toLocaleString('zh-CN', {
-                timeZone: 'Asia/Shanghai',
-                hour12: false
-            }) : '-'}</div>
-                    <div><strong>揭示截止:</strong> ${revealDeadline ? new Date(Number(revealDeadline) * 1000).toLocaleString('zh-CN', {
-                timeZone: 'Asia/Shanghai',
-                hour12: false
-            }) : '-'}</div>
-                </div>
-            `;
-
-            document.getElementById('gameDetailContent').innerHTML = detailHtml;
-            document.getElementById('gameDetailCard').style.display = 'block';
-            document.getElementById('gameDetailCard').scrollIntoView({behavior: 'smooth', block: 'nearest'});
-        } catch (e) {
-            console.error('查询游戏详情失败:', e);
-            FWUI.Toast.error('查询失败: ' + e.message);
-        }
-    },
-
     // ==================== 本地节点管理 ====================
 
     _localTokens: [],
@@ -1687,375 +1260,6 @@ const AdminApp = {
         if (cfg.persist != null) {
             const el = document.getElementById('nodeConfigPersist');
             if (el) el.checked = !!cfg.persist;
-        }
-    },
-
-    // ==================== 阶段动画演示 ====================
-
-    // 演示流程脚本：每个阶段含 name/icon/title/desc/render
-    _sdStages: [
-        {
-            key: 'lobby', icon: '🏠', title: '游戏大厅', desc: '浏览房间列表，创建或加入房间',
-            render: () => `
-                <div class="sd-lobby">
-                    <div class="sd-lobby-header">
-                        <div class="sd-lobby-title">🏠 大厅</div>
-                        <button class="sd-create-btn">+ 创建房间</button>
-                    </div>
-                    <div class="sd-room-list">
-                        <div class="sd-room-card">
-                            <div class="sd-room-info">
-                                <div class="sd-room-id">ROOM-7F3A</div>
-                                <div class="sd-room-meta">押注 50 CRPS · 等待中</div>
-                            </div>
-                            <span class="sd-room-state state-joined">可加入</span>
-                        </div>
-                        <div class="sd-room-card">
-                            <div class="sd-room-info">
-                                <div class="sd-room-id">ROOM-9B21</div>
-                                <div class="sd-room-meta">押注 100 CRPS · 进行中</div>
-                            </div>
-                            <span class="sd-room-state state-started">游戏中</span>
-                        </div>
-                        <div class="sd-room-card new-room">
-                            <div class="sd-room-info">
-                                <div class="sd-room-id">ROOM-A2C9 (我的房间)</div>
-                                <div class="sd-room-meta">押注 20 CRPS · 等待对手</div>
-                            </div>
-                            <span class="sd-room-state state-joined">已创建</span>
-                        </div>
-                    </div>
-                </div>
-            `,
-        },
-        {
-            key: 'room_wait', icon: '⏳', title: '房间等待', desc: '玩家进入房间，双方准备就绪',
-            render: () => `
-                <div class="sd-room">
-                    <div class="sd-room-header">
-                        <div class="sd-room-name">ROOM-A2C9 · 押注 20 CRPS</div>
-                        <span class="sd-room-state state-joined">等待中</span>
-                    </div>
-                    <div class="sd-room-players">
-                        <div class="sd-player-slot me ready">
-                            <div class="sd-player-avatar">我</div>
-                            <div class="sd-player-name">0xa0ce...48b6f</div>
-                            <div class="sd-player-status is-ready">✓ 已准备</div>
-                        </div>
-                        <div class="sd-vs">VS</div>
-                        <div class="sd-player-slot ready">
-                            <div class="sd-player-avatar">P</div>
-                            <div class="sd-player-name">0xb1d4...7e2a3</div>
-                            <div class="sd-player-status is-ready">✓ 已准备</div>
-                        </div>
-                    </div>
-                </div>
-            `,
-        },
-        {
-            key: 'countdown', icon: '🔢', title: '游戏倒计时', desc: '双方已准备，3 秒后开始对局',
-            render: () => `
-                <div class="sd-countdown">
-                    <div class="sd-countdown-num">3</div>
-                    <div class="sd-countdown-label">游戏即将开始...</div>
-                </div>
-            `,
-        },
-        {
-            key: 'game_commit', icon: '✊', title: '出拳阶段', desc: '选择石头/剪刀/布并提交哈希',
-            render: () => `
-                <div class="sd-game">
-                    <div class="sd-game-arena">
-                        <div style="text-align:center;">
-                            <div class="sd-choice-display committed">✊</div>
-                            <div class="sd-player-name" style="margin-top:6px;">我（已提交）</div>
-                        </div>
-                        <div class="sd-vs">VS</div>
-                        <div style="text-align:center;">
-                            <div class="sd-choice-display hidden-choice committed"></div>
-                            <div class="sd-player-name" style="margin-top:6px;">对手（已提交）</div>
-                        </div>
-                    </div>
-                    <div class="sd-choices-row">
-                        <button class="sd-choice-btn selected">✊</button>
-                        <button class="sd-choice-btn disabled">✋</button>
-                        <button class="sd-choice-btn disabled">✌️</button>
-                    </div>
-                </div>
-            `,
-        },
-        {
-            key: 'game_reveal', icon: '🔓', title: '揭晓出拳', desc: '双方揭晓出拳，合约判定胜负',
-            render: () => `
-                <div class="sd-game">
-                    <div class="sd-game-arena">
-                        <div style="text-align:center;">
-                            <div class="sd-choice-display revealed">✊</div>
-                            <div class="sd-player-name" style="margin-top:6px;">我 · 石头</div>
-                        </div>
-                        <div class="sd-vs">VS</div>
-                        <div style="text-align:center;">
-                            <div class="sd-choice-display revealed">✌️</div>
-                            <div class="sd-player-name" style="margin-top:6px;">对手 · 剪刀</div>
-                        </div>
-                    </div>
-                    <div class="sd-choices-row">
-                        <button class="sd-choice-btn selected">✊</button>
-                        <button class="sd-choice-btn">✋</button>
-                        <button class="sd-choice-btn">✌️</button>
-                    </div>
-                </div>
-            `,
-        },
-        {
-            key: 'result', icon: '🏆', title: '游戏结果', desc: '显示胜负、结算奖金与手续费',
-            render: () => `
-                <div class="sd-result">
-                    <div class="sd-result-banner win">🏆 胜利！</div>
-                    <div class="sd-result-settle">
-                        <div class="sd-settle-item">
-                            <div class="sd-settle-label">押注</div>
-                            <div class="sd-settle-value">20 CRPS</div>
-                        </div>
-                        <div class="sd-settle-item">
-                            <div class="sd-settle-label">奖金</div>
-                            <div class="sd-settle-value positive">+40 CRPS</div>
-                        </div>
-                        <div class="sd-settle-item">
-                            <div class="sd-settle-label">手续费 (2%)</div>
-                            <div class="sd-settle-value negative">-0.4 CRPS</div>
-                        </div>
-                        <div class="sd-settle-item">
-                            <div class="sd-settle-label">净收益</div>
-                            <div class="sd-settle-value positive">+19.6 CRPS</div>
-                        </div>
-                    </div>
-                </div>
-            `,
-        },
-        {
-            key: 'end', icon: '🎉', title: '游戏结束', desc: '开始下一局或退出游戏',
-            render: () => `
-                <div class="sd-end">
-                    <div style="font-size: 48px;">🎉</div>
-                    <div style="font-size: 16px; font-weight: 600; color: var(--text-primary);">本局游戏结束</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">感谢参与，继续挑战或返回大厅</div>
-                    <div class="sd-end-actions">
-                        <button class="btn btn-primary">🔄 开始下一局</button>
-                        <button class="btn btn-outline">🚪 退出游戏</button>
-                    </div>
-                </div>
-            `,
-        },
-    ],
-
-    // 演示状态
-    _sdIndex: 0,
-    _sdPlaying: false,
-    _sdTimer: null,
-    _sdSpeed: 1200,
-    _currentDemoTab: 'cards',
-
-    // 切换演示页的子 tab（阶段模拟卡片 / 流程动画演示）
-    switchDemoTab(tabName) {
-        this._currentDemoTab = tabName;
-        document.querySelectorAll('[data-demo-tab]').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.demoTab === tabName);
-            if (btn.dataset.demoTab === tabName) {
-                btn.style.color = 'var(--text-primary)';
-                btn.style.borderBottomColor = 'var(--primary-color)';
-            } else {
-                btn.style.color = 'var(--text-secondary)';
-                btn.style.borderBottomColor = 'transparent';
-            }
-        });
-        const cardsPanel = document.getElementById('demoPanel-cards');
-        const animPanel = document.getElementById('demoPanel-animation');
-        if (cardsPanel) cardsPanel.style.display = tabName === 'cards' ? '' : 'none';
-        if (animPanel) animPanel.style.display = tabName === 'animation' ? '' : 'none';
-
-        if (tabName === 'cards') {
-            this._renderDemoCards();
-        } else {
-            this._renderDemoAnimation();
-        }
-
-        // 更新 URL hash
-        const hash = tabName === 'cards' ? '#/stage-demo' : '#/stage-demo/' + tabName;
-        if (window.location.hash !== hash) {
-            history.replaceState(null, '', hash);
-        }
-    },
-
-    // 渲染阶段模拟卡片入口
-    _renderDemoCards() {
-        const grid = document.getElementById('stageDemoGrid');
-        if (!grid) return;
-
-        const stages = [
-            { mock: 'lobby',        icon: '🏠', title: '游戏大厅',     desc: '大厅房间列表，展示已创建的房间，支持创建/加入房间' },
-            { mock: 'room_wait',    icon: '⏳', title: '房间等待',     desc: '玩家进入房间后的等待界面，显示双方准备状态' },
-            { mock: 'countdown',    icon: '🔢', title: '倒计时',       desc: '双方准备就绪后的倒计时阶段，即将开始对局' },
-            { mock: 'game_commit',  icon: '✊', title: '出拳提交',     desc: '游戏进行中的出拳阶段，可选择石头/剪刀/布' },
-            { mock: 'game_reveal',  icon: '🔓', title: '揭晓出拳',     desc: '双方已提交，等待揭晓出拳结果' },
-            { mock: 'result_win',   icon: '🏆', title: '游戏结果 - 胜利', desc: '对局结束，我方获胜，展示奖金和手续费' },
-            { mock: 'result_lose',  icon: '💔', title: '游戏结果 - 失败', desc: '对局结束，我方失败' },
-            { mock: 'result_draw',  icon: '🤝', title: '游戏结果 - 平局', desc: '对局结束，双方平局退回本金' },
-        ];
-
-        const baseUrl = window.location.origin + '/';
-
-        grid.innerHTML = stages.map(s => `
-            <div class="stage-demo-card" onclick="window.open('${baseUrl}?mock=${s.mock}', '_blank')">
-                <div class="stage-demo-icon">${s.icon}</div>
-                <div class="stage-demo-body">
-                    <div class="stage-demo-title">${s.title}</div>
-                    <div class="stage-demo-desc">${s.desc}</div>
-                </div>
-                <div class="stage-demo-arrow">↗</div>
-            </div>
-        `).join('');
-    },
-
-    // 渲染动画演示面板
-    _renderDemoAnimation() {
-        // 渲染进度条
-        const bar = document.getElementById('sdProgressBar');
-        if (bar) {
-            bar.innerHTML = this._sdStages.map((s, i) =>
-                `<div class="sd-step-pill${i < this._sdIndex ? ' done' : i === this._sdIndex ? ' active' : ''}" data-i="${i}" title="${s.title}"></div>`
-            ).join('');
-        }
-        // 渲染快捷跳转
-        const jumps = document.getElementById('sdJumps');
-        if (jumps) {
-            jumps.innerHTML = this._sdStages.map((s, i) =>
-                `<button class="sd-jump-btn${i === this._sdIndex ? ' current' : ''}" onclick="AdminApp.sdJumpTo(${i})">${s.icon} ${s.title}</button>`
-            ).join('');
-        }
-        this._sdRenderStage();
-    },
-
-    // 渲染阶段演示（入口，根据当前子 tab 决定渲染哪个面板）
-    _renderStageDemo() {
-        if (this._currentDemoTab === 'animation') {
-            this._renderDemoAnimation();
-        } else {
-            this._renderDemoCards();
-        }
-    },
-
-    // 渲染当前阶段场景
-    _sdRenderStage() {
-        const stage = this._sdStages[this._sdIndex];
-        if (!stage) return;
-        const el = document.getElementById('sdStage');
-        if (el) {
-            el.style.opacity = '0';
-            el.style.transform = 'translateY(8px)';
-            setTimeout(() => {
-                el.innerHTML = stage.render();
-                el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                el.style.opacity = '1';
-                el.style.transform = 'translateY(0)';
-            }, 80);
-        }
-        document.getElementById('sdInfoIcon').textContent = stage.icon;
-        document.getElementById('sdInfoTitle').textContent = stage.title;
-        document.getElementById('sdInfoDesc').textContent = stage.desc;
-        // 更新进度条状态
-        document.querySelectorAll('.sd-step-pill').forEach((p, i) => {
-            p.classList.remove('active', 'done');
-            if (i < this._sdIndex) p.classList.add('done');
-            else if (i === this._sdIndex) p.classList.add('active');
-        });
-        // 更新快捷跳转当前态
-        document.querySelectorAll('.sd-jump-btn').forEach((b, i) => {
-            b.classList.toggle('current', i === this._sdIndex);
-        });
-        // 更新播放按钮文案
-        const playBtn = document.getElementById('sdPlayBtn');
-        if (playBtn) playBtn.textContent = this._sdPlaying ? '⏸ 暂停' : '▶ 播放';
-    },
-
-    // 播放/暂停
-    sdTogglePlay() {
-        this._sdPlaying = !this._sdPlaying;
-        if (this._sdPlaying) {
-            this._sdScheduleNext();
-        } else {
-            this._sdClearTimer();
-        }
-        this._sdRenderStage();
-    },
-
-    // 安排下一步
-    _sdScheduleNext() {
-        this._sdClearTimer();
-        if (!this._sdPlaying) return;
-        this._sdTimer = setTimeout(() => {
-            if (this._sdIndex < this._sdStages.length - 1) {
-                this._sdIndex++;
-                this._sdRenderStage();
-                this._sdScheduleNext();
-            } else {
-                // 演示结束，自动停止
-                this._sdPlaying = false;
-                this._sdRenderStage();
-            }
-        }, this._sdSpeed);
-    },
-
-    _sdClearTimer() {
-        if (this._sdTimer) {
-            clearTimeout(this._sdTimer);
-            this._sdTimer = null;
-        }
-    },
-
-    // 重新开始
-    sdRestart() {
-        this._sdIndex = 0;
-        this._sdPlaying = false;
-        this._sdClearTimer();
-        this._sdRenderStage();
-    },
-
-    // 上一步
-    sdPrev() {
-        if (this._sdIndex > 0) {
-            this._sdIndex--;
-            this._sdPlaying = false;
-            this._sdClearTimer();
-            this._sdRenderStage();
-        }
-    },
-
-    // 下一步
-    sdNext() {
-        if (this._sdIndex < this._sdStages.length - 1) {
-            this._sdIndex++;
-            this._sdPlaying = false;
-            this._sdClearTimer();
-            this._sdRenderStage();
-        }
-    },
-
-    // 跳转到指定阶段
-    sdJumpTo(i) {
-        if (i >= 0 && i < this._sdStages.length) {
-            this._sdIndex = i;
-            this._sdPlaying = false;
-            this._sdClearTimer();
-            this._sdRenderStage();
-        }
-    },
-
-    // 切换播放速度
-    sdChangeSpeed(val) {
-        this._sdSpeed = parseInt(val) || 1200;
-        if (this._sdPlaying) {
-            this._sdScheduleNext();
         }
     },
 
@@ -2185,7 +1389,7 @@ const AdminApp = {
         document.getElementById('nodeAccountsCount').textContent = status.accounts_count != null ? status.accounts_count : '-';
         document.getElementById('nodeSymbol').textContent = status.symbol || '-';
         const recNameEl = document.getElementById('nodeRecommendedChainName');
-        if (recNameEl) recNameEl.textContent = status.recommended_chain_name || 'ChainRPS_Sim';
+        if (recNameEl) recNameEl.textContent = status.recommended_chain_name || 'ChainRPS Local';
 
         // 持久化状态显示：仅 Ganache 支持，Hardhat 始终显示"不支持"
         const persistStatusEl = document.getElementById('nodePersistStatus');
@@ -2281,14 +1485,7 @@ const AdminApp = {
 
     // 切换本地链功能面板显示
     switchLocalChainFeature(feature, skipRefresh) {
-        const validFeatures = ['accounts', 'fund', 'tokens', 'mint'];
-
-        // "启动配置" 已移至配置页，点击时跳转到配置页的本地链启动配置
-        if (feature === 'config') {
-            this.switchTab('config');
-            this.switchConfigTab('node');
-            return;
-        }
+        const validFeatures = ['accounts', 'fund', 'fundToken', 'tokens', 'config'];
 
         const target = validFeatures.indexOf(feature) >= 0 ? feature : 'accounts';
 
@@ -2316,8 +1513,105 @@ const AdminApp = {
         if (skipRefresh) return;
         if (target === 'accounts') {
             this.refreshAccounts();
+        } else if (target === 'fund' || target === 'fundToken') {
+            // 充值面板：刷新账户下拉框并预填管理员地址
+            this._refreshFundAccounts();
         } else if (target === 'tokens') {
             this.refreshTokenList();
+        } else if (target === 'config') {
+            // 本地链启动配置面板：填充表单（原 #/config/node 的逻辑迁移至此）
+            this._applyNodeConfigToForm();
+            this._applyRpcConfigToForm();
+            this._applyEnvConfigToForm();
+        }
+    },
+
+    // 刷新充值面板的来源账户下拉框（原生代币和USDC面板分别显示对应代币余额）
+    _refreshFundAccounts() {
+        // 账户列表为空时主动加载（用户直接切换到充值面板的场景）
+        if (!this._localAccounts || this._localAccounts.length === 0) {
+            this.refreshAccounts();
+            return;
+        }
+        const nativeSym = this._nativeSymbol();
+
+        // 原生代币充值下拉框：显示原生币余额
+        const buildNativeOptions = () => this._localAccounts.map(acc => {
+            const bal = parseFloat(acc.balance_eth || acc.balance || 0).toFixed(2);
+            return `<option value="${acc.index}">账户 ${acc.index} (${bal} ${nativeSym})</option>`;
+        }).join('');
+
+        // USDC 充值下拉框：显示 USDC 余额
+        const buildUsdcOptions = () => this._localAccounts.map(acc => {
+            const bal = parseFloat(acc.balance_usdc || 0).toFixed(2);
+            return `<option value="${acc.index}">账户 ${acc.index} (${bal} USDC)</option>`;
+        }).join('');
+
+        const fundSelect = document.getElementById('fundFromAccount');
+        if (fundSelect) {
+            const prev = fundSelect.value;
+            fundSelect.innerHTML = buildNativeOptions();
+            if (prev) fundSelect.value = prev;
+        }
+        const fundTokenSelect = document.getElementById('fundTokenFromAccount');
+        if (fundTokenSelect) {
+            const prev = fundTokenSelect.value;
+            fundTokenSelect.innerHTML = buildUsdcOptions();
+            if (prev) fundTokenSelect.value = prev;
+        }
+
+        // 预填管理员地址
+        const fundToAddr = document.getElementById('fundToAddress');
+        if (fundToAddr && !fundToAddr.value && this.adminAddress) {
+            fundToAddr.value = this.adminAddress;
+        }
+        const fundTokenToAddr = document.getElementById('fundTokenToAddress');
+        if (fundTokenToAddr && !fundTokenToAddr.value && this.adminAddress) {
+            fundTokenToAddr.value = this.adminAddress;
+        }
+
+        // 更新原生代币符号显示
+        const fundSymEl = document.getElementById('fundNativeSymbol');
+        if (fundSymEl) fundSymEl.textContent = nativeSym;
+        const accSymEl = document.getElementById('accountsNativeSymbol');
+        if (accSymEl) accSymEl.textContent = nativeSym;
+    },
+
+    // 充值 USDC 测试代币
+    async fundTokenAddress() {
+        const fromIndex = parseInt(document.getElementById('fundTokenFromAccount')?.value);
+        const toAddress = document.getElementById('fundTokenToAddress')?.value.trim();
+        const amount = parseFloat(document.getElementById('fundTokenAmount')?.value);
+
+        if (isNaN(fromIndex)) {
+            FWUI.Toast.show('请选择来源账户', 'warning');
+            return;
+        }
+        if (!toAddress || !/^0x[a-fA-F0-9]{40}$/.test(toAddress)) {
+            FWUI.Toast.show('接收地址格式不正确', 'warning');
+            return;
+        }
+        if (isNaN(amount) || amount <= 0) {
+            FWUI.Toast.show('数量必须大于 0', 'warning');
+            return;
+        }
+
+        try {
+            FWUI.Toast.show('正在转账 USDC...', 'info');
+            const result = await this.apiRequest('/api/admin/local-chain/send-token', 'POST', {
+                from_index: fromIndex,
+                to_address: toAddress,
+                amount: amount,
+                symbol: 'USDC',
+            });
+            if (result.success) {
+                FWUI.Toast.success(result.message || `成功发送 ${amount} USDC`);
+                this.refreshAccounts();
+            } else {
+                FWUI.Toast.error(result.message || 'USDC 转账失败');
+            }
+        } catch (e) {
+            FWUI.Toast.error('USDC 转账失败: ' + e.message);
         }
     },
 
@@ -2399,7 +1693,7 @@ const AdminApp = {
 
         const port = (document.getElementById('nodeConfigPort')?.value || String(CONFIG.RPC_PORT)).trim();
         const chainId = (document.getElementById('nodeConfigChainId')?.value || '5208888').trim();
-        const symbol = (document.getElementById('nodeConfigSymbol')?.value || 'ETH').trim();
+        const symbol = (document.getElementById('nodeConfigSymbol')?.value || CONFIG.getNativeSymbol()).trim();
         const host = (document.getElementById('nodeConfigHost')?.value || '127.0.0.1').trim();
 
         const hexChainId = '0x' + parseInt(chainId).toString(16);
@@ -2601,40 +1895,43 @@ const AdminApp = {
         });
     },
 
-    // 刷新账户列表
+    // 刷新账户列表（含原生币和 USDC 余额）
     async refreshAccounts() {
         try {
             const data = await this.apiRequest('/api/admin/local-chain/accounts');
             const accounts = data.accounts || [];
             const tbody = document.getElementById('nodeAccountsBody');
             const fundSelect = document.getElementById('fundFromAccount');
+            const nativeSym = this._nativeSymbol();
+
+            // 保存账户列表供其他面板（如 USDC 充值）使用
+            this._localAccounts = accounts;
 
             // 更新账户表格
             if (accounts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #475569;">无账户</td></tr>';
-                fundSelect.innerHTML = '<option value="">-- 请选择账户 --</option>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 30px; color: #475569;">无账户</td></tr>';
+                if (fundSelect) fundSelect.innerHTML = '<option value="">-- 请选择账户 --</option>';
+                this._refreshFundAccounts();
                 return;
             }
 
-            tbody.innerHTML = accounts.map(acc => `
+            tbody.innerHTML = accounts.map(acc => {
+                const nativeBal = parseFloat(acc.balance_eth || 0).toFixed(4);
+                const usdcBal = parseFloat(acc.balance_usdc || 0).toFixed(2);
+                return `
                 <tr>
                     <td>${acc.index}</td>
                     <td style="font-size: 12px; font-family: monospace;">${acc.address}</td>
-                    <td>${parseFloat(acc.balance_eth).toFixed(4)} ETH</td>
+                    <td>${nativeBal} ${nativeSym}</td>
+                    <td>${usdcBal} USDC</td>
                     <td>
                         <button class="btn btn-outline" style="padding: 2px 8px; font-size: 12px;" onclick="AdminApp.copyAddress('${acc.address}')">复制</button>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
 
-            // 更新充值账户选择下拉框（保留当前选择）
-            const preservedValue = fundSelect.value;
-            fundSelect.innerHTML = accounts.map(acc => `
-                <option value="${acc.index}">账户 ${acc.index} (${parseFloat(acc.balance_eth).toFixed(2)} ETH)</option>
-            `).join('');
-            if (preservedValue && accounts.some(acc => String(acc.index) === preservedValue)) {
-                fundSelect.value = preservedValue;
-            }
+            // 同步两个充值面板的来源账户下拉框（原生代币 + USDC）
+            this._refreshFundAccounts();
         } catch (e) {
             console.warn('加载账户失败:', e);
         }
@@ -2645,6 +1942,31 @@ const AdminApp = {
         navigator.clipboard.writeText(addr).then(() => {
             FWUI.Toast.success('地址已复制');
         });
+    },
+
+    // 重新部署 USDC 并向所有账户分发
+    async redeployUsdc() {
+        const confirmed = await FWUI.Modal.confirm(
+            '重新部署 USDC',
+            '将清除旧的 USDC 合约记录，重新部署 MockERC20 合约并向所有测试账户分发 100,000 USDC。\n\n此操作不可撤销，确定继续？'
+        );
+        if (!confirmed) return;
+
+        try {
+            const result = await this.apiRequest('/api/admin/local-chain/redeploy-usdc', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({per_account_amount: 100000}),
+            });
+            if (result.success) {
+                FWUI.Toast.success(result.message || 'USDC 重新部署成功');
+                await this.refreshAccounts();
+            } else {
+                FWUI.Toast.error(result.message || 'USDC 重新部署失败');
+            }
+        } catch (e) {
+            FWUI.Toast.error('USDC 重新部署失败: ' + (e.message || e));
+        }
     },
 
     // 充值地址（转账ETH）
@@ -2686,9 +2008,10 @@ const AdminApp = {
                 return;
             }
 
-            const newBal = result.new_balance_eth ? `，当前余额: ${result.new_balance_eth} ETH` : '';
+            const _sym = this._nativeSymbol();
+            const newBal = result.new_balance_eth ? `，当前余额: ${result.new_balance_eth} ${_sym}` : '';
             const txHash = result.tx_hash ? ` (区块 #${result.block_number || '?'})` : '';
-            FWUI.Toast.success(`成功发送 ${amount} ETH${newBal}${txHash}`);
+            FWUI.Toast.success(`成功发送 ${amount} ${_sym}${newBal}${txHash}`);
             this.refreshAccounts();
             this.refreshNodeStatus();
         } catch (e) {
@@ -2707,7 +2030,6 @@ const AdminApp = {
             const data = await this.apiRequest('/api/admin/local-chain/tokens');
             this._localTokens = data.tokens || [];
             this._renderTokenList();
-            this._renderTokenSelect();
         } catch (e) {
             console.warn('加载代币列表失败:', e);
         }
@@ -2719,7 +2041,7 @@ const AdminApp = {
         const tokens = this._localTokens;
 
         if (tokens.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 30px; color: #475569;">暂无代币</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 30px; color: #475569;">暂无代币</td></tr>';
             return;
         }
 
@@ -2728,33 +2050,8 @@ const AdminApp = {
                 <td><strong>${t.symbol}</strong> (${t.name})</td>
                 <td style="font-size: 12px; font-family: monospace;">${t.address}</td>
                 <td>${t.decimals}</td>
-                <td>
-                    <button class="btn btn-outline" style="padding: 2px 8px; font-size: 12px;" onclick="AdminApp.setMintToken('${t.symbol}')">Mint</button>
-                </td>
             </tr>
         `).join('');
-    },
-
-    // 渲染代币下拉选择
-    _renderTokenSelect() {
-        const select = document.getElementById('mintTokenSelect');
-        const tokens = this._localTokens;
-
-        if (tokens.length === 0) {
-            select.innerHTML = '<option value="">-- 请先部署代币 --</option>';
-            return;
-        }
-
-        select.innerHTML = tokens.map(t =>
-            `<option value="${t.symbol}">${t.symbol} (${t.name})</option>`
-        ).join('');
-    },
-
-    // 设置待铸造代币
-    setMintToken(symbol) {
-        // 切换到 Mint 面板，提升交互体验
-        this.switchLocalChainFeature('mint');
-        document.getElementById('mintTokenSelect').value = symbol;
     },
 
     // 显示部署本地代币弹窗
@@ -2799,241 +2096,6 @@ const AdminApp = {
         } finally {
             btn.disabled = false;
             btn.textContent = '部署';
-        }
-    },
-
-    // ==================== 链浏览器 ====================
-
-    // 链浏览器查询（自动识别类型）
-    async explorerSearch() {
-        const input = document.getElementById('explorerQueryInput');
-        const query = (input?.value || '').trim();
-        const resultEl = document.getElementById('explorerResult');
-
-        if (!query) {
-            FWUI.Toast.warning('请输入查询内容');
-            return;
-        }
-
-        resultEl.innerHTML = '<span style="color: var(--text-secondary);">⏳ 查询中...</span>';
-
-        try {
-            const result = await this.apiRequest('/api/admin/local-chain/explorer/query/' + encodeURIComponent(query));
-
-            if (!result.success) {
-                resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ ${result.message || '查询失败'}</span>`;
-                return;
-            }
-
-            this._renderExplorerResult(result.type, result.data);
-        } catch (e) {
-            resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ 查询失败: ${e.message}</span>`;
-        }
-    },
-
-    // 查询最新区块
-    async explorerQueryLatest() {
-        const resultEl = document.getElementById('explorerResult');
-        resultEl.innerHTML = '<span style="color: var(--text-secondary);">⏳ 查询中...</span>';
-
-        try {
-            const result = await this.apiRequest('/api/admin/local-chain/explorer/latest-block');
-
-            if (!result.success) {
-                resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ ${result.message || '查询失败'}</span>`;
-                return;
-            }
-
-            // 显示最新区块号 + 区块详情
-            const block = result.block;
-            if (!block) {
-                resultEl.innerHTML = `<span style="color: var(--text-secondary);">最新区块号: ${result.block_number}</span>`;
-                return;
-            }
-
-            this._renderExplorerResult('block', block);
-            // 同步填充输入框
-            document.getElementById('explorerQueryInput').value = String(result.block_number);
-        } catch (e) {
-            resultEl.innerHTML = `<span style="color: var(--danger-color);">❌ 查询失败: ${e.message}</span>`;
-        }
-    },
-
-    // 渲染链浏览器查询结果
-    _renderExplorerResult(type, data) {
-        const resultEl = document.getElementById('explorerResult');
-        if (!data) {
-            resultEl.innerHTML = '<span style="color: var(--text-secondary);">无数据</span>';
-            return;
-        }
-
-        const formatTime = (ts) => {
-            if (!ts) return '-';
-            return new Date(ts * 1000).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'}) + ' (UTC+8)';
-        };
-        const shortHash = (h) => h ? h.slice(0, 12) + '...' + h.slice(-8) : '-';
-        const linkStyle = 'color: var(--primary-color); cursor: pointer; text-decoration: underline;';
-
-        if (type === 'block') {
-            const txList = (data.transactions || []).slice(0, 10).map(tx => {
-                const txStr = typeof tx === 'string' ? tx : (tx.hash || String(tx));
-                return `<span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${txStr}')" title="${txStr}">${shortHash(txStr)}</span>`;
-            }).join('、') || '<span style="color: var(--text-secondary);">无交易</span>';
-
-            resultEl.innerHTML = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
-                    <div><strong>区块号:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.number}')">${data.number}</span></div>
-                    <div><strong>区块哈希:</strong> <span title="${data.hash}">${shortHash(data.hash)}</span></div>
-                    <div><strong>时间:</strong> ${formatTime(data.timestamp)}</div>
-                    <div><strong>矿工:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.miner}')" title="${data.miner}">${data.miner ? data.miner.slice(0, 10) + '...' : '-'}</span></div>
-                    <div><strong>交易数:</strong> ${data.tx_count}</div>
-                    <div><strong>Gas 使用:</strong> ${data.gas_used} / ${data.gas_limit}</div>
-                    <div><strong>大小:</strong> ${data.size} bytes</div>
-                </div>
-                <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color);">
-                    <strong>交易列表:</strong> ${txList}
-                    ${data.tx_count > 10 ? '<span style="color: var(--text-secondary);">（仅显示前10笔）</span>' : ''}
-                </div>
-            `;
-        } else if (type === 'transaction') {
-            const statusText = data.status === 1 ? '<span style="color: var(--success-color);">✅ 成功</span>' :
-                data.status === 0 ? '<span style="color: var(--danger-color);">❌ 失败</span>' : '⏳ 待确认';
-            resultEl.innerHTML = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
-                    <div><strong>交易哈希:</strong> <span title="${data.hash}">${shortHash(data.hash)}</span></div>
-                    <div><strong>状态:</strong> ${statusText}</div>
-                    <div><strong>区块:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.block_number}')">${data.block_number}</span></div>
-                    <div><strong>发送方:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.from}')" title="${data.from}">${data.from ? data.from.slice(0, 10) + '...' : '-'}</span></div>
-                    <div><strong>接收方:</strong> <span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${data.to}')" title="${data.to}">${data.to ? data.to.slice(0, 10) + '...' : '-'}</span></div>
-                    <div><strong>金额:</strong> ${data.value} ETH</div>
-                    <div><strong>Gas:</strong> ${data.gas} (实际 ${data.gas_used || '-'})</div>
-                    <div><strong>Gas 价格:</strong> ${data.gas_price} gwei</div>
-                    <div><strong>Nonce:</strong> ${data.nonce}</div>
-                    ${data.contract_address ? '<div><strong>合约地址:</strong> <span style="' + linkStyle + '" onclick="AdminApp._explorerQueryFill(\'' + data.contract_address + '\')" title="' + data.contract_address + '">' + data.contract_address.slice(0, 10) + '...</span> <span style="color: var(--success-color);">📋 合约部署</span></div>' : ''}
-                </div>
-            `;
-        } else if (type === 'address') {
-            resultEl.innerHTML = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
-                    <div><strong>地址:</strong> <span title="${data.address}">${data.address.slice(0, 12) + '...' + data.address.slice(-8)}</span></div>
-                    <div><strong>余额:</strong> <span style="color: var(--success-color); font-weight: 600;">${data.balance} ETH</span></div>
-                    <div><strong>交易数:</strong> ${data.nonce}</div>
-                    <div><strong>类型:</strong> ${data.is_contract ? '📄 合约 (code size: ' + data.code_size + ')' : '👤 普通账户'}</div>
-                </div>
-                <div style="margin-top: 12px;">
-                    <button class="btn btn-outline" onclick="AdminApp.explorerQueryAddressTxs('${data.address}')" title="扫描最近区块查询该地址的交易记录">📜 查看交易记录</button>
-                </div>
-                <div id="explorerAddressTxs" style="margin-top: 12px;"></div>
-            `;
-        }
-    },
-
-    // 查询地址的交易记录
-    async explorerQueryAddressTxs(address) {
-        const txsContainer = document.getElementById('explorerAddressTxs');
-        if (!txsContainer) return;
-        txsContainer.innerHTML = '<span style="color: var(--text-secondary);">⏳ 正在扫描区块查询交易记录...</span>';
-
-        try {
-            const result = await this.apiRequest('/api/admin/local-chain/explorer/address/' + encodeURIComponent(address) + '/transactions?scan_blocks=100&limit=50');
-
-            if (!result.success) {
-                txsContainer.innerHTML = `<span style="color: var(--danger-color);">❌ ${result.message || '查询失败'}</span>`;
-                return;
-            }
-
-            const txs = result.transactions || [];
-            if (txs.length === 0) {
-                txsContainer.innerHTML = `<span style="color: var(--text-secondary);">📝 最近 ${result.scanned_to_block - result.scanned_from_block + 1} 个区块内未找到该地址的交易记录</span>`;
-                return;
-            }
-
-            const formatTime = (ts) => {
-                if (!ts) return '-';
-                return new Date(ts * 1000).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'});
-            };
-            const shortHash = (h) => h ? h.slice(0, 10) + '...' + h.slice(-6) : '-';
-            const linkStyle = 'color: var(--primary-color); cursor: pointer; text-decoration: underline;';
-            const direction = (tx) => tx.from && tx.from.toLowerCase() === address.toLowerCase() ? '发送' : '接收';
-
-            const rows = txs.map(tx => `
-                <tr>
-                    <td><span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${tx.hash}')" title="${tx.hash}">${shortHash(tx.hash)}</span></td>
-                    <td><span style="${linkStyle}" onclick="AdminApp._explorerQueryFill('${tx.block_number}')">${tx.block_number}</span></td>
-                    <td>${formatTime(tx.timestamp)}</td>
-                    <td>${direction(tx)} ${tx.from ? tx.from.slice(0, 8) + '...' : '-'}</td>
-                    <td>${tx.to ? tx.to.slice(0, 8) + '...' : '合约创建'}</td>
-                    <td>${tx.value} ETH</td>
-                </tr>
-            `).join('');
-
-            txsContainer.innerHTML = `
-                <div style="margin-bottom: 8px; font-size: 12px; color: var(--text-secondary);">
-                    共 ${result.count} 笔交易（扫描区块 #${result.scanned_from_block} - #${result.scanned_to_block}）
-                    ${result.truncated ? '<span style="color: var(--warning-color);">· 已截断，仅显示前 50 笔</span>' : ''}
-                </div>
-                <table class="data-table" style="font-size: 12px;">
-                    <thead><tr><th>交易哈希</th><th>区块</th><th>时间</th><th>方向/发送方</th><th>接收方</th><th>金额</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            `;
-        } catch (e) {
-            txsContainer.innerHTML = `<span style="color: var(--danger-color);">❌ 查询失败: ${e.message}</span>`;
-        }
-    },
-
-    // 填充查询框并自动查询
-    _explorerQueryFill(value) {
-        document.getElementById('explorerQueryInput').value = value;
-        this.explorerSearch();
-    },
-
-    // 铸造本地代币
-    async mintLocalToken() {
-        const symbol = document.getElementById('mintTokenSelect').value;
-        const toAddress = document.getElementById('mintLocalToAddress').value.trim();
-        const amount = parseFloat(document.getElementById('mintLocalAmount').value);
-
-        if (!symbol) {
-            FWUI.Toast.warning('请选择代币');
-            return;
-        }
-        if (!toAddress || !/^0x[a-fA-F0-9]{40}$/.test(toAddress)) {
-            FWUI.Toast.warning('请输入有效的接收地址');
-            return;
-        }
-        if (!amount || amount <= 0) {
-            FWUI.Toast.warning('请输入有效的数量');
-            return;
-        }
-
-        const btn = event?.target;
-        const originalText = btn?.textContent;
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = 'Mint中...';
-        }
-
-        try {
-            FWUI.Toast.info('正在 Mint...');
-            const result = await this.apiRequest('/api/admin/local-chain/mint-token', 'POST', {
-                symbol,
-                to_address: toAddress,
-                amount,
-                from_index: 0,
-            });
-            if (result.success === false) {
-                FWUI.Toast.error(result.message || 'Mint 失败');
-                return;
-            }
-            FWUI.Toast.success(result.message || `Mint 成功 ${amount} ${symbol}`);
-        } catch (e) {
-            FWUI.Toast.error('Mint 失败: ' + e.message);
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.textContent = originalText || '铸造';
-            }
         }
     },
 
@@ -3250,8 +2312,6 @@ const AdminApp = {
                 const defaultValLabel = c.default_value != null
                     ? '<span style="font-size:11px; color:var(--text-secondary);" title="默认值: ' + c.default_value + '">默认: <code style="font-size:11px;">' + (c.default_value || '(空)') + '</code></span>'
                     : '';
-                const titleDefault = c.default_value != null ? '（默认: ' + c.default_value + ')' : '';
-                const defaultBtnStyle = isDefault ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : '';
                 return `
                 <div class="config-item" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border-color);">
                     <div style="flex:1; min-width:0;">
@@ -3263,13 +2323,8 @@ const AdminApp = {
                         <div style="font-size:12px; color:var(--text-secondary);">${c.description || '-'}</div>
                     </div>
                     <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-                        <input type="text" id="config-${c.config_key}" value="${c.config_value || ''}" data-key="${c.config_key}"
+                        <input type="text" id="config-${c.config_key}" value="${c.config_value || ''}" data-key="${c.config_key}" data-original="${c.config_value || ''}"
                             style="width:${c.config_key === 'contract_address' ? '320px' : '200px'}; padding:6px 10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-primary); font-family:monospace; font-size:13px;">
-                        <button class="btn btn-outline" style="padding:6px 10px; font-size:12px; white-space:nowrap;"
-                            onclick="AdminApp.resetSingleConfig('${c.config_key}')"
-                            title="恢复为默认值${titleDefault}"
-                            ${defaultBtnStyle}>↺ 默认</button>
-                        <button class="btn btn-primary" style="padding:6px 14px; font-size:12px; white-space:nowrap;" onclick="AdminApp.updateConfig('${c.config_key}')">保存</button>
                     </div>
                 </div>
             `;
@@ -3280,6 +2335,34 @@ const AdminApp = {
             if (container) {
                 container.innerHTML = '<div style="padding:40px; text-align:center; color:#ef4444;">加载失败: ' + e.message + '</div>';
             }
+        }
+    },
+
+    // 保存当前页面所有已修改的配置项（页面级保存）
+    async saveAllConfig() {
+        const inputs = document.querySelectorAll('#configList input[data-key]');
+        const items = {};
+        let changedCount = 0;
+        inputs.forEach(input => {
+            const key = input.dataset.key;
+            const original = input.dataset.original || '';
+            const current = input.value;
+            if (current !== original) {
+                items[key] = current;
+                changedCount++;
+            }
+        });
+        if (changedCount === 0) {
+            FWUI.Toast.info('没有修改的配置项');
+            return;
+        }
+        try {
+            await this.apiRequest('/api/admin/config/batch', 'POST', {items, admin_address: this.adminAddress});
+            FWUI.Toast.success(`保存成功，共更新 ${changedCount} 项配置`);
+            this.loadConfig();
+            this.loadAuditLogs();
+        } catch (e) {
+            FWUI.Toast.error('保存失败: ' + e.message);
         }
     },
 
@@ -3347,30 +2430,70 @@ const AdminApp = {
     },
 
     // 显示批量更新配置弹窗
-    showBatchUpdateModal() {
+    async showBatchUpdateModal() {
+        // 获取当前所有配置项，生成示例 JSON
+        let exampleObj = {};
+        let defaultsHTML = '';
+        try {
+            const configs = await this.apiRequest('/api/admin/config');
+            if (configs && configs.length > 0) {
+                // 取前5项作为示例
+                const samples = configs.slice(0, 5);
+                samples.forEach(c => {
+                    exampleObj[c.config_key] = c.config_value || c.default_value || '';
+                });
+                // 生成所有默认值参考表
+                defaultsHTML = configs.map(c => {
+                    const val = c.default_value != null ? c.default_value : '(无)';
+                    return `<tr><td style="font-family:monospace; font-size:12px; padding:3px 8px; color:#475569;">${c.config_key}</td><td style="font-family:monospace; font-size:12px; padding:3px 8px; color:#0f172a;">${val}</td></tr>`;
+                }).join('');
+            }
+        } catch (e) {
+            console.warn('获取配置示例失败:', e);
+        }
+        const exampleJSON = JSON.stringify(exampleObj, null, 2);
+
         const inputModal = FWUI.Modal.create({
             title: '批量更新配置',
             content: `
                 <div class="form-group" style="margin-bottom: 12px;">
                     <label style="display:block; font-size:13px; margin-bottom:6px; color:#475569;">
-                            JSON 格式配置
-                        </label>
-                        <textarea id="batchConfigInput" rows="4" style="
-                            width: 100%;
-                            padding: 10px 12px;
-                            border: 1px solid #e2e8f0;
-                            border-radius: 8px;
-                            background: #f8fafc;
-                            color: #0f172a;
-                            font-family: monospace;
-                            font-size: 13px;
-                        " placeholder='{"key1":"val1","key2":"val2"}'></textarea>
+                        JSON 格式配置（key 为配置项名，value 为新值）
+                    </label>
+                    <textarea id="batchConfigInput" rows="6" style="
+                        width: 100%;
+                        padding: 10px 12px;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        background: #f8fafc;
+                        color: #0f172a;
+                        font-family: monospace;
+                        font-size: 13px;
+                    " placeholder='${exampleJSON.replace(/'/g, "&#39;")}'>${exampleJSON}</textarea>
+                </div>
+                <div style="font-size: 12px; color: #475569; margin-bottom: 8px;">
+                    💡 已预填当前前5项配置作为示例，可直接修改后提交。也可点击下方"填入全部当前值"加载所有配置项。
+                </div>
+                <details style="margin-top: 8px;">
+                    <summary style="cursor:pointer; font-size:12px; color:#6366f1; font-weight:500;">📋 查看所有配置项默认值参考</summary>
+                    <div style="max-height:200px; overflow-y:auto; margin-top:8px; border:1px solid #e2e8f0; border-radius:6px;">
+                        <table style="width:100%; border-collapse:collapse;">
+                            <thead>
+                                <tr style="background:#f1f5f9; position:sticky; top:0;">
+                                    <th style="text-align:left; padding:6px 8px; font-size:11px; color:#475569;">配置项</th>
+                                    <th style="text-align:left; padding:6px 8px; font-size:11px; color:#475569;">默认值</th>
+                                </tr>
+                            </thead>
+                            <tbody>${defaultsHTML}</tbody>
+                        </table>
                     </div>
-                    <div style="font-size: 12px; color: #475569;">
-                        请输入 JSON 格式的批量配置，如: {"key1":"val1","key2":"val2"}
-                    </div>
-                `,
-            width: '480px',
+                </details>
+                <div style="margin-top: 8px;">
+                    <button class="fwui-btn fwui-btn-default" style="padding:6px 14px; border-radius:8px; font-size:12px; cursor:pointer; border:1px solid #e2e8f0; background:#fff; color:#475569;"
+                        onclick="AdminApp._fillAllConfigToBatch()">填入全部当前值</button>
+                </div>
+            `,
+            width: '560px',
             footer: `
                     <button class="fwui-btn fwui-btn-default" style="
                         padding: 8px 20px;
@@ -3394,6 +2517,25 @@ const AdminApp = {
                     " onclick="AdminApp.doBatchUpdate()">确认更新</button>
                 `
         });
+    },
+
+    // 填入全部当前配置值到批量更新文本框
+    async _fillAllConfigToBatch() {
+        try {
+            const configs = await this.apiRequest('/api/admin/config');
+            if (!configs || configs.length === 0) {
+                FWUI.Toast.warning('未获取到配置项');
+                return;
+            }
+            const allObj = {};
+            configs.forEach(c => {
+                allObj[c.config_key] = c.config_value || c.default_value || '';
+            });
+            document.getElementById('batchConfigInput').value = JSON.stringify(allObj, null, 2);
+            FWUI.Toast.info(`已填入 ${configs.length} 项配置`);
+        } catch (e) {
+            FWUI.Toast.error('获取配置失败: ' + e.message);
+        }
     },
 
     // 执行批量更新配置

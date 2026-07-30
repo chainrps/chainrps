@@ -819,10 +819,6 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                title="合约管理">
                 <span class="nav-icon">📜</span><span class="nav-label">合约管理</span>
             </a>
-            <a class="nav-item" data-tab="chainExplorer" data-hash="#/chain-explorer"
-               onclick="AdminApp.switchTab('chainExplorer')" title="链上查询">
-                <span class="nav-icon">🔍</span><span class="nav-label">链上查询</span>
-            </a>
             <a class="nav-item" data-tab="localChain" data-hash="#/local-chain"
                onclick="AdminApp.switchTab('localChain')" title="本地链">
                 <span class="nav-icon">🖥️</span><span class="nav-label">本地链</span>
@@ -838,10 +834,6 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
             <a class="nav-item" data-tab="audit" data-hash="#/audit" onclick="AdminApp.switchTab('audit')"
                title="审计日志">
                 <span class="nav-icon">📝</span><span class="nav-label">审计日志</span>
-            </a>
-            <a class="nav-item" data-tab="stageDemo" data-hash="#/stage-demo" onclick="AdminApp.switchTab('stageDemo')"
-               title="阶段演示">
-                <span class="nav-icon">🎮</span><span class="nav-label">阶段演示</span>
             </a>
         </nav>
         <div class="sidebar-footer">
@@ -934,7 +926,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                     <select id="networkFilter" onchange="AdminApp.loadContracts()" style="width:180px;"
                             title="按区块链网络筛选合约列表">
                         <option value="">全部网络</option>
-                        <option value="localhost">ChainRPS_Sim</option>
+                        <option value="localhost">ChainRPS Local</option>
                         <option value="amoy">Polygon Amoy</option>
                         <option value="polygon">Polygon (主网)</option>
                     </select>
@@ -963,161 +955,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
             </table>
         </div>
 
-        <div id="tab-chainExplorer" class="admin-section">
-            <h2 class="section-title">链上查询</h2>
-
-            <!-- 功能选择下拉框 -->
-            <div class="lc-feature-bar">
-                <label class="lc-feature-label" for="chainExplorerFeatureSelector">🧰 功能选择</label>
-                <select id="chainExplorerFeatureSelector" onchange="AdminApp.switchChainExplorerFeature(this.value)"
-                        title="选择链上查询功能">
-                    <option value="general">🔍 通用链浏览器</option>
-                    <option value="contract">📋 合约状态查询</option>
-                </select>
-            </div>
-
-            <!-- 功能面板：通用链浏览器 -->
-            <div id="chain-explorer-feature-general" class="lc-feature-panel">
-                <div class="form-row" style="margin-bottom: 12px; align-items: flex-end;">
-                    <div class="form-group" style="flex: 1;">
-                        <label title="输入区块号、交易哈希或钱包地址进行查询">查询内容</label>
-                        <input type="text" id="explorerQueryInput" placeholder="区块号 / 0x交易哈希 / 0x钱包地址"
-                               style="width: 100%;" title="支持区块号、交易哈希、钱包地址"
-                               onkeydown="if(event.key==='Enter')AdminApp.explorerSearch()">
-                    </div>
-                    <div class="form-group" style="display: flex; gap: 8px;">
-                        <button class="btn btn-primary" onclick="AdminApp.explorerSearch()" title="执行查询">🔍 查询
-                        </button>
-                        <button class="btn btn-outline" onclick="AdminApp.explorerQueryLatest()" title="查询最新区块">📋
-                            最新区块
-                        </button>
-                    </div>
-                </div>
-                <div id="explorerResult" style="min-height: 40px; font-size: 13px; line-height: 1.6;">
-                    <span style="color: var(--text-secondary);">💡 输入区块号、交易哈希或钱包地址，按回车或点击查询按钮。点击"最新区块"可查看链的最新状态。</span>
-                </div>
-            </div>
-
-            <!-- 功能面板：合约状态查询 -->
-            <div id="chain-explorer-feature-contract" class="lc-feature-panel">
-                <div class="form-row">
-                    <div class="form-group" style="flex: 2; position: relative;">
-                        <label title="要查询的智能合约地址">合约地址</label>
-                        <div style="position: relative;">
-                            <input type="text" id="explorerContractAddress" placeholder="点击选择或输入合约地址"
-                                   style="width: 100%;" onclick="AdminApp.showContractDropdown()"
-                                   title="点击可从合约列表中选择，或手动输入合约地址">
-                            <div id="contractDropdown" class="dropdown-menu"
-                                 style="display: none; max-height: 200px; overflow-y: auto;">
-                                <div class="dropdown-header">选择合约地址</div>
-                                <div id="contractDropdownItems"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group" style="display: flex; align-items: flex-end; gap: 8px;">
-                        <button class="btn btn-primary" onclick="AdminApp.queryContractOnChain()"
-                                title="查询合约的基本信息和状态">查询合约
-                        </button>
-                        <button class="btn btn-outline" onclick="AdminApp.useActiveContract()"
-                                title="将此合约设为系统当前使用的合约">使用当前合约
-                        </button>
-                    </div>
-                </div>
-
-                <div id="chainContractInfo" style="display: none; margin-top: 20px;">
-                    <h3 style="margin-bottom: 16px; font-size: 16px;">📋 合约详情</h3>
-                    <div class="stats-grid" id="contractStatsGrid" style="margin-bottom: 20px;">
-                        <div class="stat-card">
-                            <div class="label">合约 Owner</div>
-                            <div class="value" id="chainContractOwner" style="font-size: 14px; word-break: break-all;">-
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="label">手续费接收者</div>
-                            <div class="value" id="chainFeeCollector" style="font-size: 14px; word-break: break-all;">-
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="label">官方开发者</div>
-                            <div class="value" id="chainDeveloper" style="font-size: 14px; word-break: break-all;">-
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="label">游戏总数</div>
-                            <div class="value" id="chainGameCount">0</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="label">手续费率</div>
-                            <div class="value" id="chainFeeRate">0%</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="label">暂停状态</div>
-                            <div class="value" id="chainPaused">-</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="chainGamesSection" style="display: none; margin-top: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <h3 style="font-size: 16px;">🎮 链上对局记录</h3>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="number" id="queryGameId" placeholder="游戏ID"
-                                   style="width: 120px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;"
-                                   title="输入链上对局ID进行精确查询">
-                            <button class="btn btn-outline" onclick="AdminApp.queryGameById()"
-                                    title="根据ID查询特定对局的详细信息">按ID查询
-                            </button>
-                            <button class="btn btn-outline" onclick="AdminApp.loadChainGames()"
-                                    title="刷新链上对局列表">
-                                刷新列表
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="gameDetailCard"
-                         style="display: none; margin-bottom: 20px; padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px;">
-                        <h4 style="margin-bottom: 12px;">对局详情</h4>
-                        <div id="gameDetailContent"></div>
-                    </div>
-
-                    <table class="data-table">
-                        <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>玩家1</th>
-                            <th>玩家2</th>
-                            <th>金额</th>
-                            <th>代币</th>
-                            <th>状态</th>
-                            <th>赢家</th>
-                            <th>操作</th>
-                        </tr>
-                        </thead>
-                        <tbody id="chainGamesTableBody">
-                        <tr>
-                            <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">
-                                请先查询合约
-                            </td>
-                        </tr>
-                        </tbody>
-                    </table>
-
-                    <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                        <span id="chainGamesPagination" style="font-size: 13px; color: var(--text-secondary);"></span>
-                        <div style="display: flex; gap: 8px;">
-                            <button class="btn btn-outline" id="prevChainGamesBtn"
-                                    onclick="AdminApp.prevChainGamesPage()"
-                                    disabled>上一页
-                            </button>
-                            <button class="btn btn-outline" id="nextChainGamesBtn"
-                                    onclick="AdminApp.nextChainGamesPage()"
-                                    disabled>下一页
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- 链上查询已迁移至独立公开页面 /explorer -->
 
         <div id="tab-localChain" class="admin-section">
             <h2 class="section-title">本地链管理</h2>
@@ -1173,7 +1011,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         <span class="lc-stat-label">💾 数据目录</span>
                         <span class="lc-stat-value lc-stat-mono" id="nodePersistDir" title="持久化数据存储路径">-</span>
                     </div>
-                    <div class="lc-stat lc-stat-wide lc-stat-link" onclick="AdminApp.switchTab('chainExplorer')"
+                    <div class="lc-stat lc-stat-wide lc-stat-link" onclick="window.open('/explorer','_blank')"
                          title="点击前往链浏览器，查询区块/交易/地址">
                         <span class="lc-stat-label">🔍 链浏览器</span>
                         <span class="lc-stat-value" style="color: var(--primary-color);">点击前往 →</span>
@@ -1205,10 +1043,10 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 <label class="lc-feature-label" for="localChainFeatureSelector">🧰 功能选择</label>
                 <select id="localChainFeatureSelector" onchange="AdminApp.switchLocalChainFeature(this.value)"
                         title="选择要操作的本地链功能">
-                    <option value="fund">💸 充值测试币</option>
+                    <option value="fund">💸 充值原生代币</option>
+                    <option value="fundToken">💵 充值 USDC 测试代币</option>
                     <option value="accounts">👛 测试账户</option>
                     <option value="tokens">🪙 测试代币管理</option>
-                    <option value="mint">💳 Mint 测试代币</option>
                     <option value="config">⚙️ 启动配置</option>
                 </select>
             </div>
@@ -1217,9 +1055,10 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
             <div id="feature-accounts" class="lc-feature-panel">
                 <div class="lc-feature-head">
                     <h3>👛 测试账户</h3>
-                    <button class="btn btn-outline" onclick="AdminApp.refreshAccounts()" title="刷新本地节点账户列表">🔄
-                        刷新
-                    </button>
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn btn-outline" onclick="AdminApp.refreshAccounts()" title="刷新本地节点账户列表">🔄 刷新</button>
+                        <button class="btn btn-outline" onclick="AdminApp.redeployUsdc()" title="重新部署 USDC 合约并向所有账户分发 100000 USDC" style="color:var(--warning-color);border-color:var(--warning-color);">💰 重新部署 USDC</button>
+                    </div>
                 </div>
                 <div class="lc-table-wrap">
                     <table class="data-table">
@@ -1227,13 +1066,14 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         <tr>
                             <th>#</th>
                             <th>地址</th>
-                            <th>ETH 余额</th>
+                            <th>原生币数量 (<span id="accountsNativeSymbol">POL</span>)</th>
+                            <th>结算币数量 (USDC)</th>
                             <th>操作</th>
                         </tr>
                         </thead>
                         <tbody id="nodeAccountsBody">
                         <tr>
-                            <td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">
+                            <td colspan="5" style="text-align:center; padding: 30px; color: var(--text-secondary);">
                                 节点未运行
                             </td>
                         </tr>
@@ -1242,10 +1082,10 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 </div>
             </div>
 
-            <!-- 功能面板：充值测试币 -->
+            <!-- 功能面板：充值原生代币 -->
             <div id="feature-fund" class="lc-feature-panel">
                 <div class="lc-feature-head">
-                    <h3>💸 充值测试币</h3>
+                    <h3>💸 充值原生代币（<span id="fundNativeSymbol">POL</span>）</h3>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1255,20 +1095,52 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         </select>
                     </div>
                     <div class="form-group">
-                        <label title="接收测试 CRPS 的钱包地址">接收地址</label>
+                        <label title="接收原生代币的钱包地址">接收地址</label>
                         <input type="text" id="fundToAddress" placeholder="0x... 接收地址" style="width: 100%;"
-                               title="接收测试 CRPS 的钱包地址">
+                               title="接收原生代币的钱包地址">
                     </div>
                     <div class="form-group">
-                        <label title="要发送的 CRPS 数量">ETH 数量</label>
-                        <input type="number" id="fundAmount" value="10" min="0.1" step="0.1" title="要发送的 CRPS 数量">
+                        <label title="要发送的原生代币数量">数量</label>
+                        <input type="number" id="fundAmount" value="10" min="0.1" step="0.1" title="要发送的原生代币数量">
                     </div>
                     <div class="form-group" style="display: flex; align-items: flex-end;">
                         <button class="btn btn-primary" onclick="AdminApp.fundAddress()"
-                                title="从本地节点账户转账 CRPS 到指定地址">💰 发送 ETH
+                                title="从本地节点账户转账原生代币到指定地址">💰 发送
                         </button>
                     </div>
                 </div>
+            </div>
+
+            <!-- 功能面板：充值 USDC 测试代币（默认结算币） -->
+            <div id="feature-fundToken" class="lc-feature-panel">
+                <div class="lc-feature-head">
+                    <h3>💵 充值 USDC 测试代币（默认结算币）</h3>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label title="选择本地节点中的一个账户作为 USDC 来源">来源账户</label>
+                        <select id="fundTokenFromAccount" style="width: 100%;" title="选择本地节点中的一个账户作为 USDC 来源">
+                            <option value="">-- 请选择账户 --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label title="接收 USDC 代币的钱包地址">接收地址</label>
+                        <input type="text" id="fundTokenToAddress" placeholder="0x... 接收地址" style="width: 100%;"
+                               title="接收 USDC 代币的钱包地址">
+                    </div>
+                    <div class="form-group">
+                        <label title="要发送的 USDC 数量">数量</label>
+                        <input type="number" id="fundTokenAmount" value="1000" min="1" step="1" title="要发送的 USDC 数量">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-end;">
+                        <button class="btn btn-primary" onclick="AdminApp.fundTokenAddress()"
+                                title="从本地节点账户转账 USDC 到指定地址">💵 发送 USDC
+                        </button>
+                    </div>
+                </div>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+                    💡 USDC 为默认结算代币，链启动时已自动为所有测试账户分配等额 USDC。此处可向其他地址追加转账。
+                </p>
             </div>
 
             <!-- 功能面板：测试代币管理 -->
@@ -1291,12 +1163,11 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                             <th>代币</th>
                             <th>地址</th>
                             <th>小数位</th>
-                            <th>操作</th>
                         </tr>
                         </thead>
                         <tbody id="nodeTokensBody">
                         <tr>
-                            <td colspan="4" style="text-align:center; padding: 30px; color: var(--text-secondary);">
+                            <td colspan="3" style="text-align:center; padding: 30px; color: var(--text-secondary);">
                                 暂无代币
                             </td>
                         </tr>
@@ -1305,35 +1176,159 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 </div>
             </div>
 
-            <!-- 功能面板：Mint 测试代币 -->
-            <div id="feature-mint" class="lc-feature-panel">
+            <!-- Mint 测试代币功能已删除（USDC 在链启动时自动部署并分发） -->
+
+            <!-- 功能面板：本地链启动配置（由原 #/config/node 子tab 迁移而来） -->
+            <div id="feature-config" class="lc-feature-panel">
                 <div class="lc-feature-head">
-                    <h3>💳 Mint 测试代币</h3>
+                    <h3>🖥️ 本地链 RPC 节点启动配置</h3>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label title="选择要铸造的代币">选择代币</label>
-                        <select id="mintTokenSelect" style="width: 100%;" title="选择要铸造的代币">
-                            <option value="">-- 请先部署代币 --</option>
-                        </select>
+
+                <div class="stat-card" style="margin-bottom: 16px;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label title="本地链类型">链类型</label>
+                            <select id="nodeConfigChainType" title="选择本地链类型：Hardhat 或 Ganache">
+                                <option value="ganache">Ganache</option>
+                                <option value="hardhat">Hardhat</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label title="监听地址">监听地址 (Host)</label>
+                            <input type="text" id="nodeConfigHost" value="127.0.0.1" placeholder="127.0.0.1"
+                                   title="监听地址">
+                        </div>
+                        <div class="form-group">
+                            <label title="RPC 服务端口">端口 (Port)</label>
+                            <input type="number" id="nodeConfigPort" value="8686" min="1" max="65535" placeholder="8686"
+                                   title="RPC 服务端口">
+                        </div>
+                        <div class="form-group">
+                            <label title="链 ID（Chain ID）">Chain ID</label>
+                            <input type="number" id="nodeConfigChainId" value="5208888" min="1" placeholder="5208888"
+                                   title="链 ID">
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label title="接收新铸造代币的钱包地址">接收地址</label>
-                        <input type="text" id="mintLocalToAddress" placeholder="0x... 接收地址" style="width: 100%;"
-                               title="接收新铸造代币的钱包地址">
+                    <div class="form-row" style="margin-top: 12px;">
+                        <div class="form-group">
+                            <label title="生成的测试账户数量">账户数</label>
+                            <input type="number" id="nodeConfigAccounts" value="10" min="1" max="100" placeholder="10"
+                                   title="生成的测试账户数量">
+                        </div>
+                        <div class="form-group">
+                            <label title="每个账户的默认原生代币余额">默认余额</label>
+                            <input type="number" id="nodeConfigBalance" value="123452" min="0" step="1"
+                                   placeholder="123452"
+                                   title="每个账户的默认原生代币余额">
+                        </div>
+                        <div class="form-group">
+                            <label title="原生代币符号（以 #/config 中的 native_symbol 为准）">代币符号</label>
+                            <input type="text" id="nodeConfigSymbol" value="POL" maxlength="10" placeholder="原生代币"
+                                   title="原生代币符号（以 #/config 中的 native_symbol 为准）">
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: flex-end;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;">
+                                <input type="checkbox" id="nodeConfigDeterministic" checked
+                                       title="使用固定助记词，每次启动生成相同账户">
+                                确定性助记词
+                            </label>
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: flex-end;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;"
+                                   title="启用后链数据持久化到磁盘，重启服务后已部署合约和状态保留（仅 Ganache 支持）">
+                                <input type="checkbox" id="nodeConfigPersist" checked>
+                                💾 持久化存储
+                            </label>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label title="要铸造的代币数量">数量</label>
-                        <input type="number" id="mintLocalAmount" value="10000" min="1" title="要铸造的代币数量">
+                    <div style="margin-top: 16px; display: flex; gap: 12px; align-items: center;">
+                        <button class="btn btn-primary" onclick="AdminApp.startLocalNode()"
+                                title="使用当前配置启动本地 RPC 节点">🚀 启动节点
+                        </button>
+                        <button class="btn btn-outline" onclick="AdminApp.stopLocalNode()"
+                                title="停止当前运行的本地 RPC 节点">⏹️ 停止节点
+                        </button>
+                        <button class="btn btn-outline" onclick="AdminApp.saveNodeConfig()"
+                                title="保存当前配置到本地存储">💾 保存配置
+                        </button>
+                        <button class="btn btn-ghost" onclick="AdminApp.testRpcConnection()"
+                                title="测试 RPC 节点连通性">🔌 测试连接
+                        </button>
                     </div>
-                    <div class="form-group" style="display: flex; align-items: flex-end;">
-                        <button class="btn btn-primary" onclick="AdminApp.mintLocalToken()"
-                                title="铸造指定数量的代币到目标地址">✨ Mint
+                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 12px;">💡
+                        修改配置后点击"启动节点"即可应用。节点运行中修改配置需先停止再启动。<br>
+                        ⚠️ 代币符号以 <code>#/config</code> 中的 <code>native_symbol</code> 为准，此处仅作启动时本地记录。</p>
+                </div>
+
+                <!-- RPC 网络连接配置 -->
+                <div class="stat-card" style="margin-bottom: 16px;">
+                    <h3 style="margin-top: 0;">🌐 RPC 网络与合约地址</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label title="主 RPC 节点 URL（公链或本地链）">主 RPC URL</label>
+                            <input type="text" id="mainRpcUrl" placeholder="http://127.0.0.1:8686"
+                                   title="主 RPC 节点 URL">
+                        </div>
+                        <div class="form-group">
+                            <label title="备用 RPC 节点 URL（可选）">备用 RPC URL</label>
+                            <input type="text" id="backupRpcUrl" placeholder="可选"
+                                   title="备用 RPC 节点 URL">
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top: 12px;">
+                        <div class="form-group">
+                            <label title="当前链上主合约地址">主合约地址</label>
+                            <input type="text" id="configContractAddress" placeholder="0x..."
+                                   title="当前链上主合约地址">
+                        </div>
+                        <div class="form-group" style="flex: 0 0 auto; display: flex; align-items: flex-end;">
+                            <button class="btn btn-primary" onclick="AdminApp.saveRpcConfig()"
+                                    title="保存 RPC 和合约地址配置">💾 保存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 启动环境配置 -->
+                <div class="stat-card">
+                    <h3 style="margin-top: 0;">⚙️ 启动环境变量</h3>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                        这些变量写入 <code>.env</code> 文件，服务重启后生效。当前内存中的配置不受影响。
+                    </p>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label title="服务监听地址">HOST</label>
+                            <input type="text" id="envHost" value="0.0.0.0" placeholder="0.0.0.0"
+                                   title="服务监听地址">
+                        </div>
+                        <div class="form-group">
+                            <label title="服务端口">PORT</label>
+                            <input type="number" id="envPort" value="8000" min="1" max="65535" placeholder="8000"
+                                   title="服务端口">
+                        </div>
+                        <div class="form-group">
+                            <label title="Redis 连接 URL">REDIS_URL</label>
+                            <input type="text" id="envRedisUrl" placeholder="redis://localhost:6379/0"
+                                   title="Redis 连接 URL">
+                        </div>
+                        <div class="form-group">
+                            <label title="调试模式">DEBUG</label>
+                            <select id="envDebug" title="调试模式开关">
+                                <option value="true" selected>开启</option>
+                                <option value="false">关闭</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px; display: flex; gap: 12px;">
+                        <button class="btn btn-primary" onclick="AdminApp.saveEnvConfig()"
+                                title="保存 .env 配置（需重启服务生效）">💾 保存环境配置
+                        </button>
+                        <button class="btn btn-ghost" onclick="AdminApp.reloadEnv()"
+                                title="重新加载 .env 配置">🔄 重新加载
                         </button>
                     </div>
                 </div>
             </div>
-
 
         </div>
 
@@ -1465,10 +1460,6 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
                     🔗 链上合约配置
                 </button>
-                <button class="config-tab-btn" data-config-tab="node" onclick="AdminApp.switchConfigTab('node')"
-                        style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
-                    🖥️ 本地链启动配置
-                </button>
             </div>
 
             <div id="configPanel-backend">
@@ -1484,8 +1475,8 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                         </select>
                     </div>
                     <div class="form-group" style="flex:0 0 auto; display:flex; gap:8px; align-items:flex-end;">
-                        <button class="btn btn-secondary" onclick="AdminApp.useCurrentChainAsMain()"
-                                title="将当前钱包网络的 Chain ID 填入配置">📌 使用当前网络
+                        <button class="btn btn-primary" onclick="AdminApp.saveAllConfig()"
+                                title="保存当前页面所有已修改的配置项">💾 保存
                         </button>
                         <button class="btn btn-secondary" onclick="AdminApp.showBatchUpdateModal()"
                                 title="批量修改多个配置项">批量更新
@@ -1637,154 +1628,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
                 </div>
             </div>
 
-            <!-- 本地链启动配置 -->
-            <div id="configPanel-node" style="display:none;">
-                <h3 style="margin-bottom: 16px;">🖥️ 本地链 RPC 节点启动配置</h3>
-
-                <div class="stat-card" style="margin-bottom: 16px;">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label title="本地链类型">链类型</label>
-                            <select id="nodeConfigChainType" title="选择本地链类型：Hardhat 或 Ganache">
-                                <option value="ganache">Ganache</option>
-                                <option value="hardhat">Hardhat</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label title="监听地址">监听地址 (Host)</label>
-                            <input type="text" id="nodeConfigHost" value="127.0.0.1" placeholder="127.0.0.1"
-                                   title="监听地址">
-                        </div>
-                        <div class="form-group">
-                            <label title="RPC 服务端口">端口 (Port)</label>
-                            <input type="number" id="nodeConfigPort" value="8686" min="1" max="65535" placeholder="8686"
-                                   title="RPC 服务端口">
-                        </div>
-                        <div class="form-group">
-                            <label title="链 ID（Chain ID）">Chain ID</label>
-                            <input type="number" id="nodeConfigChainId" value="5208888" min="1" placeholder="5208888"
-                                   title="链 ID">
-                        </div>
-                    </div>
-                    <div class="form-row" style="margin-top: 12px;">
-                        <div class="form-group">
-                            <label title="生成的测试账户数量">账户数</label>
-                            <input type="number" id="nodeConfigAccounts" value="10" min="1" max="100" placeholder="10"
-                                   title="生成的测试账户数量">
-                        </div>
-                        <div class="form-group">
-                            <label title="每个账户的默认原生代币余额">默认余额</label>
-                            <input type="number" id="nodeConfigBalance" value="123452" min="0" step="1"
-                                   placeholder="123452"
-                                   title="每个账户的默认原生代币余额">
-                        </div>
-                        <div class="form-group">
-                            <label title="原生代币符号">代币符号</label>
-                            <input type="text" id="nodeConfigSymbol" value="CRPS" maxlength="10" placeholder="CRPS"
-                                   title="原生代币符号">
-                        </div>
-                        <div class="form-group" style="display: flex; align-items: flex-end;">
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;">
-                                <input type="checkbox" id="nodeConfigDeterministic" checked
-                                       title="使用固定助记词，每次启动生成相同账户">
-                                确定性助记词
-                            </label>
-                        </div>
-                        <div class="form-group" style="display: flex; align-items: flex-end;">
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;"
-                                   title="启用后链数据持久化到磁盘，重启服务后已部署合约和状态保留（仅 Ganache 支持）">
-                                <input type="checkbox" id="nodeConfigPersist" checked>
-                                💾 持久化存储
-                            </label>
-                        </div>
-                    </div>
-                    <div style="margin-top: 16px; display: flex; gap: 12px; align-items: center;">
-                        <button class="btn btn-primary" onclick="AdminApp.startLocalNode()"
-                                title="使用当前配置启动本地 RPC 节点">🚀 启动节点
-                        </button>
-                        <button class="btn btn-outline" onclick="AdminApp.stopLocalNode()"
-                                title="停止当前运行的本地 RPC 节点">⏹️ 停止节点
-                        </button>
-                        <button class="btn btn-outline" onclick="AdminApp.saveNodeConfig()"
-                                title="保存当前配置到本地存储">💾 保存配置
-                        </button>
-                        <button class="btn btn-ghost" onclick="AdminApp.testRpcConnection()"
-                                title="测试 RPC 节点连通性">🔌 测试连接
-                        </button>
-                    </div>
-                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 12px;">💡
-                        修改配置后点击"启动节点"即可应用。节点运行中修改配置需先停止再启动。</p>
-                </div>
-
-                <!-- RPC 网络连接配置 -->
-                <div class="stat-card" style="margin-bottom: 16px;">
-                    <h3 style="margin-top: 0;">🌐 RPC 网络与合约地址</h3>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label title="主 RPC 节点 URL（公链或本地链）">主 RPC URL</label>
-                            <input type="text" id="mainRpcUrl" placeholder="http://127.0.0.1:8686"
-                                   title="主 RPC 节点 URL">
-                        </div>
-                        <div class="form-group">
-                            <label title="备用 RPC 节点 URL（可选）">备用 RPC URL</label>
-                            <input type="text" id="backupRpcUrl" placeholder="可选"
-                                   title="备用 RPC 节点 URL">
-                        </div>
-                    </div>
-                    <div class="form-row" style="margin-top: 12px;">
-                        <div class="form-group">
-                            <label title="当前链上主合约地址">主合约地址</label>
-                            <input type="text" id="configContractAddress" placeholder="0x..."
-                                   title="当前链上主合约地址">
-                        </div>
-                        <div class="form-group" style="flex: 0 0 auto; display: flex; align-items: flex-end;">
-                            <button class="btn btn-primary" onclick="AdminApp.saveRpcConfig()"
-                                    title="保存 RPC 和合约地址配置">💾 保存
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 启动环境配置 -->
-                <div class="stat-card">
-                    <h3 style="margin-top: 0;">⚙️ 启动环境变量</h3>
-                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
-                        这些变量写入 <code>.env</code> 文件，服务重启后生效。当前内存中的配置不受影响。
-                    </p>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label title="服务监听地址">HOST</label>
-                            <input type="text" id="envHost" value="0.0.0.0" placeholder="0.0.0.0"
-                                   title="服务监听地址">
-                        </div>
-                        <div class="form-group">
-                            <label title="服务端口">PORT</label>
-                            <input type="number" id="envPort" value="8000" min="1" max="65535" placeholder="8000"
-                                   title="服务端口">
-                        </div>
-                        <div class="form-group">
-                            <label title="Redis 连接 URL">REDIS_URL</label>
-                            <input type="text" id="envRedisUrl" placeholder="redis://localhost:6379/0"
-                                   title="Redis 连接 URL">
-                        </div>
-                        <div class="form-group">
-                            <label title="调试模式">DEBUG</label>
-                            <select id="envDebug" title="调试模式开关">
-                                <option value="true" selected>开启</option>
-                                <option value="false">关闭</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div style="margin-top: 16px; display: flex; gap: 12px;">
-                        <button class="btn btn-primary" onclick="AdminApp.saveEnvConfig()"
-                                title="保存 .env 配置（需重启服务生效）">💾 保存环境配置
-                        </button>
-                        <button class="btn btn-ghost" onclick="AdminApp.reloadEnv()"
-                                title="重新加载 .env 配置">🔄 重新加载
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <!-- 本地链启动配置已迁移至 #/local-chain 的 feature-config 面板 -->
         </div>
 
         <div id="tab-audit" class="admin-section">
@@ -1850,74 +1694,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
             </div>
         </div>
 
-        <!-- 阶段演示页面 -->
-        <div id="tab-stageDemo" class="admin-section">
-            <h2 class="section-title">🎮 演示中心</h2>
-
-            <div class="config-tab-bar" style="display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border-color);">
-                <button class="config-tab-btn active" data-demo-tab="cards" onclick="AdminApp.switchDemoTab('cards')" style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
-                    🎴 阶段模拟卡片
-                </button>
-                <button class="config-tab-btn" data-demo-tab="animation" onclick="AdminApp.switchDemoTab('animation')" style="padding:10px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; color:var(--text-secondary); font-size:14px;">
-                    🎬 游戏流程动画演示
-                </button>
-            </div>
-
-            <!-- 面板：阶段模拟卡片 -->
-            <div id="demoPanel-cards">
-                <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 13px;">
-                    点击下方卡片可在新窗口中打开对应游戏阶段的模拟界面，无需连接链上即可预览各环节 UI 效果。
-                </p>
-                <div id="stageDemoGrid" class="stage-demo-grid"></div>
-            </div>
-
-            <!-- 面板：游戏流程动画演示 -->
-            <div id="demoPanel-animation" style="display:none;">
-                <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 13px;">
-                    自动播放 ChainRPS 完整对局流程：大厅 → 创建/加入房间 → 准备 → 倒计时 → 出拳 → 揭晓 → 结算 →
-                    结束。无需连接钱包即可预览。
-                </p>
-
-                <!-- 阶段进度条 -->
-                <div class="sd-progress-bar" id="sdProgressBar"></div>
-
-                <!-- 演示舞台 -->
-                <div class="sd-stage-wrap">
-                    <div class="sd-stage" id="sdStage">
-                        <!-- 场景内容由 JS 渲染 -->
-                    </div>
-
-                    <!-- 阶段说明角标 -->
-                    <div class="sd-stage-info" id="sdStageInfo">
-                        <div class="sd-stage-info-icon" id="sdInfoIcon">🏠</div>
-                        <div class="sd-stage-info-text">
-                            <div class="sd-stage-info-title" id="sdInfoTitle">游戏大厅</div>
-                            <div class="sd-stage-info-desc" id="sdInfoDesc">浏览房间列表，创建或加入房间</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 控制台 -->
-                <div class="sd-controls">
-                    <button class="btn btn-primary" id="sdPlayBtn" onclick="AdminApp.sdTogglePlay()">▶ 播放</button>
-                    <button class="btn btn-outline" onclick="AdminApp.sdRestart()">⏮ 重新开始</button>
-                    <button class="btn btn-outline" onclick="AdminApp.sdPrev()">⏪ 上一步</button>
-                    <button class="btn btn-outline" onclick="AdminApp.sdNext()">⏩ 下一步</button>
-                    <div class="sd-speed-group">
-                        <label>速度</label>
-                        <select id="sdSpeed" onchange="AdminApp.sdChangeSpeed(this.value)">
-                            <option value="2000">慢</option>
-                            <option value="1200" selected>正常</option>
-                            <option value="700">快</option>
-                            <option value="350">极速</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- 阶段快捷跳转 -->
-                <div class="sd-jumps" id="sdJumps"></div>
-            </div>
-        </div>
+        <!-- 阶段演示已迁移至独立公开页面 /demo -->
     </main>
 </div>
 
@@ -2070,37 +1847,7 @@ sqlite3 data\rps.db "UPDATE admins SET password_hash='' WHERE username='admin';"
     </div>
 </div>
 
-<!-- Mint 测试代币弹窗 -->
-<div id="mintTokenModal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 500px;">
-        <div class="modal-header">
-            <h3 class="modal-title">💸 Mint 测试代币</h3>
-            <button class="modal-close" onclick="document.getElementById('mintTokenModal').classList.remove('show')">
-                &times;
-            </button>
-        </div>
-        <div class="modal-body">
-            <div class="form-group">
-                <label>代币合约地址</label>
-                <input type="text" id="mintTokenAddress" placeholder="0x...">
-            </div>
-            <div class="form-group">
-                <label>接收地址</label>
-                <input type="text" id="mintToAddress" placeholder="0x...">
-            </div>
-            <div class="form-group">
-                <label>Mint 数量 (个)</label>
-                <input type="number" id="mintAmount" value="10000" min="1">
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary"
-                    onclick="document.getElementById('mintTokenModal').classList.remove('show')">取消
-            </button>
-            <button class="btn btn-primary" onclick="AdminApp.mintToken()">Mint</button>
-        </div>
-    </div>
-</div>
+<!-- Mint 测试代币弹窗已删除（USDC 在链启动时自动部署并分发） -->
 
 <!-- 部署本地测试代币弹窗 -->
 <div id="deployLocalTokenModal" class="modal-overlay">

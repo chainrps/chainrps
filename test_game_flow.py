@@ -2,7 +2,7 @@ import json
 import time
 import requests
 
-from eth_utils import keccak, to_canonical_address
+from web3 import Web3
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -36,15 +36,36 @@ def compute_commit(choice, salt, address):
     计算承诺哈希，与合约 keccak256(abi.encodePacked(choice, salt, player)) 一致。
 
     Args:
-        choice: "rock"/"paper"/"scissors" 字符串，内部转 uint8(1/2/3)
-        salt: 32 字节 hex 字符串（0x + 64 hex）
-        address: 玩家地址
+        choice: 出拳，数字 1/2/3（1=石头, 2=布, 3=剪刀）；兼容 "rock"/"paper"/"scissors" 字符串
+        salt: 32 字节 hex 字符串（0x + 64 hex），即 bytes32
+        address: 玩家地址（0x 开头的 20 字节地址）
+
+    Returns:
+        0x + 64 hex 的 bytes32 承诺哈希
     """
-    choice_uint8 = CHOICE_MAP.get(choice, 0)
-    salt_bytes = bytes.fromhex(salt[2:]) if salt.startswith("0x") else bytes.fromhex(salt)
+    # choice 统一为 uint8 (1/2/3)
+    if isinstance(choice, str):
+        choice_uint8 = CHOICE_MAP.get(choice.lower(), 0)
+    else:
+        choice_uint8 = int(choice)
+    if choice_uint8 not in (1, 2, 3):
+        raise ValueError(f"无效的出拳: {choice}（应为 1/2/3 或 rock/paper/scissors）")
+
+    # salt 统一为 32 字节 bytes32
+    salt_hex = salt[2:] if salt.startswith("0x") else salt
+    salt_bytes = bytes.fromhex(salt_hex)
+    if len(salt_bytes) != 32:
+        raise ValueError(f"salt 必须为 32 字节（bytes32），当前 {len(salt_bytes)} 字节")
+
+    # address 统一为 20 字节 canonical
+    addr_bytes = Web3.to_bytes(hexstr=address)
+    if len(addr_bytes) != 20:
+        raise ValueError(f"地址长度异常: {address}")
+
     # abi.encodePacked(uint8, bytes32, address) = 1 + 32 + 20 = 53 bytes
-    raw = bytes([choice_uint8]) + salt_bytes + to_canonical_address(address)
-    return "0x" + keccak(raw).hex()
+    # 使用 web3.py 的 Web3.keccak（即 keccak256，与合约一致；注意 NOT SHA3-256）
+    packed = bytes([choice_uint8]) + salt_bytes + addr_bytes
+    return "0x" + Web3.keccak(packed).hex()
 
 
 def test_full_game_flow():
@@ -207,18 +228,19 @@ def test_draw_flow():
     test("4. 验证平局状态", step4_check_draw)
 
 
-print("=" * 60)
-print("ChainRPS 游戏流程测试")
-print("=" * 60)
+if __name__ == "__main__":
+    print("=" * 60)
+    print("ChainRPS 游戏流程测试")
+    print("=" * 60)
 
-test_full_game_flow()
-test_draw_flow()
+    test_full_game_flow()
+    test_draw_flow()
 
-print("\n" + "=" * 60)
-print(f"测试结果: ✅ 通过 {PASS}, ❌ 失败 {FAIL}")
-print("=" * 60)
+    print("\n" + "=" * 60)
+    print(f"测试结果: ✅ 通过 {PASS}, ❌ 失败 {FAIL}")
+    print("=" * 60)
 
-if FAIL > 0:
-    print("\n失败详情:")
-    for e in ERRORS:
-        print(f"  {e}")
+    if FAIL > 0:
+        print("\n失败详情:")
+        for e in ERRORS:
+            print(f"  {e}")

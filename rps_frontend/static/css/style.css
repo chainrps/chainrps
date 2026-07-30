@@ -1,52 +1,5 @@
-/* CSS变量定义 - 用于VS Code语言服务识别 */
-:root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f8fafc;
-    --bg-tertiary: #f1f5f9;
-    --bg-card: #ffffff;
-    --bg-hover: #f1f5f9;
-    --bg-success: #d1fae5;
-    --bg-warning: #fef3c7;
-    --card-bg: #ffffff;
-    --input-bg: #f8fafc;
-    
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-tertiary: #94a3b8;
-    
-    --border-color: #e2e8f0;
-    --border-light: #f1f5f9;
-    
-    --primary-color: #6366f1;
-    --primary-hover: #4f46e5;
-    --primary-light: #e0e7ff;
-    --primary-lighter: #eef2ff;
-    --primary-rgb: 99, 102, 241;
-    
-    --success-color: #10b981;
-    --success-light: #d1fae5;
-    --danger-color: #ef4444;
-    --danger-light: #fee2e2;
-    --warning-color: #f59e0b;
-    --warning-light: #fef3c7;
-    --info-color: #3b82f6;
-    --info-light: #dbeafe;
-    
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-    
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 16px;
-    --radius-xl: 24px;
-    --radius-full: 9999px;
-    
-    --transition-fast: 150ms ease;
-    --transition-normal: 250ms ease;
-    --transition-slow: 350ms ease;
-}
+/* CSS变量定义已移至 theme.css，此处仅保留组件样式 */
+/* theme.css 定义 :root（亮色主题）和 [data-theme="dark"]（暗色主题） */
 
 #app {
     min-height: 100vh;
@@ -92,7 +45,7 @@
 .logo-text {
     font-size: 20px;
     font-weight: 700;
-    background: linear-gradient(135deg, var(--primary-color), #a855f7);
+    background: var(--gradient-primary);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -368,7 +321,7 @@
     width: 44px;
     height: 44px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary-color), #a855f7);
+    background: var(--gradient-primary);
     padding: 2px;
     flex-shrink: 0;
     cursor: pointer;
@@ -424,6 +377,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+}
+
+.wallet-address:hover {
+    color: var(--primary-color);
+}
+
+.wallet-address:active {
+    opacity: 0.7;
 }
 
 .btn-disconnect {
@@ -571,7 +534,7 @@
     font-size: 32px;
     font-weight: 700;
     margin-bottom: 8px;
-    background: linear-gradient(135deg, var(--primary-color), #a855f7);
+    background: var(--gradient-primary);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -823,6 +786,16 @@
     font-weight: 500;
     background: var(--primary-light);
     color: var(--primary-color);
+}
+
+/* 资金阶段指示器（stageGame game-header 内实时显示资金状态） */
+.game-fund-stage {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+    white-space: nowrap;
 }
 
 .game-timer {
@@ -2038,7 +2011,7 @@ input:checked + .slider:before {
 }
 
 .room-player.is-myself .player-avatar {
-    background: linear-gradient(135deg, var(--primary-color), #a855f7);
+    background: var(--gradient-primary);
     border-radius: 50%;
     padding: 4px;
     box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
@@ -2105,7 +2078,7 @@ input:checked + .slider:before {
     width: 120px;
     height: 120px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary-color), #a855f7);
+    background: var(--gradient-primary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2426,6 +2399,53 @@ input:checked + .slider:before {
 }
 
 /* 网络切换下拉菜单 */
+/* 多币种余额展开面板 */
+.wallet-balances-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    min-width: 220px;
+    padding: 8px;
+}
+
+.wallet-balances-dropdown .dropdown-header {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+}
+
+.wallet-balances-dropdown .balance-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+}
+
+.wallet-balances-dropdown .balance-item:hover {
+    background: var(--bg-secondary);
+}
+
+.wallet-balances-dropdown .balance-symbol {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.wallet-balances-dropdown .balance-value {
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
 .network-dropdown {
     position: absolute;
     top: calc(100% + 8px);

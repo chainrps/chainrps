@@ -5,6 +5,7 @@
 
 说明："本地链"即本地测试链（Local Chain），同时也寓意"连胜"。
 """
+import logging
 import os
 import json
 import shutil
@@ -12,6 +13,8 @@ import subprocess
 import threading
 import time
 from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from web3 import Web3
 from web3.exceptions import TimeExhausted
@@ -195,12 +198,30 @@ class LocalChainService:
         try:
             from rps_backend.repository import list_contracts
             contracts = list_contracts(network="localhost")
+            # 先清空内存中的代币缓存（DB 是权威来源，防止旧缓存覆盖）
+            self._tokens.clear()
+            # list_contracts ORDER BY id DESC，同一 symbol 只保留第一次出现（最新的）
+            seen_symbols = set()
             for c in contracts:
                 name = c.get("name", "")
-                if name.startswith("Mock") or name in ["USDC", "USDT", "MockERC20"]:
+                if name.startswith("Mock") or name in ["USDC", "MockERC20"]:
                     symbol = name.replace("Mock ", "")
+                    if symbol in seen_symbols:
+                        # DB 中可能有多条同名记录（如多次重新部署），旧的丢弃
+                        continue
+                    seen_symbols.add(symbol)
+                    addr = c.get("address")
+                    # 额外验证：链上合约是否真正存在（防止残留历史记录指向已重置的链地址）
+                    if self._w3 and addr:
+                        try:
+                            code = self._w3.eth.get_code(self._w3.to_checksum_address(addr))
+                            if not code or code == b'' or code == b'0x':
+                                # 跳过链上无效的历史记录
+                                continue
+                        except Exception:
+                            pass  # 验证失败仍尝试保留，让调用方后续再次验证
                     self._tokens[symbol] = {
-                        "address": c.get("address"),
+                        "address": addr,
                         "name": name,
                         "symbol": symbol,
                         "decimals": 6,
@@ -247,11 +268,22 @@ class LocalChainService:
         chain_id: int = RPC_CHAIN_ID,
         accounts_count: int = 10,
         default_balance: float = 100000,      # 每个账户的默认原生代币余额
-        symbol: str = "ETH",
+        symbol: str = RPC_LOCAL_SYMBOL,
         chain_type: str = "ganache",
         persist: bool = True,                 # 是否启用持久化存储（仅 Ganache 支持）
     ) -> Dict[str, Any]:
         if self.is_running():
+            # 链已在运行（持久化恢复）：确保 USDC 合约在链上有效
+            # （防止 DB 残留旧合约地址但链数据已重置导致转账失败）
+            try:
+                usdc_result = self.ensure_usdc_ready()
+                if usdc_result.get("success"):
+                    if usdc_result.get("deployed"):
+                        print(f"💰 {usdc_result.get('message', 'USDC 已重新部署并分发')}")
+                else:
+                    print(f"⚠️  USDC 就绪检查失败: {usdc_result.get('message')}")
+            except Exception as e:
+                print(f"⚠️  USDC 就绪检查异常: {e}")
             return {"success": True, "message": "本地链已在运行", "rpc_url": self._rpc_url}
 
         self._chain_type = chain_type
@@ -334,7 +366,7 @@ class LocalChainService:
         chain_id: int = RPC_CHAIN_ID,
         accounts_count: int = 10,
         default_balance: float = 1000,
-            symbol: str = "ETH",
+        symbol: str = RPC_LOCAL_SYMBOL,
             persist: bool = True,
     ) -> Dict[str, Any]:
         ganache_path = _find_ganache_executable()
@@ -481,6 +513,22 @@ class LocalChainService:
                 "symbol": symbol,
             }
 
+            # 创世时自动部署 USDC 并向所有账户分发等额代币（默认结算币）
+            # 仅在全新链（非持久化恢复）时自动部署；持久化恢复时 USDC 已在 DB 中
+            usdc_result = None
+            try:
+                usdc_result = self.deploy_and_distribute_usdc(
+                    from_index=0,
+                    per_account_amount=default_balance,  # 与原生代币余额一致
+                )
+                if usdc_result.get("success"):
+                    print(f"💰 {usdc_result['message']}")
+                else:
+                    print(f"⚠️  USDC 自动部署/分发失败: {usdc_result.get('message')}")
+            except Exception as e:
+                print(f"⚠️  USDC 自动部署/分发异常: {e}")
+                usdc_result = {"success": False, "message": str(e)}
+
             return {
                 "success": True,
                 "message": "本地链启动成功",
@@ -492,6 +540,7 @@ class LocalChainService:
                 "host": host,
                 "port": port,
                 "chain_type": chain_type,
+                "usdc_distribution": usdc_result,
             }
         else:
             # 进程存活但 RPC 连不上，不读取管道（避免阻塞）
@@ -585,20 +634,19 @@ class LocalChainService:
     # 获取节点状态
     def get_node_status(self) -> Dict[str, Any]:
         running = self.is_running()
-        # 代币符号：优先使用用户启动节点时配置的 symbol
+        # 代币符号：统一读取系统配置 native_symbol，避免与 #/config 中的设置不一致
         # 说明：Ganache v7.9.2 不支持 --chain.nativeTokenSymbol 参数，节点本身默认返回 "GO"，
-        # 因此这里返回用户配置的 symbol（保存在 _keep_alive_config 中），而非节点默认值
-        configured_symbol = (self._keep_alive_config.get("symbol") if self._keep_alive_config else None) or "ETH"
+        # 因此这里返回系统配置的 native_symbol，确保前端展示与 #/config 配置一致
+        try:
+            from rps_backend.repository import get_system_config_value
+            configured_symbol = get_system_config_value("native_symbol") or RPC_LOCAL_SYMBOL
+            recommended_chain_name = get_system_config_value("recommended_chain_name") or RPC_LOCAL_NETWORK
+        except Exception:
+            configured_symbol = (self._keep_alive_config.get("symbol") if self._keep_alive_config else None) or RPC_LOCAL_SYMBOL
+            recommended_chain_name = f"Localhost {RPC_LOCAL_PORT}"
         # 持久化支持信息：仅 Ganache 支持，Hardhat 始终为 False
         persist_supported = self._chain_type != "hardhat"
         persist_enabled = bool(self._persist_enabled) and persist_supported
-
-        # 读取推荐主链名称
-        try:
-            from rps_backend.repository import get_system_config_value
-            recommended_chain_name = get_system_config_value("recommended_chain_name") or RPC_LOCAL_NETWORK
-        except Exception:
-            recommended_chain_name = f"Localhost {RPC_LOCAL_PORT}"
 
         result = {
             "running": running,
@@ -634,20 +682,91 @@ class LocalChainService:
 
         return result
 
-    # 获取账户列表
+    # 获取账户列表（含原生币和 USDC 余额）
     def get_accounts(self) -> List[Dict[str, Any]]:
         if not self.is_running() or not self._w3:
             return []
 
+        # 确保 USDC 合约就绪（持久化恢复场景下 DB 可能残留无效地址）
+        try:
+            self.ensure_usdc_ready()
+        except Exception:
+            pass  # 别删除，用于人工代码审核 便利
+
+        # 查找 USDC 合约（用于批量查询余额）
+        usdc_contract = None
+        usdc_decimals = 6
+        usdc_addr = None
+        usdc_token = self._tokens.get("USDC")
+        if usdc_token:
+            usdc_addr = usdc_token.get("address")
+            try:
+                abi_json = [
+                    {"inputs": [{"name": "account", "type": "address"}],
+                     "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}],
+                     "stateMutability": "view", "type": "function"},
+                    {"inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}],
+                     "stateMutability": "view", "type": "function"},
+                ]
+                # address 归一化为 checksum，避免大小写不一致导致合约实例绑定到错误地址
+                usdc_checksum = self._w3.to_checksum_address(usdc_addr)
+                usdc_contract = self._w3.eth.contract(address=usdc_checksum, abi=abi_json)
+                try:
+                    usdc_decimals = int(usdc_contract.functions.decimals().call())
+                except Exception as e:
+                    print(f"⚠️  USDC decimals 查询失败（地址 {usdc_checksum}）: {e}，使用默认 6")
+                    usdc_decimals = 6
+            except Exception as e:
+                print(f"⚠️  初始化 USDC 余额查询合约失败（地址 {usdc_addr}）: {e}")
+                usdc_contract = None
+        else:
+            # 兜底：再次确保 USDC 就绪（ensure_usdc_ready 可能被异常吞掉没真正执行）
+            try:
+                r = self.ensure_usdc_ready()
+                if r.get("success"):
+                    usdc_token = self._tokens.get("USDC")
+                    if usdc_token:
+                        usdc_addr = usdc_token.get("address")
+                        try:
+                            abi_json = [
+                                {"inputs": [{"name": "account", "type": "address"}],
+                                 "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}],
+                                 "stateMutability": "view", "type": "function"},
+                                {"inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}],
+                                 "stateMutability": "view", "type": "function"},
+                            ]
+                            usdc_checksum = self._w3.to_checksum_address(usdc_addr)
+                            usdc_contract = self._w3.eth.contract(address=usdc_checksum, abi=abi_json)
+                            usdc_decimals = int(usdc_contract.functions.decimals().call())
+                        except Exception as e2:
+                            print(f"⚠️  兜底初始化 USDC 合约失败: {e2}")
+            except Exception as e:
+                print(f"⚠️  兜底 ensure_usdc_ready 异常: {e}")
+
         accounts_info = []
+        balance_err_count = 0
+        last_balance_err = None
         for i, addr in enumerate(self._accounts):
             try:
                 balance_wei = self._w3.eth.get_balance(addr)
                 balance_eth = self._w3.from_wei(balance_wei, 'ether')
+
+                # 查询 USDC 余额
+                balance_usdc = 0
+                if usdc_contract:
+                    try:
+                        raw = usdc_contract.functions.balanceOf(addr).call()
+                        balance_usdc = raw / (10 ** usdc_decimals)
+                    except Exception as e:
+                        balance_usdc = 0
+                        balance_err_count += 1
+                        last_balance_err = str(e)
+
                 accounts_info.append({
                     "index": i,
                     "address": addr,
                     "balance_eth": float(balance_eth),
+                    "balance_usdc": float(balance_usdc),
                     "private_key": self._private_keys[i] if i < len(self._private_keys) else None,
                 })
             except Exception:
@@ -655,8 +774,12 @@ class LocalChainService:
                     "index": i,
                     "address": addr,
                     "balance_eth": 0,
+                    "balance_usdc": 0,
                     "private_key": None,
                 })
+
+        if balance_err_count > 0:
+            print(f"⚠️  USDC 余额查询异常 {balance_err_count}/{len(self._accounts)} 次，USDC 合约地址: {usdc_addr}，首个错误: {last_balance_err}")
 
         return accounts_info
 
@@ -946,6 +1069,279 @@ class LocalChainService:
 
         return {"success": False, "message": f"Mint 失败: {last_error}"}
 
+    # 部署 USDC 并向所有本地链账户分发等额代币（创世时调用）
+    def deploy_and_distribute_usdc(
+            self,
+            from_index: int = 0,
+            symbol: str = "USDC",
+            name: str = "Mock USDC",
+            decimals: int = 6,
+            per_account_amount: float = 10000,
+    ) -> Dict[str, Any]:
+        """部署 USDC 代币并为每个本地链账户铸造等额代币。
+
+        - 若 USDC 已存在（self._tokens 或 DB 中）且链上合约代码有效，则跳过部署，仅执行分发。
+        - 若 DB 记录的合约地址在链上无代码（链数据已重置），清理旧记录并重新部署。
+        - 分发：对每个账户调用 mint，金额为 per_account_amount。
+        - 若分发全部失败且本次未部署，自动尝试重新部署一次。
+        """
+        if not self.is_running() or not self._w3:
+            return {"success": False, "message": "本地链未运行"}
+
+        # 1. 检查 USDC 是否已存在
+        token = self._tokens.get(symbol)
+        if not token:
+            # 从 DB 加载
+            try:
+                self._load_tokens_from_db()
+                token = self._tokens.get(symbol)
+            except Exception:
+                pass
+
+        # 2. 验证链上合约是否真实存在（防止 DB 残留旧记录导致 mint 全部失败）
+        if token:
+            try:
+                code = self._w3.eth.get_code(self._w3.to_checksum_address(token["address"]))
+                if not code or code == b'' or code == b'0x':
+                    print(f"⚠️  DB 记录的 USDC 合约 {token['address']} 在链上无代码（链数据已重置），将重新部署")
+                    token = None
+                    self._tokens.pop(symbol, None)
+            except Exception as e:
+                print(f"⚠️  验证 USDC 合约存在性失败: {e}，将重新部署")
+                token = None
+                self._tokens.pop(symbol, None)
+
+        deployed = False
+
+        def _deploy_usdc():
+            """内部函数：部署 USDC 合约"""
+            deploy_result = self.deploy_mock_erc20(
+                from_index=from_index,
+                name=name,
+                symbol=symbol,
+                decimals=decimals,
+                initial_supply=per_account_amount,  # 初始供应量给部署者
+            )
+            return deploy_result
+
+        if not token:
+            # 3. 部署 USDC
+            deploy_result = _deploy_usdc()
+            if not deploy_result.get("success"):
+                return deploy_result
+            deployed = True
+            token = self._tokens.get(symbol)
+            if not token:
+                return {"success": False, "message": "USDC 部署后未找到代币记录"}
+        else:
+            print(f"💰 USDC 已存在（{token['address']}），跳过部署，直接分发")
+
+        # 4. 向所有账户分发 USDC
+        if not self._accounts:
+            self._load_accounts()
+        if not self._accounts:
+            return {"success": False, "message": "无法获取本地链账户列表"}
+
+        def _distribute():
+            """内部函数：向所有账户分发 USDC，返回 (distributed, failed)"""
+            dist, fail = [], []
+            for addr in self._accounts:
+                mint_result = self.mint_tokens(symbol, addr, per_account_amount, from_index)
+                if mint_result.get("success"):
+                    dist.append(addr)
+                else:
+                    fail.append({"address": addr, "error": mint_result.get("message")})
+            return dist, fail
+
+        distributed, failed = _distribute()
+
+        # 5. 若分发全部失败且本次未重新部署，清理旧记录后自动重新部署一次
+        if len(distributed) == 0 and len(failed) > 0 and not deployed:
+            first_error = failed[0].get("error", "未知错误") if failed else "未知错误"
+            print(f"⚠️  USDC 分发全部失败（{first_error}），尝试清理旧合约并重新部署...")
+            self._tokens.pop(symbol, None)
+            deploy_result = _deploy_usdc()
+            if deploy_result.get("success"):
+                token = self._tokens.get(symbol)
+                if token:
+                    deployed = True
+                    distributed, failed = _distribute()
+
+        return {
+            "success": len(failed) == 0,
+            "message": f"USDC 分发完成：成功 {len(distributed)}/{len(self._accounts)} 个账户"
+                       + (f"，失败 {len(failed)} 个" if failed else "")
+                       + (f" | 首个错误: {failed[0].get('error', '未知')}" if failed else ""),
+            "deployed": deployed,
+            "token_address": token["address"] if token else None,
+            "symbol": symbol,
+            "per_account_amount": per_account_amount,
+            "distributed_count": len(distributed),
+            "total_accounts": len(self._accounts),
+            "failed": failed,
+        }
+
+    # 确保 USDC 合约在链上有效（幂等：有效则跳过，无效才重新部署+分发）
+    def ensure_usdc_ready(
+            self,
+            from_index: int = 0,
+            per_account_amount: float = 100000,
+    ) -> Dict[str, Any]:
+        """确保 USDC 合约在链上有效且已分发。
+
+        - 链上已有有效 USDC 合约 → 跳过，返回就绪状态
+        - 链上无 USDC 合约（未部署或链数据重置）→ 重新部署并分发
+
+        幂等方法，可在链启动或转账前安全调用。
+        """
+        if not self.is_running() or not self._w3:
+            return {"success": False, "message": "本地链未运行"}
+
+        symbol = "USDC"
+        token = self._tokens.get(symbol)
+        if not token:
+            try:
+                self._load_tokens_from_db()
+                token = self._tokens.get(symbol)
+            except Exception:
+                pass
+
+        # 验证链上合约存在性
+        if token:
+            try:
+                code = self._w3.eth.get_code(self._w3.to_checksum_address(token["address"]))
+                if code and code != b'' and code != b'0x':
+                    # 合约有效，无需重新部署
+                    return {
+                        "success": True,
+                        "message": "USDC 合约已就绪",
+                        "token_address": token["address"],
+                        "deployed": False,
+                    }
+                print(f"⚠️  DB 记录的 USDC 合约 {token['address']} 在链上无代码，将重新部署")
+            except Exception as e:
+                print(f"⚠️  验证 USDC 合约存在性失败: {e}，将重新部署")
+            # 清理无效记录
+            self._tokens.pop(symbol, None)
+
+        # 合约无效或不存在，重新部署并分发
+        return self.deploy_and_distribute_usdc(
+            from_index=from_index,
+            per_account_amount=per_account_amount,
+        )
+
+    # 转账 ERC20 代币（从指定账户向目标地址发送代币）
+    def send_token(
+            self,
+            token_symbol: str,
+            to_address: str,
+            amount: float,
+            from_index: int = 0,
+    ) -> Dict[str, Any]:
+        """从本地链账户向目标地址转账 ERC20 代币。
+
+        转账前会验证代币合约在链上是否存在；若无效（链数据重置），
+        对于 USDC 会自动调用 ensure_usdc_ready 恢复后重试。
+        """
+        if not self.is_running() or not self._w3:
+            return {"success": False, "message": "本地链未运行"}
+
+        token = self._tokens.get(token_symbol)
+        if not token:
+            # USDC 特殊处理：尝试自动就绪
+            if token_symbol.upper() == "USDC":
+                ready_result = self.ensure_usdc_ready(from_index=from_index)
+                if ready_result.get("success"):
+                    token = self._tokens.get(token_symbol)
+            if not token:
+                return {"success": False, "message": f"代币 {token_symbol} 不存在，请先部署"}
+
+        # 验证合约在链上是否有代码（防止 DB 残留旧地址）
+        try:
+            code = self._w3.eth.get_code(self._w3.to_checksum_address(token["address"]))
+            if not code or code == b'' or code == b'0x':
+                # 合约在链上不存在：USDC 自动恢复，其他代币直接报错
+                if token_symbol.upper() == "USDC":
+                    print(f"⚠️  {token_symbol} 合约 {token['address']} 在链上无代码，自动重新部署...")
+                    self._tokens.pop(token_symbol, None)
+                    ready_result = self.ensure_usdc_ready(from_index=from_index)
+                    if ready_result.get("success"):
+                        token = self._tokens.get(token_symbol)
+                        if not token:
+                            return {"success": False, "message": "USDC 重新部署后仍无代币记录"}
+                    else:
+                        return {"success": False, "message": f"USDC 自动恢复失败: {ready_result.get('message')}"}
+                else:
+                    return {"success": False, "message": f"代币 {token_symbol} 合约在链上不存在（可能链数据已重置）"}
+        except Exception as e:
+            return {"success": False, "message": f"验证代币合约失败: {e}"}
+
+        last_error = None
+        for attempt in range(MAX_RETRY_ATTEMPTS):
+            try:
+                if not self._w3 or not self._w3.is_connected():
+                    self._init_web3()
+                    if not self._w3 or not self._w3.is_connected():
+                        raise Exception("无法重新建立 RPC 连接")
+
+                if not self._accounts:
+                    self._load_accounts()
+                if not self._accounts:
+                    raise Exception("无法获取本地链账户列表")
+
+                if from_index < 0 or from_index >= len(self._accounts):
+                    raise Exception(f"账户索引无效: {from_index}（当前共 {len(self._accounts)} 个账户）")
+
+                from_address = self._accounts[from_index]
+                to_address = self._w3.to_checksum_address(to_address)
+
+                # 使用精简 ABI（transfer/balanceOf/decimals）
+                abi_json = [
+                    {"inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}],
+                     "name": "transfer", "outputs": [{"name": "", "type": "bool"}],
+                     "stateMutability": "nonpayable", "type": "function"},
+                    {"inputs": [{"name": "account", "type": "address"}], "name": "balanceOf",
+                     "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+                    {"inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}],
+                     "stateMutability": "view", "type": "function"},
+                ]
+                contract = self._w3.eth.contract(address=token["address"], abi=abi_json)
+                decimals = contract.functions.decimals().call()
+                amount_wei = int(amount * (10 ** decimals))
+
+                try:
+                    estimated_gas = contract.functions.transfer(to_address, amount_wei).estimate_gas({"from": from_address})
+                    gas_limit = int(estimated_gas * 1.2)
+                except Exception:
+                    gas_limit = 100000  # ERC20 transfer 默认 100K gas
+
+                tx_hash = contract.functions.transfer(to_address, amount_wei).transact({
+                    "from": from_address,
+                    "gas": gas_limit,
+                    "gasPrice": self._w3.to_wei(20, 'gwei'),
+                })
+                receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=15)
+
+                new_balance = contract.functions.balanceOf(to_address).call()
+                balance_display = new_balance / (10 ** decimals)
+
+                return {
+                    "success": True,
+                    "message": f"转账成功，接收方余额: {balance_display} {token_symbol}",
+                    "tx_hash": '0x' + tx_hash.hex(),
+                    "to": to_address,
+                    "amount": amount,
+                    "symbol": token_symbol,
+                    "new_balance": balance_display,
+                }
+
+            except Exception as e:
+                last_error = str(e)
+                if attempt < MAX_RETRY_ATTEMPTS - 1:
+                    time.sleep(RETRY_DELAY)
+
+        return {"success": False, "message": f"代币转账失败: {last_error}"}
+
     # 获取代币列表
     def get_tokens(self) -> List[Dict[str, Any]]:
         return list(self._tokens.values())
@@ -967,19 +1363,33 @@ class LocalChainService:
             return None
         try:
             block = self._w3.eth.get_block(block_number, full_transactions=False)
+            def _hex(val):
+                if val is None:
+                    return None
+                s = val.hex() if hasattr(val, 'hex') else str(val)
+                return s if s.startswith('0x') else '0x' + s
+            tx_list = []
+            for tx in block.transactions:
+                if isinstance(tx, bytes):
+                    tx_list.append('0x' + tx.hex())
+                elif hasattr(tx, 'hex'):
+                    tx_list.append('0x' + tx.hex())
+                else:
+                    tx_list.append(str(tx))
             return {
                 "number": block.number,
-                "hash": ('0x' + block.hash.hex()) if block.hash else None,
-                "parent_hash": ('0x' + block.parentHash.hex()) if block.parentHash else None,
+                "hash": _hex(block.hash),
+                "parent_hash": _hex(block.parentHash),
                 "timestamp": block.timestamp,
                 "miner": block.miner,
                 "gas_used": block.gasUsed,
                 "gas_limit": block.gasLimit,
                 "size": block.size,
                 "tx_count": len(block.transactions),
-                "transactions": [('0x' + tx.hex()) if isinstance(tx, bytes) else tx for tx in block.transactions],
+                "transactions": tx_list,
             }
-        except Exception:
+        except Exception as e:
+            logger.error(f"get_block error for {block_number}: {e}")
             return None
 
     # 查询交易详情
@@ -989,15 +1399,27 @@ class LocalChainService:
         try:
             tx = self._w3.eth.get_transaction(tx_hash)
             receipt = self._w3.eth.get_transaction_receipt(tx_hash)
+            tx_hash_str = tx.hash.hex() if hasattr(tx.hash, 'hex') else str(tx.hash)
+            if not tx_hash_str.startswith('0x'):
+                tx_hash_str = '0x' + tx_hash_str
+            block_hash_str = None
+            if tx.blockHash:
+                block_hash_str = tx.blockHash.hex() if hasattr(tx.blockHash, 'hex') else str(tx.blockHash)
+                if not block_hash_str.startswith('0x'):
+                    block_hash_str = '0x' + block_hash_str
+            gas_price_raw = getattr(tx, 'gasPrice', None)
+            if gas_price_raw is None and isinstance(tx, dict):
+                gas_price_raw = tx.get('gasPrice')
+            gas_price_str = str(self._w3.from_wei(gas_price_raw, 'gwei')) if gas_price_raw is not None else '0'
             return {
-                "hash": '0x' + tx.hash.hex(),
+                "hash": tx_hash_str,
                 "block_number": tx.blockNumber,
-                "block_hash": ('0x' + tx.blockHash.hex()) if tx.blockHash else None,
+                "block_hash": block_hash_str,
                 "from": tx["from"],
                 "to": tx.to,
                 "value": str(self._w3.from_wei(tx.value, 'ether')),
                 "gas": tx.gas,
-                "gas_price": str(self._w3.from_wei(tx.gasPrice, 'gwei')),
+                "gas_price": gas_price_str,
                 "nonce": tx.nonce,
                 "input": tx.input[:200] + "..." if len(tx.input) > 200 else tx.input,
                 "status": receipt.status if receipt else None,
@@ -1005,7 +1427,8 @@ class LocalChainService:
                 "contract_address": receipt.contractAddress if receipt else None,
                 "transaction_index": tx.transactionIndex,
             }
-        except Exception:
+        except Exception as e:
+            logger.error(f"get_transaction error for {tx_hash}: {e}")
             return None
 
     # 查询地址信息（余额、nonce、交易数）
@@ -1050,14 +1473,17 @@ class LocalChainService:
                     for tx in block.transactions:
                         if tx.get("from", "").lower() == checksum_addr.lower() or \
                                 (tx.get("to") and tx["to"].lower() == checksum_addr.lower()):
+                            tx_hash_str = tx.hash.hex() if hasattr(tx.hash, 'hex') else str(tx.hash)
+                            if not tx_hash_str.startswith('0x'):
+                                tx_hash_str = '0x' + tx_hash_str
                             txs.append({
-                                "hash": '0x' + tx.hash.hex(),
+                                "hash": tx_hash_str,
                                 "block_number": tx.blockNumber,
                                 "from": tx["from"],
                                 "to": tx.to,
                                 "value": str(self._w3.from_wei(tx.value, 'ether')),
                                 "timestamp": block.timestamp,
-                                "status": None,  # 不逐笔查 receipt，性能考虑
+                                "status": None,
                             })
                             if len(txs) >= limit:
                                 break

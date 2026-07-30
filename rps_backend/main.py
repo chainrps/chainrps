@@ -56,6 +56,14 @@ async def lifespan(app: FastAPI):
     # 启动 WebSocket 点对点路由监听器（用于跨进程点对点消息）
     await ws_manager._start_direct_pubsub_listener()
 
+    # 启动 Relayer 健康检测 + Stuck 交易监控（F1-05 / P1-02）
+    try:
+        from rps_backend.service.relayer_service import relayer_service
+        await relayer_service.start_health_check_loop()
+        await relayer_service.start_stuck_tx_monitor()
+    except Exception as e:
+        print(f"⚠️  Relayer 监控任务启动失败（不影响主服务）: {e}")
+
     # 初始化本地链服务并启用保活
     try:
         print("🔄 初始化本地链服务...")
@@ -210,6 +218,30 @@ async def admin_page():
     """管理员面板页面"""
     admin_path = os.path.join(STATIC_DIR, "html", "admin.html")
     return FileResponse(admin_path)
+
+
+# 使用文档（公共页面，无需登录）
+@app.get("/guide")
+async def guide_page():
+    """使用文档与演示页面（公共，无需登录）"""
+    guide_path = os.path.join(STATIC_DIR, "html", "guide.html")
+    return FileResponse(guide_path)
+
+
+# 链上查询（公共页面，无需登录）
+@app.get("/explorer")
+async def explorer_page():
+    """链上查询独立公开页面（公共，无需登录）"""
+    explorer_path = os.path.join(STATIC_DIR, "html", "explorer.html")
+    return FileResponse(explorer_path)
+
+
+# 阶段演示（公共页面，无需登录）
+@app.get("/demo")
+async def demo_page():
+    """阶段演示独立公开页面（公共，无需登录）"""
+    demo_path = os.path.join(STATIC_DIR, "html", "demo.html")
+    return FileResponse(demo_path)
 
 
 # 静态 HTML 页面

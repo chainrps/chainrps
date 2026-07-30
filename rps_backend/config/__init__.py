@@ -39,13 +39,13 @@ RPC_LOCAL_URL = f"http://{RPC_LOCAL_HOST}:{RPC_LOCAL_PORT}"
 
 RPC_LOCAL_ACCOUNT_COUNT = int(os.getenv("RPC_LOCAL_ACCOUNT_COUNT", 10))
 RPC_LOCAL_BALANCE = float(os.getenv("RPC_LOCAL_BALANCE", 100000))
-RPC_LOCAL_SYMBOL = os.getenv("RPC_LOCAL_SYMBOL", "CRPS")
+RPC_LOCAL_SYMBOL = os.getenv("RPC_LOCAL_SYMBOL", "POL")
 
 # ChainRPS 配置链(RPC) ==
 RPC_NETWORK = os.getenv("RPC_NETWORK", "ChainRPS_Local")
 RPC_URL = os.getenv("RPC_URL", RPC_LOCAL_URL)
 RPC_CHAIN_ID = int(os.getenv("RPC_CHAIN_ID", 5208888))
-RPC_SYMBOL = os.getenv("RPC_SYMBOL", "CRPS")
+RPC_SYMBOL = os.getenv("RPC_SYMBOL", "POL")
 
 # ==================== 超时配置（秒） ====================
 COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))  # 提交哈希超时
@@ -122,7 +122,7 @@ def reload_config():
     RPC_CHAIN_ID = int(os.getenv("CHAIN_ID", 5208888))
     RPC_LOCAL_ACCOUNT_COUNT = int(os.getenv("RPC_DEFAULT_ACCOUNT_COUNT", 10))
     RPC_LOCAL_BALANCE = float(os.getenv("RPC_DEFAULT_BALANCE", 100000))
-    RPC_LOCAL_SYMBOL = os.getenv("RPC_SYMBOL", "ETH")
+    RPC_LOCAL_SYMBOL = os.getenv("RPC_SYMBOL", "POL")
     COMMIT_TIMEOUT = int(os.getenv("COMMIT_TIMEOUT", 66))
     REVEAL_TIMEOUT = int(os.getenv("REVEAL_TIMEOUT", 88))
     WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", 30))

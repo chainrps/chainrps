@@ -547,8 +547,8 @@ const Wallet = (function() {
             chainName: chainConfig.chainName || `Chain #${chainConfig.chainId}`,
             rpcUrls: chainConfig.rpcUrls || [],
             nativeCurrency: chainConfig.nativeCurrency || {
-                name: 'Ether',
-                symbol: 'ETH',
+                name: CONFIG.getNativeName ? CONFIG.getNativeName() : 'Native',
+                symbol: CONFIG.getNativeSymbol(),
                 decimals: 18
             },
         };

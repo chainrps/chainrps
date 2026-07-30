@@ -389,7 +389,11 @@ class ContractService:
         token_lower = str(token).lower() if token else ""
         
         if token_lower == "0x0000000000000000000000000000000000000000":
-            token_symbol = "ETH"
+            try:
+                from rps_backend.repository import get_system_config_value
+                token_symbol = get_system_config_value("native_symbol") or "POL"
+            except Exception:
+                token_symbol = "POL"
             decimals = 18
         else:
             token_symbol = "USDC"
@@ -642,9 +646,14 @@ class ContractService:
         if not game:
             return
 
-        # 根据代币类型确定小数位：ETH=18，USDC/USDT=6
-        token_symbol = (game.get("token") or "ETH").upper()
-        decimals = 18 if token_symbol == "ETH" else 6
+        # 根据代币类型确定小数位：原生币=18，ERC20=6
+        try:
+            from rps_backend.repository import get_system_config_value
+            native_symbol = get_system_config_value("native_symbol") or "POL"
+        except Exception:
+            native_symbol = "POL"
+        token_symbol = (game.get("token") or native_symbol).upper()
+        decimals = 18 if token_symbol == native_symbol.upper() else 6
         fee_float = float(fee) / (10 ** decimals) if fee else 0.0
 
         await game_manager.update_game_result_from_chain(
@@ -808,7 +817,11 @@ class ContractService:
 
                     token_address = str(game_data[3]).lower()
                     if token_address == "0x0000000000000000000000000000000000000000":
-                        token_symbol = "ETH"
+                        try:
+                            from rps_backend.repository import get_system_config_value
+                            token_symbol = get_system_config_value("native_symbol") or "POL"
+                        except Exception:
+                            token_symbol = "POL"
                         decimals = 18
                     else:
                         token_symbol = "USDC"

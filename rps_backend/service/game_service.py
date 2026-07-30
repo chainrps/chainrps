@@ -10,7 +10,6 @@
 """
 from datetime import datetime
 from typing import Optional
-import hashlib
 
 from rps_backend.config import REVEAL_TIMEOUT
 from rps_backend.models import GameState, Choice, WSMessage
@@ -25,14 +24,86 @@ from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
 
 
-# 校验承诺哈希
-def _verify_commit(choice: str, salt: str, address: str, commit_hash: str) -> bool:
-    """校验承诺哈希：keccak256(choice + salt + address)"""
-    if not choice or not salt or not address or not commit_hash:
+# 出拳名称到数字的映射（合约中使用 uint8：1=Rock, 2=Paper, 3=Scissors）
+_CHOICE_NAME_TO_INT = {
+    "rock": 1,
+    "paper": 2,
+    "scissors": 3,
+}
+
+
+# 校验承诺哈希（F1-16 修复：与合约 keccak256(abi.encodePacked(choice, salt, player)) 一致）
+def _verify_commit(choice, salt: str, address: str, commit_hash: str) -> bool:
+    """
+    校验承诺哈希，与合约 _revealChoice 中的计算保持一致：
+        bytes32 commit = keccak256(abi.encodePacked(choice, salt, player));
+
+    参数说明：
+        choice: 出拳，可传入整数 1/2/3 或字符串 "rock"/"paper"/"scissors"
+        salt: 32 字节盐值，hex 字符串（带或不带 0x 前缀）
+        address: 玩家钱包地址（hex 字符串）
+        commit_hash: 待校验的哈希承诺，hex 字符串（带或不带 0x 前缀）
+
+    Returns:
+        True 表示 salt/choice/address 计算出的哈希与 commit_hash 一致
+
+    实现要点（与合约对齐）：
+        - keccak256（非 sha3_256）
+        - abi.encodePacked 紧密打包：uint8 choice(1B) + bytes32 salt(32B) + address player(20B)
+        - 不再做字符串拼接
+    """
+    if choice is None or not salt or not address or not commit_hash:
         return False
-    raw = f"{choice}{salt}{address}"
-    computed = "0x" + hashlib.sha3_256(raw.encode()).hexdigest()
-    return computed.lower() == commit_hash.lower()
+
+    # choice 归一化为 uint8
+    if isinstance(choice, int):
+        choice_int = choice
+    elif isinstance(choice, str):
+        choice_int = _CHOICE_NAME_TO_INT.get(choice.lower())
+        if choice_int is None:
+            # 兼容直接传 "1"/"2"/"3" 字符串
+            try:
+                choice_int = int(choice)
+            except (TypeError, ValueError):
+                return False
+    else:
+        return False
+
+    if choice_int not in (1, 2, 3):
+        return False
+
+    # 解析 salt：32 字节 hex
+    try:
+        salt_bytes = bytes.fromhex(salt[2:] if salt.startswith("0x") else salt)
+    except (ValueError, TypeError):
+        return False
+    if len(salt_bytes) != 32:
+        return False
+
+    # 解析 address：20 字节 hex
+    try:
+        addr_bytes = bytes.fromhex(address[2:] if address.startswith("0x") else address)
+    except (ValueError, TypeError):
+        return False
+    if len(addr_bytes) != 20:
+        return False
+
+    # 模拟 abi.encodePacked(choice(uint8), salt(bytes32), player(address))
+    packed = bytes([choice_int]) + salt_bytes + addr_bytes
+
+    # keccak256（与合约一致，非 sha3_256）
+    try:
+        from eth_hash.auto import keccak
+    except ImportError:
+        # web3 已安装，回退到 web3 提供的 keccak
+        from web3 import Web3
+        computed_bytes = Web3.keccak(packed)
+    else:
+        computed_bytes = keccak(packed)
+
+    computed_hex = "0x" + computed_bytes.hex()
+
+    return computed_hex.lower() == commit_hash.lower()
 
 
 # 判定胜负

@@ -351,7 +351,7 @@ const CONFIG = {
     revealTimeout: 88,    // 秒
     
     // 支持代币
-    supportedTokens: ['USDC', 'USDT'],
+    supportedTokens: ['USDC'],
     
     // 模式开关
     enableModeB: true,    // 是否启用私密模式

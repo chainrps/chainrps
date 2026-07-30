@@ -47,8 +47,9 @@ include = ["backend*"]
 "*" = ["*.py", "*.md", "*.json"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["rps_backend/tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
 
 [tool.mypy]
 python_version = "3.11"

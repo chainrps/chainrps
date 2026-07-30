@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional, List
 
-from ..config import DATABASE_PATH, RPC_LOCAL_PORT, RPC_LOCAL_NETWORK
+from ..config import DATABASE_PATH, RPC_LOCAL_PORT, RPC_LOCAL_NETWORK, RPC_CHAIN_ID
 from ..models import GameState
 
 
@@ -511,7 +511,7 @@ def get_player_stats(address: str) -> Optional[dict]:
 
 # ==================== 默认配置初始化 ====================
 
-# 初始化默认配置
+# 初始化默认配置 默认系统配置
 # 系统配置默认值（唯一来源，初始化和重置都使用此表）
 # 格式: { config_key: (default_value, category, description)
 SYSTEM_CONFIG_DEFAULTS = {
@@ -521,18 +521,18 @@ SYSTEM_CONFIG_DEFAULTS = {
     "commit_timeout": ("66", "game", "提交哈希超时时间（秒）"),
     "reveal_timeout": ("88", "game", "揭晓出拳超时时间（秒）"),
     "room_max_lifetime": ("3600", "game", "房间最大存在时间（秒），超时自动关闭（1小时=3600）"),
-    "supported_tokens": ("USDC,USDT", "game", "支持的代币列表（逗号分隔）"),
+    "supported_tokens": ("USDC,POL", "game", "支持的代币列表（逗号分隔）"),
     "max_bet_amount": ("10000", "game", "最大下注金额"),
-    "min_bet_amount": ("1", "game", "最小下注金额"),
+    "min_bet_amount": ("0.1", "game", "最小下注金额"),
     # 主链配置
     "chain_id": ("5208888", "chain", "目标区块链网络 Chain ID"),
-    "recommended_chain_name": (RPC_LOCAL_NETWORK, "chain", "推荐主链名称（统一标识名）"),
+    "recommended_chain_name": ("ChainRPS Local", "chain", "推荐主链名称（统一标识名）"),
     "network_name": ("ChainRPS Local", "chain", "网络显示名称"),
-    "rpc_url": (f"http://127.0.0.1:{RPC_LOCAL_PORT}", "chain", "RPC 节点 URL"),
+    "rpc_url": (f"http://127.0.0.1:8686", "chain", "RPC 节点 URL"),
     "block_explorer": ("", "chain", "区块浏览器 URL（可选）"),
     "contract_address": ("", "chain", "ChainRPS 游戏合约地址"),
-    "native_symbol": ("ETH", "chain", "网络原生代币符号"),
-    "native_name": ("Ether", "chain", "网络原生代币名称"),
+    "native_symbol": ("POL", "chain", "网络原生代币符号"),
+    "native_name": ("Polygon", "chain", "网络原生代币名称"),
     "native_decimals": ("18", "chain", "原生代币精度"),
     # 系统配置
     "maintenance_mode": ("0", "system", "维护模式开关（0=关闭, 1=开启）"),
@@ -563,11 +563,42 @@ def _init_default_config(cursor):
             [category, desc, key],
         )
 
-    # 历史遗留修正：曾使用 108108 作为本地链端口，已统一改为 8686。
+    # 历史遗留修正：将错误使用 chain_id 作为端口的 rpc_url 修正为正确端口
+    # 例如 http://127.0.0.1:5208888 (chain_id 被误写为端口) → http://127.0.0.1:8686
+    import re
+    cursor.execute("SELECT config_value FROM system_config WHERE config_key = 'rpc_url'")
+    row = cursor.fetchone()
+    if row and row[0]:
+        old_url = row[0]
+        port_match = re.search(r':(\d+)(?:/|$)', old_url)
+        if port_match:
+            old_port = int(port_match.group(1))
+            # 如果端口等于 chain_id（说明是错误写入），或端口不是正常值（>65535），修正
+            if old_port == RPC_CHAIN_ID or old_port > 65535:
+                new_url = re.sub(r':\d+', f':{RPC_LOCAL_PORT}', old_url)
+                cursor.execute(
+                    "UPDATE system_config SET config_value = ? WHERE config_key = 'rpc_url'",
+                    [new_url],
+                )
+
+    # 历史遗留修正：曾使用 8686 作为本地链端口，已统一改为 8686。
     cursor.execute(
-        "UPDATE system_config SET config_value = ? WHERE config_key = 'rpc_url' AND config_value LIKE '%:108108%'",
+        "UPDATE system_config SET config_value = ? WHERE config_key = 'rpc_url' AND config_value LIKE '%:8686%'",
         [f"http://127.0.0.1:{RPC_LOCAL_PORT}"],
     )
+
+    # 迁移修正：从 supported_tokens 中移除已下线的 USDT
+    cursor.execute("SELECT config_value FROM system_config WHERE config_key = 'supported_tokens'")
+    row = cursor.fetchone()
+    if row and row[0]:
+        tokens = [t.strip() for t in row[0].split(",") if t.strip()]
+        filtered = [t for t in tokens if t.upper() != "USDT"]
+        if len(filtered) != len(tokens):
+            new_value = ",".join(filtered) if filtered else "USDC,POL"
+            cursor.execute(
+                "UPDATE system_config SET config_value = ? WHERE config_key = 'supported_tokens'",
+                [new_value],
+            )
 
 
 # ==================== 用户配置操作 ====================

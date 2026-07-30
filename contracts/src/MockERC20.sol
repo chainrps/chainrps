@@ -25,6 +25,20 @@ contract MockERC20 {
     // 授权额度映射
     mapping(address => mapping(address => uint256)) public allowance;
 
+    // ---- EIP-2612 Permit 支持 ----
+    // permit 防重放 nonce
+    mapping(address => uint256) public nonces;
+    // EIP-712 域分隔符
+    bytes32 public DOMAIN_SEPARATOR;
+    // EIP-2612 Permit 类型哈希
+    bytes32 public constant PERMIT_TYPEHASH = keccak256(
+        "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
+    );
+    // EIP-712 Domain 类型哈希
+    bytes32 private constant _EIP712_DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
+
     // 转账事件
     event Transfer(address indexed from, address indexed to, uint256 value);
     // 授权事件
@@ -57,6 +71,53 @@ contract MockERC20 {
         owner = msg.sender;
         emit Transfer(address(0), msg.sender, _initialSupply);
         emit OwnershipTransferred(address(0), msg.sender);
+
+        // 初始化 EIP-712 域分隔符（用于 EIP-2612 permit）
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            _EIP712_DOMAIN_TYPEHASH,
+            keccak256(bytes(_name)),
+            keccak256("1"),
+            block.chainid,
+            address(this)
+        ));
+    }
+
+    // EIP-2612 Permit - 单交易授权（支持 ChainRPS permitDeposit 测试）
+    /**
+     * @notice EIP-2612 Permit - 单交易授权
+     * @dev 通过 EIP-712 签名在单次交易中完成 approve，避免额外的 approve 交易
+     * @param owner_ 代币持有者
+     * @param spender 被授权者
+     * @param value 授权金额
+     * @param deadline 截止时间戳
+     * @param v,r,s 签名分量
+     */
+    function permit(
+        address owner_,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        require(block.timestamp <= deadline, "Permit: expired deadline");
+
+        bytes32 structHash = keccak256(abi.encode(
+            PERMIT_TYPEHASH,
+            owner_,
+            spender,
+            value,
+            nonces[owner_]++,
+            deadline
+        ));
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        address signer = ecrecover(digest, v, r, s);
+        require(signer != address(0) && signer == owner_, "Permit: invalid signature");
+
+        allowance[owner_][spender] = value;
+        emit Approval(owner_, spender, value);
     }
 
     // 转账 - 从调用者地址转出指定金额到目标地址

@@ -1,7 +1,7 @@
 // 应用主模块（立即执行函数）
 const App = (function () {
     let currentMode = 'A';
-    let currentToken = 'ETH';
+    let currentToken = CONFIG.getDefaultToken();
     let currentAmount = 100;
     let currentGameId = null;
     let selectedChoice = null;
@@ -1019,6 +1019,11 @@ const App = (function () {
             verifyContractBtn.addEventListener('click', verifyContractAddress);
         }
 
+        // F1-06：初始化签名模式（A/B）相关事件监听
+        if (typeof Settings !== 'undefined' && Settings && typeof Settings.initSignatureModeEvents === 'function') {
+            Settings.initSignatureModeEvents();
+        }
+
         initNetworkDropdown();
     }
 
@@ -1404,6 +1409,13 @@ const App = (function () {
                     if (mainChainConfig.contract_address) {
                         CONFIG.setContractAddress(mainChainConfig.contract_address);
                     }
+                    // 同步结算币（USDC）合约地址到前端配置
+                    if (mainChainConfig.settlement_token && mainChainConfig.settlement_token.address) {
+                        CONFIG.setSettlementTokenAddress(mainChainConfig.settlement_token.address);
+                        // USDC 地址同步后重新设置默认代币（可能从原生币切换到 USDC）
+                        currentToken = CONFIG.getDefaultToken();
+                        UI.showTokenSelect(currentToken);
+                    }
                 }
             } catch (e) {
                 console.warn('获取主链配置失败，使用本地配置:', e);
@@ -1520,14 +1532,39 @@ const App = (function () {
         }
     }
 
-    // 更新钱包余额显示
+    // 更新钱包余额显示（同时获取原生币和结算币余额）
     async function updateBalanceDisplay() {
         if (!Wallet.isConnected()) return;
 
         try {
+            // 获取当前选中代币的余额（用于主显示）
             const tokenAddress = CONFIG.getTokenAddresses()[currentToken];
             const balance = await Wallet.getBalance(tokenAddress);
             UI.updateWalletInfo(Wallet.getAddress(), balance, currentToken);
+
+            // 同时获取所有代币余额（用于点击展开详情）
+            const balances = {};
+            const nativeSymbol = CONFIG.getNativeSymbol();
+            const nativeAddr = CONFIG.getTokenAddresses()[nativeSymbol];
+            const usdcAddr = CONFIG.getSettlementTokenAddress();
+
+            // 原生币余额
+            try {
+                balances[nativeSymbol] = await Wallet.getBalance(nativeAddr);
+            } catch (e) {
+                balances[nativeSymbol] = '0';
+            }
+
+            // USDC 余额
+            if (usdcAddr) {
+                try {
+                    balances['USDC'] = await Wallet.getBalance(usdcAddr);
+                } catch (e) {
+                    balances['USDC'] = '0';
+                }
+            }
+
+            UI.updateWalletBalances(Wallet.getAddress(), balances);
         } catch (e) {
             console.warn('获取余额失败:', e.message);
         }
@@ -1716,7 +1753,7 @@ const App = (function () {
                 closable: true,
                 maskClosable: true,
                 content: () => {
-                    const tokenOptions = ['ETH', 'USDC', 'USDT'];
+                    const tokenOptions = CONFIG.getGameTokenOptions();
                     return `
                         <div style="margin-bottom: 20px;">
                             <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">选择代币</div>
@@ -2933,6 +2970,7 @@ const App = (function () {
         currentRoom.game_id = data.game_id;
         // 进入游戏阶段时资金尚未上链（local_frozen）
         if (!currentRoom.fund_stage) currentRoom.fund_stage = 'local_frozen';
+        UI.setFundStage(currentRoom.fund_stage);
         updateExitGameBtnState();
         // 保存已有的 chain_game_id（用于幂等性判断，避免刷新后重复签名）
         if (data.chain_game_id) {
@@ -3126,6 +3164,7 @@ const App = (function () {
             UI.setGameId(currentGameId);
             // 资金已在 createMatch 中上链冻结
             if (currentRoom) currentRoom.fund_stage = 'chain_frozen';
+            UI.setFundStage('chain_frozen');
             updateExitGameBtnState();
             const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
             UI.setGameStatus('等待对手加入 · ' + chainFrozenText);
@@ -3223,6 +3262,7 @@ const App = (function () {
             enterGamePhase();
             // 资金已在 joinMatch 中上链冻结
             if (currentRoom) currentRoom.fund_stage = 'chain_frozen';
+            UI.setFundStage('chain_frozen');
             updateExitGameBtnState();
             const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
             const curStatus = document.getElementById('gameStatus') ? document.getElementById('gameStatus').textContent : '';
@@ -3836,6 +3876,8 @@ const App = (function () {
             if (opponentCommitSubmitted) {
                 gamePhase = 'reveal';
                 // 双方都已提交 → 进入揭晓阶段，资金状态进入 revealing
+                if (currentRoom) currentRoom.fund_stage = 'revealing';
+                UI.setFundStage('revealing');
                 const revealingText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['revealing'] : '🔓 揭晓中，等待结算';
                 UI.setGameStatus('揭晓阶段 · 即将自动揭晓 · ' + revealingText);
                 UI.showRevealButton(true);
@@ -4129,6 +4171,7 @@ const App = (function () {
         stopAutoReveal();
         // 结算后更新房间 fund_stage（本地同步）
         if (currentRoom) currentRoom.fund_stage = 'settled';
+        UI.setFundStage('settled');
         updateExitGameBtnState();
 
         // 平局结算完成，资金已退款

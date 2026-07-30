@@ -1,57 +1,10 @@
-/* 全局样式 sta -------------------*/
-:root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f8fafc;
-    --bg-tertiary: #f1f5f9;
-    --bg-card: #ffffff;
-    --bg-hover: #f1f5f9;
-    --bg-success: #d1fae5;
-    --bg-warning: #fef3c7;
+/* ============================================================
+   ChainRPS 双主题系统
+   - 亮色（默认）：欢乐、游戏、活泼风格
+   - 暗色：低调、沉稳、专业风格
+   ============================================================ */
 
-    /* 兼容别名 */
-    --card-bg: var(--bg-card);
-    --input-bg: var(--bg-secondary);
-
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-tertiary: #94a3b8;
-    --text-muted: #cbd5e1;
-    --text-inverse: #ffffff;
-
-    --border-color: #e2e8f0;
-    --border-light: #f1f5f9;
-
-    --primary-color: #6366f1;
-    --primary-hover: #4f46e5;
-    --primary-light: #e0e7ff;
-    --primary-lighter: #eef2ff;
-    --primary-rgb: 99, 102, 241;
-
-    --success-color: #10b981;
-    --success-light: #d1fae5;
-    --danger-color: #ef4444;
-    --danger-light: #fee2e2;
-    --warning-color: #f59e0b;
-    --warning-light: #fef3c7;
-    --info-color: #3b82f6;
-    --info-light: #dbeafe;
-
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 16px;
-    --radius-xl: 24px;
-    --radius-full: 9999px;
-
-    --transition-fast: 150ms ease;
-    --transition-normal: 250ms ease;
-    --transition-slow: 350ms ease;
-}
-
+/* 全局基础样式 sta -------------------*/
 * {
     box-sizing: border-box;
     margin: 0;
@@ -68,50 +21,130 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
-/* 全局样式 end -------------------*/
+/* 全局基础样式 end -------------------*/
 
-/* 暗紫模式 */
+
+/* ============================================================
+   亮色主题（默认）—— 漂亮、欢乐、游戏风格
+   暖色调 + 活力橙 + 明亮渐变 + 大圆角
+   ============================================================ */
+:root {
+    --bg-primary: #fff8f0;
+    --bg-secondary: #fff0e0;
+    --bg-tertiary: #ffe4cc;
+    --bg-card: #ffffff;
+    --bg-hover: #fff5eb;
+    --bg-success: #d4f5e0;
+    --bg-warning: #fff3cd;
+
+    /* 兼容别名 */
+    --card-bg: var(--bg-card);
+    --input-bg: var(--bg-secondary);
+
+    --text-primary: #2d1b00;
+    --text-secondary: #6b4c2a;
+    --text-tertiary: #a08060;
+    --text-muted: #c4a884;
+    --text-inverse: #ffffff;
+
+    --border-color: #ffd9b3;
+    --border-light: #ffe8d0;
+
+    --primary-color: #ff6b35;
+    --primary-hover: #e55100;
+    --primary-light: #ffe0d0;
+    --primary-lighter: #fff0e8;
+    --primary-rgb: 255, 107, 53;
+
+    --accent-color: #7c3aed;
+    --accent-hover: #6d28d9;
+    --accent-light: #ede9fe;
+    --accent-rgb: 124, 58, 237;
+
+    --success-color: #059669;
+    --success-light: #d4f5e0;
+    --danger-color: #dc2626;
+    --danger-light: #fee2e2;
+    --warning-color: #d97706;
+    --warning-light: #fff3cd;
+    --info-color: #2563eb;
+    --info-light: #dbeafe;
+
+    --shadow-sm: 0 1px 3px 0 rgb(255, 107, 53, 0.08);
+    --shadow-md: 0 4px 8px -2px rgb(255, 107, 53, 0.12), 0 2px 4px -2px rgb(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 20px -4px rgb(255, 107, 53, 0.15), 0 4px 8px -4px rgb(0, 0, 0, 0.08);
+    --shadow-xl: 0 20px 32px -8px rgb(255, 107, 53, 0.18), 0 8px 16px -8px rgb(0, 0, 0, 0.1);
+
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-full: 9999px;
+
+    --transition-fast: 150ms ease;
+    --transition-normal: 250ms ease;
+    --transition-slow: 350ms ease;
+
+    --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #ffb627 100%);
+    --gradient-accent: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+    --gradient-bg: linear-gradient(180deg, #fff8f0 0%, #fff0e0 100%);
+}
+
+
+/* ============================================================
+   暗色主题 —— 低调、沉稳、专业风格
+   深灰蓝调 + 低饱和度 + 柔和对比
+   ============================================================ */
 [data-theme="dark"] {
-    --bg-primary: #1a0b2e;
-    --bg-secondary: #2d1b4e;
-    --bg-tertiary: #3d2966;
-    --bg-card: #251342;
-    --bg-hover: #3d2966;
-    --bg-success: #1a3d2e;
-    --bg-warning: #4d3a0f;
+    --bg-primary: #0f1117;
+    --bg-secondary: #181b24;
+    --bg-tertiary: #232733;
+    --bg-card: #1a1e28;
+    --bg-hover: #232733;
+    --bg-success: #16291f;
+    --bg-warning: #2a2310;
 
     /* 兼容别名 */
     --card-bg: var(--bg-card);
     --input-bg: var(--bg-tertiary);
 
-    --text-primary: #e8d5f5;
-    --text-secondary: #c4a8e0;
-    --text-tertiary: #8b6db5;
-    --text-muted: #6b4d8a;
-    --text-inverse: #1a0b2e;
+    --text-primary: #c8cdd6;
+    --text-secondary: #8b919e;
+    --text-tertiary: #5c6270;
+    --text-muted: #3d424c;
+    --text-inverse: #0f1117;
 
-    --border-color: #3d2966;
-    --border-light: #2d1b4e;
+    --border-color: #2a2e3a;
+    --border-light: #1e222c;
 
-    --primary-color: #a855f7;
-    --primary-hover: #9333ea;
-    --primary-light: #4c1d95;
-    --primary-lighter: #2e1065;
-    --primary-rgb: 168, 85, 247;
+    --primary-color: #6b7280;
+    --primary-hover: #9ca3af;
+    --primary-light: #2a2e3a;
+    --primary-lighter: #1e222c;
+    --primary-rgb: 107, 114, 128;
 
-    --success-color: #34d399;
-    --success-light: #1a3d2e;
-    --danger-color: #f87171;
-    --danger-light: #4c1d1d;
-    --warning-color: #fbbf24;
-    --warning-light: #4d3a0f;
-    --info-color: #60a5fa;
-    --info-light: #1e3a5f;
+    --accent-color: #4b5563;
+    --accent-hover: #6b7280;
+    --accent-light: #1e222c;
+    --accent-rgb: 75, 85, 99;
+
+    --success-color: #4b9b7a;
+    --success-light: #16291f;
+    --danger-color: #9b5050;
+    --danger-light: #2a1a1a;
+    --warning-color: #8a7440;
+    --warning-light: #2a2310;
+    --info-color: #5570a0;
+    --info-light: #1a2230;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
     --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
     --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
     --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+
+    --gradient-primary: linear-gradient(135deg, #4b5563 0%, #6b7280 100%);
+    --gradient-accent: linear-gradient(135deg, #374151 0%, #4b5563 100%);
+    --gradient-bg: linear-gradient(180deg, #0f1117 0%, #181b24 100%);
 }
 
 

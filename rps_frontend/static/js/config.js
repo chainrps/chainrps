@@ -4,10 +4,12 @@ const CONFIG = {
     _serverIp: null,
     _serverPort: null,
 
-    // 本地链 RPC 端口（统一维护点，修改此处即全局生效）
-    RPC_PORT: 8686,
-    RPC_HOST: '127.0.0.1',
-    RPC_CHAIN_ID: 5208888,
+    // 本地链 RPC 配置（统一维护点，修改此处即全局生效）
+    RPC_PORT: 8686,                 // 本地链 RPC 端口
+    RPC_HOST: '127.0.0.1',          // 本地链 RPC 主机地址
+    RPC_CHAIN_ID: 5208888,          // 本地链链ID
+    RPC_NATIVE_SYMBOL: 'POL',       // 本地链原生代币符号
+    RPC_NATIVE_NAME: 'Polygon',     // 本地链原生代币名称
 
     commitTimeout: 66,
     revealTimeout: 88,
@@ -15,7 +17,7 @@ const CONFIG = {
     networks: {
         localhost: {
             get name() {
-                return 'ChainRPS_Sim';
+                return 'ChainRPS Local';
             },
             get rpcUrl() {
                 return 'http://' + CONFIG.RPC_HOST + ':' + CONFIG.RPC_PORT;
@@ -23,12 +25,20 @@ const CONFIG = {
             get chainId() {
                 return CONFIG.RPC_CHAIN_ID;
             },
-            nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
-            supportedTokens: [
-                {symbol: 'ETH', name: 'Ether', decimals: 18, address: '0x0000000000000000000000000000000000000000'}
-            ],
-            tokenAddresses: {
-                'ETH': '0x0000000000000000000000000000000000000000'
+            get nativeCurrency() {
+                return {name: CONFIG.RPC_NATIVE_NAME, symbol: CONFIG.RPC_NATIVE_SYMBOL, decimals: 18};
+            },
+            get supportedTokens() {
+                return [
+                    {symbol: CONFIG.RPC_NATIVE_SYMBOL, name: CONFIG.RPC_NATIVE_NAME, decimals: 18, address: '0x0000000000000000000000000000000000000000'},
+                    {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'}
+                ];
+            },
+            get tokenAddresses() {
+                return {
+                    [CONFIG.RPC_NATIVE_SYMBOL]: '0x0000000000000000000000000000000000000000',
+                    'USDC': '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'
+                };
             }
         },
         amoy: {
@@ -37,12 +47,10 @@ const CONFIG = {
             chainId: 80002,
             nativeCurrency: {name: 'Polygon', symbol: 'POL', decimals: 18},
             supportedTokens: [
-                {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'},
-                {symbol: 'USDT', name: 'Tether', decimals: 6, address: '0x0000000000000000000000000000000000000000'}
+                {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'}
             ],
             tokenAddresses: {
-                'USDC': '0x0fa8781a83e46826621b3bc094ea2a0212e71b23',
-                'USDT': '0x0000000000000000000000000000000000000000'
+                'USDC': '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'
             }
         },
         polygon: {
@@ -52,11 +60,11 @@ const CONFIG = {
             nativeCurrency: {name: 'Polygon', symbol: 'POL', decimals: 18},
             supportedTokens: [
                 {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'},
-                {symbol: 'USDT', name: 'Tether', decimals: 6, address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'}
+                {symbol: 'POL', name: 'Polygon', decimals: 18, address: '0x0000000000000000000000000000000000000000'}
             ],
             tokenAddresses: {
                 'USDC': '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
-                'USDT': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'
+                'POL': '0x0000000000000000000000000000000000000000'
             }
         },
         base: {
@@ -144,6 +152,23 @@ const CONFIG = {
         return this.getCurrentNetwork().chainId;
     },
 
+    // 获取当前网络原生币符号
+    getNativeSymbol() {
+        return this.getCurrentNetwork().nativeCurrency.symbol;
+    },
+
+    // 获取当前网络原生币名称
+    getNativeName() {
+        return this.getCurrentNetwork().nativeCurrency.name;
+    },
+
+    // 判断代币地址是否为原生币（零地址）
+    isNativeToken(address) {
+        if (!address) return false;
+        const zeroAddr = '0x0000000000000000000000000000000000000000';
+        return address.toLowerCase() === zeroAddr;
+    },
+
     // 获取已保存的合约地址
     getContractAddress() {
         const networkKey = this.getNetworkKey();
@@ -161,9 +186,24 @@ const CONFIG = {
         }
     },
 
-    // 获取当前网络支持的代币地址映射
+    // 获取当前网络支持的代币地址映射（合并运行时动态设置的结算币地址）
     getTokenAddresses() {
-        return this.getCurrentNetwork().tokenAddresses;
+        const base = {...this.getCurrentNetwork().tokenAddresses};
+        // 合并运行时从后端同步的结算币地址（优先级高于硬编码）
+        if (this._settlementTokenAddress) {
+            base['USDC'] = this._settlementTokenAddress;
+        }
+        return base;
+    },
+
+    // 设置结算币（USDC）合约地址（由 fetchMainChainConfig 从后端同步）
+    setSettlementTokenAddress(address) {
+        this._settlementTokenAddress = address || null;
+    },
+
+    // 获取结算币合约地址
+    getSettlementTokenAddress() {
+        return this._settlementTokenAddress || this.getCurrentNetwork().tokenAddresses?.['USDC'] || null;
     },
 
     // 获取当前网络支持的代币列表
@@ -171,10 +211,24 @@ const CONFIG = {
         return this.getCurrentNetwork().supportedTokens;
     },
 
-    // 获取默认代币符号
-    getDefaultToken() {
+    // 获取指定网络（按 key）支持的代币列表，用于设置面板按网络过滤下拉
+    getSupportedTokensForNetwork(networkKey) {
+        const net = this.networks[networkKey];
+        return net ? net.supportedTokens : [];
+    },
+
+    // 获取当前网络可用于游戏的代币符号列表（原生币 + 所有支持的 ERC20）
+    getGameTokenOptions() {
         const tokens = this.getSupportedTokens();
-        return tokens.length > 0 ? tokens[0].symbol : 'ETH';
+        return tokens.map(t => t.symbol);
+    },
+
+    // 获取默认代币符号（结算币 USDC 优先，本地链未部署 USDC 时回退到原生币）
+    getDefaultToken() {
+        if (this.getSettlementTokenAddress()) {
+            return 'USDC';
+        }
+        return this.getNativeSymbol();
     },
 
     // ==================== 后端服务器地址配置 ====================
@@ -214,10 +268,6 @@ const CONFIG = {
 };
 
 // ==================== 一次性配置迁移：清理旧端口/旧链ID缓存 ====================
-// 历史遗留：曾使用 108108 作为本地链端口，已统一改为 8686；
-// 曾使用 31337 作为默认 chain_id，已统一改为 5208888。
-// 旧值可能残留在 localStorage 的 rps_local_chain_config 中，导致管理页面
-// 表单仍显示旧值。此处检测并修正（仅执行一次，通过版本号标记）。
 (function _migrateOldRpcConfig() {
     try {
         const MIGRATION_KEY = 'rps_config_migration_v2';
@@ -228,13 +278,13 @@ const CONFIG = {
             const cfg = JSON.parse(cfgRaw);
             let changed = false;
             // 修正 port 字段
-            if (cfg.port && String(cfg.port).includes('108108')) {
+            if (cfg.port && String(cfg.port).includes('8686')) {
                 cfg.port = String(CONFIG.RPC_PORT);
                 changed = true;
             }
             // 修正可能内嵌在 rpc_url 中的旧端口
-            if (cfg.rpc_url && cfg.rpc_url.includes(':108108')) {
-                cfg.rpc_url = cfg.rpc_url.replace(':108108', ':' + CONFIG.RPC_PORT);
+            if (cfg.rpc_url && cfg.rpc_url.includes(':8686')) {
+                cfg.rpc_url = cfg.rpc_url.replace(':8686', ':' + CONFIG.RPC_PORT);
                 changed = true;
             }
             // 修正旧 chain_id（31337 → 当前 CONFIG.RPC_CHAIN_ID）
@@ -242,9 +292,25 @@ const CONFIG = {
                 cfg.chain_id = String(CONFIG.RPC_CHAIN_ID);
                 changed = true;
             }
+            // 修正错误的 rpc_url（chain_id 被误作端口）
+            if (cfg.rpc_url) {
+                const portMatch = cfg.rpc_url.match(/:(\d+)(?:\/|$)/);
+                if (portMatch) {
+                    const port = parseInt(portMatch[1]);
+                    if (port === CONFIG.RPC_CHAIN_ID || port > 65535) {
+                        cfg.rpc_url = cfg.rpc_url.replace(/:\d+/, ':' + CONFIG.RPC_PORT);
+                        changed = true;
+                    }
+                }
+            }
+            // 修正旧原生币符号 ETH → POL
+            if (cfg.native_symbol === 'ETH') {
+                cfg.native_symbol = CONFIG.RPC_NATIVE_SYMBOL;
+                changed = true;
+            }
             if (changed) {
                 localStorage.setItem('rps_local_chain_config', JSON.stringify(cfg));
-                console.info('[迁移] 已修正本地链配置（端口/链ID）为当前默认值');
+                console.info('[迁移] 已修正本地链配置为当前默认值');
             }
         }
         localStorage.setItem(MIGRATION_KEY, 'done');

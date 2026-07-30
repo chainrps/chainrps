@@ -107,6 +107,27 @@ def deploy_contract():
         print(f"\n❌ 部署失败，交易状态: {receipt.status}")
         sys.exit(1)
 
+    # 部署后设置 commit/reveal 超时，与前端 config.js 对齐（commit=66s, reveal=88s）
+    try:
+        deployed = w3.eth.contract(address=contract_address, abi=abi)
+        nonce2 = w3.eth.get_transaction_count(deployer_addr)
+        set_tx = deployed.functions.setTimeouts(66, 88).build_transaction({
+            "from": deployer_addr,
+            "nonce": nonce2,
+            "gas": 100000,
+            "gasPrice": gas_price,
+            "chainId": w3.eth.chain_id,
+        })
+        signed_set_tx = w3.eth.account.sign_transaction(set_tx, LOCAL_PRIVATE_KEY)
+        set_tx_hash = w3.eth.send_raw_transaction(signed_set_tx.raw_transaction)
+        set_receipt = w3.eth.wait_for_transaction_receipt(set_tx_hash, timeout=60)
+        if set_receipt.status == 1:
+            print("✅ 已设置超时: commitTimeout=66s, revealTimeout=88s（与前端对齐）")
+        else:
+            print(f"⚠️  setTimeouts 交易失败，状态: {set_receipt.status}")
+    except Exception as e:
+        print(f"⚠️  设置超时失败: {e}")
+
     config_js_path = PROJECT_ROOT / "frontend" / "static" / "js" / "config.js"
     if config_js_path.exists():
         with open(config_js_path, "r", encoding="utf-8") as f:
