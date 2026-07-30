@@ -1,7 +1,8 @@
 import json
 import time
-import hashlib
 import requests
+
+from eth_utils import keccak, to_canonical_address
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -26,10 +27,24 @@ def test(name, fn):
 player1 = "0x7F72A2777539913086a5f2d5914F35a742F827FD"
 player2 = "0xdE227eDB80A7c81C6bc3336F43247968AAbd1223"
 
+# 出拳选项映射（与合约一致：1=石头, 2=布, 3=剪刀）
+CHOICE_MAP = {"rock": 1, "paper": 2, "scissors": 3}
+
 
 def compute_commit(choice, salt, address):
-    raw = f"{choice}{salt}{address}"
-    return "0x" + hashlib.sha3_256(raw.encode()).hexdigest()
+    """
+    计算承诺哈希，与合约 keccak256(abi.encodePacked(choice, salt, player)) 一致。
+
+    Args:
+        choice: "rock"/"paper"/"scissors" 字符串，内部转 uint8(1/2/3)
+        salt: 32 字节 hex 字符串（0x + 64 hex）
+        address: 玩家地址
+    """
+    choice_uint8 = CHOICE_MAP.get(choice, 0)
+    salt_bytes = bytes.fromhex(salt[2:]) if salt.startswith("0x") else bytes.fromhex(salt)
+    # abi.encodePacked(uint8, bytes32, address) = 1 + 32 + 20 = 53 bytes
+    raw = bytes([choice_uint8]) + salt_bytes + to_canonical_address(address)
+    return "0x" + keccak(raw).hex()
 
 
 def test_full_game_flow():
@@ -68,8 +83,8 @@ def test_full_game_flow():
 
     test("2. 获取对局信息", step2_get_game_info)
 
-    salt1 = "salt_player_1_test"
-    salt2 = "salt_player_2_test"
+    salt1 = "0x" + "11" * 32  # 32 字节 salt（与合约 bytes32 一致）
+    salt2 = "0x" + "22" * 32
     choice1 = "rock"
     choice2 = "scissors"
     commit1 = compute_commit(choice1, salt1, player1)
@@ -156,11 +171,13 @@ def test_draw_flow():
     test("1. 加入匹配", step1_join)
 
     def step2_commit():
-        commit = compute_commit("rock", "salt1", player1)
+        salt1 = "0x" + "aa" * 32
+        salt2 = "0x" + "bb" * 32
+        commit = compute_commit("rock", salt1, player1)
         requests.post(BASE_URL + "/api/game/commit", json={
             "game_id": game_id, "player_address": player1, "commit_hash": commit
         })
-        commit2 = compute_commit("rock", "salt2", player2)
+        commit2 = compute_commit("rock", salt2, player2)
         requests.post(BASE_URL + "/api/game/commit", json={
             "game_id": game_id, "player_address": player2, "commit_hash": commit2
         })
@@ -168,13 +185,15 @@ def test_draw_flow():
     test("2. 提交相同出拳承诺", step2_commit)
 
     def step3_reveal():
+        salt1 = "0x" + "aa" * 32
+        salt2 = "0x" + "bb" * 32
         requests.post(BASE_URL + "/api/game/reveal", json={
             "game_id": game_id, "player_address": player1,
-            "choice": "rock", "salt": "salt1"
+            "choice": "rock", "salt": salt1
         })
         requests.post(BASE_URL + "/api/game/reveal", json={
             "game_id": game_id, "player_address": player2,
-            "choice": "rock", "salt": "salt2"
+            "choice": "rock", "salt": salt2
         })
 
     test("3. 揭晓相同出拳", step3_reveal)
