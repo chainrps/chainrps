@@ -27,6 +27,7 @@ from rps_backend.models import (
     RevealChoiceRequest,
     RoomResponse,
     RoomListResponse,
+    SetSeatModeRequest,
     SubmitCommitRequest,
     ToggleReadyRequest,
     # 方案A：EIP-712 签名代提交
@@ -38,6 +39,29 @@ from rps_backend.models import (
 from rps_backend.repository import get_game_record
 from rps_backend.service import game_manager, match_manager, room_manager
 from rps_backend.service.relayer_service import relayer_service
+
+
+def _room_to_response(room: dict) -> RoomResponse:
+    """将房间 dict 转换为 RoomResponse"""
+    return RoomResponse(
+        room_id=room["room_id"],
+        creator=room["creator"],
+        player2=room.get("player2"),
+        token=room["token"],
+        bet_amount=room["bet_amount"],
+        status=room["status"],
+        creator_ready=room["creator_ready"],
+        player2_ready=room["player2_ready"],
+        created_at=room["created_at"],
+        countdown_start=room.get("countdown_start"),
+        game_started_at=room.get("game_started_at"),
+        game_id=room.get("game_id"),
+        chain_game_id=room.get("chain_game_id"),
+        close_reason=room.get("close_reason"),
+        closed_at=room.get("closed_at"),
+        fund_stage=room.get("fund_stage"),
+        seat_mode=room.get("seat_mode"),
+    )
 
 
 # 游戏相关路由，统一前缀 /game
@@ -112,24 +136,30 @@ async def join_room(request: JoinRoomRequest):
     return {
         "success": True,
         "room_id": room["room_id"],
-        "room": RoomResponse(
-            room_id=room["room_id"],
-            creator=room["creator"],
-            player2=room.get("player2"),
-            token=room["token"],
-            bet_amount=room["bet_amount"],
-            status=room["status"],
-            creator_ready=room["creator_ready"],
-            player2_ready=room["player2_ready"],
-            created_at=room["created_at"],
-            countdown_start=room.get("countdown_start"),
-            game_started_at=room.get("game_started_at"),
-            game_id=room.get("game_id"),
-            chain_game_id=room.get("chain_game_id"),
-            close_reason=room.get("close_reason"),
-            closed_at=room.get("closed_at"),
-            fund_stage=room.get("fund_stage"),
-        ),
+        "room": _room_to_response(room),
+    }
+
+
+# 设置房间空位模式（open/ai）
+@router.post("/room/seat-mode")
+async def set_seat_mode(request: SetSeatModeRequest):
+    """设置房间空位模式 - 选择 open (对其他玩家开放) 或 ai (留给 AI)"""
+    result = room_manager.set_seat_mode(
+        request.room_id,
+        request.creator_address,
+        request.seat_mode,
+    )
+
+    if not result["success"]:
+        return {
+            "success": False,
+            "message": result.get("message", "设置空位模式失败"),
+        }
+
+    return {
+        "success": True,
+        "seat_mode": result["seat_mode"],
+        "message": f"空位模式已设置为: {request.seat_mode}",
     }
 
 
@@ -146,20 +176,7 @@ async def toggle_ready(request: ToggleReadyRequest):
         raise HTTPException(status_code=400, detail=result.get("message", "操作失败"))
 
     room = result["room"]
-    return RoomResponse(
-        room_id=room["room_id"],
-        creator=room["creator"],
-        player2=room.get("player2"),
-        token=room["token"],
-        bet_amount=room["bet_amount"],
-        status=room["status"],
-        creator_ready=room["creator_ready"],
-        player2_ready=room["player2_ready"],
-        created_at=room["created_at"],
-        countdown_start=room.get("countdown_start"),
-        game_id=room.get("game_id"),
-        chain_game_id=room.get("chain_game_id"),
-    )
+    return _room_to_response(room)
 
 
 # 退出房间
@@ -213,24 +230,7 @@ async def get_room_list():
 
     room_responses = []
     for room in rooms:
-        room_responses.append(RoomResponse(
-            room_id=room["room_id"],
-            creator=room["creator"],
-            player2=room.get("player2"),
-            token=room["token"],
-            bet_amount=room["bet_amount"],
-            status=room["status"],
-            creator_ready=room["creator_ready"],
-            player2_ready=room["player2_ready"],
-            created_at=room["created_at"],
-            countdown_start=room.get("countdown_start"),
-            game_started_at=room.get("game_started_at"),
-            game_id=room.get("game_id"),
-            chain_game_id=room.get("chain_game_id"),
-            close_reason=room.get("close_reason"),
-            closed_at=room.get("closed_at"),
-            fund_stage=room.get("fund_stage"),
-        ))
+        room_responses.append(_room_to_response(room))
 
     return RoomListResponse(
         rooms=room_responses,
@@ -254,24 +254,7 @@ async def get_player_room(player_address: str):
 
     return {
         "success": True,
-        "room": RoomResponse(
-            room_id=room["room_id"],
-            creator=room["creator"],
-            player2=room.get("player2"),
-            token=room["token"],
-            bet_amount=room["bet_amount"],
-            status=room["status"],
-            creator_ready=room["creator_ready"],
-            player2_ready=room["player2_ready"],
-            created_at=room["created_at"],
-            countdown_start=room.get("countdown_start"),
-            game_started_at=room.get("game_started_at"),
-            game_id=room.get("game_id"),
-            chain_game_id=room.get("chain_game_id"),
-            close_reason=room.get("close_reason"),
-            closed_at=room.get("closed_at"),
-            fund_stage=room.get("fund_stage"),
-        ),
+        "room": _room_to_response(room),
     }
 
 
@@ -288,22 +271,7 @@ async def get_room(room_id: str):
     if room.get("status") == "closed":
         return {"success": False, "message": "房间已解散"}
 
-    return RoomResponse(
-        room_id=room["room_id"],
-        creator=room["creator"],
-        player2=room.get("player2"),
-        token=room["token"],
-        bet_amount=room["bet_amount"],
-        status=room["status"],
-        creator_ready=room["creator_ready"],
-        player2_ready=room["player2_ready"],
-        created_at=room["created_at"],
-        countdown_start=room.get("countdown_start"),
-        game_id=room.get("game_id"),
-        chain_game_id=room.get("chain_game_id"),
-        close_reason=room.get("close_reason"),
-        closed_at=room.get("closed_at"),
-    )
+    return _room_to_response(room)
 
 
 # 上报链上对局ID

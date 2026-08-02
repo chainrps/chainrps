@@ -105,8 +105,8 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
     uint256 public revealTimeout = 300;     // 5 分钟
     // 手续费率（基点）
     uint256 public feeRate = 200;            // 2%（基点）
-    // 最小下注金额
-    uint256 public constant MIN_BET = 1e15;  // 最小下注 0.001 单位
+    // 最小下注金额（per-token, 基于 0.001 单位精度）
+    mapping(address => uint256) public minBetPerToken;
     // 最高手续费率（基点）
     uint256 public constant MAX_FEE_RATE = 1000; // 最高 10%
 
@@ -289,6 +289,7 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         officialDiscord = "discord.gg/chainrps";
 
         supportedTokens[address(0)] = true;
+        minBetPerToken[address(0)] = 1e15; // ETH: 0.001 ETH (18 decimals)
 
         // 初始化 EIP-712 域分隔符缓存（v1.3.0: 动态绑定 chainId，防跨链重放）
         _cachedChainId = _getChainId();
@@ -313,7 +314,8 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
     returns (uint256)
     {
         require(supportedTokens[token], "Token not supported");
-        require(amount >= MIN_BET, "Bet below minimum");
+        uint256 minBet = minBetPerToken[token];
+        require(amount >= minBet, "Bet below minimum");
 
         if (token == address(0)) {
             require(msg.value == amount, "ETH amount mismatch");
@@ -702,7 +704,8 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         require(block.timestamp <= deadline, "Signature expired");
         require(token != address(0), "ETH not supported for gasless");
         require(supportedTokens[token], "Token not supported");
-        require(amount >= MIN_BET, "Bet below minimum");
+        uint256 minBet = minBetPerToken[token];
+        require(amount >= minBet, "Bet below minimum");
         require(nonce == nonces[player], "Nonce mismatch");
 
         // 校验签名
@@ -946,7 +949,8 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         _checkRelayerAuth(player);
         require(token != address(0), "ETH not supported for gasless");
         require(supportedTokens[token], "Token not supported");
-        require(amount >= MIN_BET, "Bet below minimum");
+        uint256 minBet = minBetPerToken[token];
+        require(amount >= minBet, "Bet below minimum");
 
         _useDepositOrTransfer(player, token, amount);
 
@@ -1403,6 +1407,18 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         require(token != address(0), "Cannot modify ETH support");
         supportedTokens[token] = supported;
         emit TokenSupportUpdated(token, supported);
+    }
+
+    // 设置每个代币的最低下注金额
+    /**
+     * @notice 设置每个代币的最低下注金额
+     * @dev 根据代币精度设置：ETH(18 decimals) 默认 1e15, USDC(6 decimals) 默认 1e3
+     * @param token 代币地址
+     * @param minBet 最低下注金额（原始单位）
+     */
+    function setMinBetPerToken(address token, uint256 minBet) external onlyOwner {
+        require(minBet > 0, "Min bet must be positive");
+        minBetPerToken[token] = minBet;
     }
 
     // 修改超时时间

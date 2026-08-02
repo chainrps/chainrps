@@ -2150,6 +2150,49 @@ input:checked + .slider:before {
     gap: 12px;
 }
 
+.seat-mode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-tertiary, rgba(255,255,255,0.05));
+    border-radius: 10px;
+    border: 1px solid var(--border-color, rgba(255,255,255,0.1));
+}
+
+.seat-mode-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.seat-mode-btn {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border-color, rgba(255,255,255,0.15));
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all var(--transition-fast, 0.2s);
+    white-space: nowrap;
+}
+
+.seat-mode-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--primary-color, #6366f1);
+}
+
+.seat-mode-btn.active {
+    color: #fff;
+    background: var(--primary-color, #6366f1);
+    border-color: var(--primary-color, #6366f1);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
 .btn-join-room {
     width: 100%;
 }
@@ -2444,6 +2487,67 @@ input:checked + .slider:before {
     font-family: monospace;
     font-size: 14px;
     color: var(--text-primary);
+}
+
+.wallet-balances-dropdown .dropdown-token-info {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.wallet-balances-dropdown .dropdown-token-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.wallet-balances-dropdown .dropdown-token-label {
+    color: var(--text-tertiary);
+    min-width: 55px;
+    flex-shrink: 0;
+}
+
+.wallet-balances-dropdown .dropdown-token-value {
+    flex: 1;
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 10px;
+    cursor: pointer;
+    word-break: break-all;
+    transition: color 0.15s;
+}
+
+.wallet-balances-dropdown .dropdown-token-value:hover {
+    color: var(--primary-color);
+}
+
+.wallet-balances-dropdown .dropdown-add-btn {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    font-size: 10px;
+    background: var(--primary-color);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.wallet-balances-dropdown .dropdown-add-btn:hover {
+    background: var(--primary-hover);
+}
+
+.wallet-balances-dropdown .dropdown-token-hint {
+    margin-top: 6px;
+    padding: 4px 8px;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    text-align: center;
+    border-top: 1px dashed var(--border-color);
+    padding-top: 6px;
 }
 
 .network-dropdown {
@@ -2825,6 +2929,100 @@ input:checked + .slider:before {
     color: var(--text-secondary);
     font-weight: 400;
 }
+
+/* 代币引导卡片（充值面板内） */
+.lc-token-guide-card {
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(16, 185, 129, 0.04));
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.lc-token-guide-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border-color);
+}
+.lc-token-guide-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: var(--primary-color);
+    color: #fff;
+    border-radius: 999px;
+    font-weight: 500;
+}
+.lc-token-guide-body {
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+.lc-token-guide-body p {
+    margin: 2px 0;
+}
+.lc-token-guide-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 12px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    margin-bottom: 10px;
+}
+.lc-token-guide-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.6;
+    min-width: 0;
+}
+.lc-token-guide-cell-full {
+    grid-column: span 2;
+}
+.lc-token-guide-cell-label {
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    min-width: 64px;
+}
+.lc-token-guide-cell-value {
+    color: var(--text-primary);
+    font-weight: 500;
+    word-break: break-all;
+}
+.lc-token-guide-cell-value.lc-token-mono {
+    font-family: monospace;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+.lc-token-guide-cell-value.lc-token-mono:hover {
+    background: var(--bg-hover);
+    color: var(--primary-color);
+}
+.lc-token-guide-address {
+    color: var(--primary-color);
+}
+.lc-token-guide-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.lc-token-guide-actions .btn {
+    flex: 1;
+    min-width: 130px;
+    text-align: center;
+}
+
 .lc-table-wrap {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;

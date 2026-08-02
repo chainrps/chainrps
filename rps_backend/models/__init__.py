@@ -193,6 +193,14 @@ class RoomResponse(BaseModel):
     close_reason: Optional[str] = None
     closed_at: Optional[int] = None
     fund_stage: Optional[str] = None
+    seat_mode: Optional[str] = None
+
+
+class SetSeatModeRequest(BaseModel):
+    """设置房间空位模式请求"""
+    room_id: str
+    creator_address: str
+    seat_mode: str  # "open" or "ai"
 
 
 class RoomListResponse(BaseModel):
@@ -361,6 +369,129 @@ class ContractAbiUpdate(BaseModel):
     admin_address: Optional[str] = None
 
 
+# ==================== Bot 集群管理模型 ====================
+class BotCreateRequest(BaseModel):
+    """创建 Bot 实例请求"""
+    name: str = Field(..., min_length=1, max_length=50, description="Bot 名称")
+    strategy: str = Field("random", description="出拳策略: random/aggressive/conservative/mimic/balanced")
+    token: str = Field("USDC", description="下注代币")
+    bet_amount: float = Field(1.0, gt=0, description="下注金额")
+    auto_create_room: bool = Field(True, description="自动创建房间")
+    auto_join_room: bool = Field(True, description="自动加入房间")
+    max_concurrent_rooms: int = Field(1, ge=1, le=5, description="最大并发房间数")
+    create_interval: int = Field(5, ge=1, description="创建房间间隔(秒)")
+    scan_interval: int = Field(3, ge=1, description="大厅扫描间隔(秒)")
+    commit_delay: int = Field(5, ge=0, description="Commit 延迟(秒)")
+    reveal_delay: int = Field(3, ge=0, description="Reveal 延迟(秒)")
+    wallet_balance_threshold: float = Field(100.0, gt=0, description="钱包余额阈值")
+    auto_chain_match: bool = Field(True, description="自动链上对局")
+    mimic_choice: int = Field(1, ge=1, le=3, description="mimic 策略固定出拳")
+
+
+class BotUpdateConfigRequest(BaseModel):
+    """更新 Bot 配置请求"""
+    strategy: Optional[str] = Field(None, description="出拳策略")
+    token: Optional[str] = Field(None, description="下注代币")
+    bet_amount: Optional[float] = Field(None, gt=0, description="下注金额")
+    auto_create_room: Optional[bool] = Field(None, description="自动创建房间")
+    auto_join_room: Optional[bool] = Field(None, description="自动加入房间")
+    max_concurrent_rooms: Optional[int] = Field(None, ge=1, le=5, description="最大并发房间数")
+    create_interval: Optional[int] = Field(None, ge=1)
+    scan_interval: Optional[int] = Field(None, ge=1)
+    commit_delay: Optional[int] = Field(None, ge=0)
+    reveal_delay: Optional[int] = Field(None, ge=0)
+    wallet_balance_threshold: Optional[float] = Field(None, gt=0)
+    auto_chain_match: Optional[bool] = Field(None)
+    mimic_choice: Optional[int] = Field(None, ge=1, le=3)
+
+
+class BotActionRequest(BaseModel):
+    """Bot 操作请求（启动/停止/重启/删除）"""
+    bot_id: str = Field(..., description="Bot 实例 ID")
+
+
+class BotInstanceResponse(BaseModel):
+    """Bot 实例状态响应"""
+    bot_id: str
+    name: str
+    is_running: bool
+    status: str
+    wallet_address: Optional[str] = None
+    wallet_available: bool = False
+    active_rooms: int = 0
+    active_games: int = 0
+    total_rooms_created: int = 0
+    total_rooms_joined: int = 0
+    total_games_played: int = 0
+    total_wins: int = 0
+    total_losses: int = 0
+    total_draws: int = 0
+    total_chain_matches: int = 0
+    started_at: Optional[str] = None
+    config: Optional[dict] = None
+    error_message: Optional[str] = None
+    wallet_info: Optional[dict] = None
+
+
+class BotClusterStatusResponse(BaseModel):
+    """Bot 集群状态响应"""
+    total_instances: int
+    running_instances: int
+    max_instances: int
+    total_games_played: int
+    total_wins: int
+    total_losses: int
+    win_rate: float = 0.0
+    instances: List[dict] = []
+    initialized: bool = False
+    bot_enabled: bool = False
+
+
+class BotWalletResponse(BaseModel):
+    """Bot 钱包信息响应"""
+    address: Optional[str] = None
+    balance_eth: float = 0.0
+    balance_usdc: float = 0.0
+    sufficient: bool = False
+    threshold: float = 100.0
+
+
+class BotLogEntry(BaseModel):
+    """Bot 日志条目"""
+    id: Optional[int] = None
+    bot_id: str
+    level: str
+    message: str
+    details: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class BotWalletPoolStatus(BaseModel):
+    """钱包池状态"""
+    start_index: int
+    end_index: int
+    max_capacity: int
+    allocated_count: int
+    available_count: int
+    allocated_wallets: List[int] = []
+
+
+class BotStrategyInfo(BaseModel):
+    """Bot 策略信息"""
+    id: str
+    name: str
+    description: str
+    style: str
+
+
+class BotOperationResponse(BaseModel):
+    """Bot 操作响应"""
+    success: bool
+    message: str
+    bot_id: Optional[str] = None
+    data: Optional[dict] = None
+
+
 # ==================== 审计日志模型 ====================
 class AuditLogEntry(BaseModel):
     """审计日志条目"""
@@ -418,6 +549,17 @@ __all__ = [
     "ContractRecord",
     "ContractDeployRequest",
     "ContractAbiUpdate",
+    # Bot 集群管理模型
+    "BotCreateRequest",
+    "BotUpdateConfigRequest",
+    "BotActionRequest",
+    "BotInstanceResponse",
+    "BotClusterStatusResponse",
+    "BotWalletResponse",
+    "BotLogEntry",
+    "BotWalletPoolStatus",
+    "BotStrategyInfo",
+    "BotOperationResponse",
     # 审计日志模型
     "AuditLogEntry",
 ]

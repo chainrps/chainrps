@@ -116,6 +116,8 @@ class WebSocketManager:
         2. 若不在当前进程，发布到 REDIS_DIRECT_CHANNEL，由目标进程接收并下发
         3. 失败时断开本地连接（如果是本地连接）
         """
+        if not player_address:
+            return
         addr_lower = player_address.lower()
         # 本地命中：直接发送
         if addr_lower in self.active_connections:

@@ -766,6 +766,54 @@ async def admin_dashboard():
         conn.close()
 
 
+# 获取系统健康状态（包含合约监听状态）- 公开接口
+@router.get("/health", include_in_schema=False)
+async def admin_health_check():
+    """获取系统健康状态，包含合约监听、Bot 等服务状态
+    
+    注意：此接口为仪表盘内部使用，需要管理员权限认证。
+    """
+    # 获取合约监听状态
+    try:
+        from rps_backend.service.contract_service import contract_service
+        contract_listening = contract_service.listening
+        contract_address = contract_service._contract_address if contract_service._contract_address else None
+        contract_w3_connected = contract_service.w3 is not None and contract_service.w3.is_connected() if contract_service.w3 else False
+    except Exception:
+        contract_listening = False
+        contract_address = None
+        contract_w3_connected = False
+
+    # 获取 Bot 状态
+    try:
+        from rps_backend.service.bot_service import bot_service
+        bot_running = bot_service._is_running
+        bot_wallet = bot_service._wallet_address if bot_service._wallet_address else None
+        instance = bot_service._instances.get(bot_service._default_instance_id) if hasattr(bot_service, '_instances') else None
+        bot_chain_matches = instance._total_chain_matches if instance else 0
+    except Exception:
+        bot_running = False
+        bot_wallet = None
+        bot_chain_matches = 0
+
+    # 获取 Redis 状态
+    try:
+        from rps_backend.utils.redis_client import redis_client
+        redis_ok = redis_client.is_connected()
+    except Exception:
+        redis_ok = False
+
+    return {
+        "redis": redis_ok,
+        "contract_listening": contract_listening,
+        "contract_address": contract_address,
+        "contract_w3_connected": contract_w3_connected,
+        "bot_running": bot_running,
+        "bot_wallet": bot_wallet,
+        "bot_chain_matches": bot_chain_matches,
+    }
+
+
 # ==================== 本地链管理 ====================
 
 # 获取本地链状态

@@ -390,6 +390,7 @@ const AdminApp = {
         // 按需懒加载对应模块的数据
         if (tabName === 'dashboard') this.loadDashboard();
         if (tabName === 'contracts') this.loadContracts();
+        if (tabName === 'bot') this.botLoadAll();
         if (tabName === 'config') {
             if (subTab && (subTab === 'backend' || subTab === 'chain')) {
                 this.switchConfigTab(subTab, false);
@@ -492,12 +493,478 @@ const AdminApp = {
             document.getElementById('statTotalFee').textContent = data.total_fee_collected.toFixed(2);
             document.getElementById('statContracts').textContent = data.total_contracts;
 
-            const health = await this.apiRequest('/health');
+            // 获取系统健康状态（含合约监听、Bot 等）
+            const health = await this.apiRequest('/api/admin/health');
             document.getElementById('redisStatus').textContent = health.redis ? '已连接' : '未连接';
             document.getElementById('redisStatus').className = 'tag ' + (health.redis ? 'tag-active' : 'tag-inactive');
+
+            // 更新合约监听状态
+            const contractStatusEl = document.getElementById('contractStatus');
+            if (contractStatusEl) {
+                if (health.contract_listening) {
+                    contractStatusEl.textContent = '运行中';
+                    contractStatusEl.className = 'tag tag-active';
+                } else {
+                    contractStatusEl.textContent = '未启动';
+                    contractStatusEl.className = 'tag tag-inactive';
+                }
+            }
+
+            // 更新服务状态（包含 Bot 状态）
+            const serviceStatusEl = document.getElementById('serviceStatus');
+            if (serviceStatusEl) {
+                if (health.bot_running) {
+                    serviceStatusEl.textContent = '运行中';
+                    serviceStatusEl.className = 'tag tag-active';
+                } else {
+                    serviceStatusEl.textContent = '待机';
+                    serviceStatusEl.className = 'tag tag-inactive';
+                }
+            }
+
+            // 显示 Bot 配置 URL 信息
+            this._botConfigInfo = {
+                url: '/api/bot/config',
+                status: health.bot_running ? '运行中' : '未启动',
+                wallet: health.bot_wallet,
+                chainMatches: health.bot_chain_matches || 0,
+            };
+
+            // 更新 Bot 状态卡片（如果存在）
+            const botStatusEl = document.getElementById('botStatus');
+            if (botStatusEl) {
+                botStatusEl.textContent = health.bot_running ? '运行中' : '未启动';
+                botStatusEl.className = 'tag ' + (health.bot_running ? 'tag-active' : 'tag-inactive');
+            }
+
+            const botWalletEl = document.getElementById('botWallet');
+            if (botWalletEl) {
+                botWalletEl.textContent = health.bot_wallet ? health.bot_wallet.slice(0, 10) + '...' : '-';
+                botWalletEl.title = health.bot_wallet || '';
+            }
+
+            const botChainMatchesEl = document.getElementById('botChainMatches');
+            if (botChainMatchesEl) {
+                botChainMatchesEl.textContent = health.bot_chain_matches || 0;
+            }
         } catch (e) {
             console.error('Failed to load dashboard:', e);
         }
+    },
+
+    // ==================== Bot 机器人管理 ====================
+
+    // 加载所有 Bot 数据
+    async botLoadAll() {
+        await Promise.all([
+            this.botRefreshStatus(),
+            this.botLoadConfig(),
+            this.botLoadClusterStatus(),
+            this.botLoadInstances(),
+            this.botLoadStrategies(),
+        ]);
+    },
+
+    // 刷新 Bot 状态
+    async botRefreshStatus() {
+        try {
+            const status = await this.apiRequest('/api/bot/status');
+            const statusEl = document.getElementById('botConfigStatus');
+            const walletEl = document.getElementById('botConfigWallet');
+            const matchesEl = document.getElementById('botConfigChainMatches');
+            const uptimeEl = document.getElementById('botConfigUptime');
+
+            if (statusEl) {
+                statusEl.textContent = status.is_running ? '运行中' : '未启动';
+                statusEl.style.color = status.is_running ? 'var(--success-color, #10b981)' : 'var(--text-tertiary)';
+            }
+            if (walletEl && status.wallet_address) {
+                walletEl.textContent = status.wallet_address.slice(0, 10) + '...' + status.wallet_address.slice(-8);
+                walletEl.title = status.wallet_address;
+            }
+            if (matchesEl) {
+                matchesEl.textContent = status.total_chain_matches || 0;
+            }
+            if (uptimeEl) {
+                uptimeEl.textContent = status.started_at ? new Date(status.started_at).toLocaleString('zh-CN') : '-';
+            }
+
+            // 更新按钮状态
+            const startBtn = document.getElementById('botStartBtn');
+            const stopBtn = document.getElementById('botStopBtn');
+            if (startBtn && stopBtn) {
+                startBtn.disabled = status.is_running;
+                stopBtn.disabled = !status.is_running;
+                startBtn.style.opacity = status.is_running ? '0.5' : '1';
+                stopBtn.style.opacity = status.is_running ? '1' : '0.5';
+            }
+        } catch (e) {
+            console.error('Failed to load bot status:', e);
+        }
+    },
+
+    // 启动 Bot
+    async botStart() {
+        try {
+            FWUI.Modal.confirm({
+                title: '启动 Bot',
+                content: '<p>确定要启动 Bot 机器人吗？启动后 Bot 将自动匹配游戏和下注。</p>',
+                okText: '启动',
+                onOk: async () => {
+                    try {
+                        const result = await this.apiRequest('/api/bot/start', 'POST');
+                        if (result.success) {
+                            FWUI.Toast.success('Bot 已启动');
+                            await this.botRefreshStatus();
+                        } else {
+                            FWUI.Toast.error(result.message || '启动失败');
+                        }
+                    } catch (e) {
+                        FWUI.Toast.error('启动失败: ' + e.message);
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Failed to start bot:', e);
+        }
+    },
+
+    // 停止 Bot
+    async botStop() {
+        try {
+            FWUI.Modal.confirm({
+                title: '停止 Bot',
+                content: '<p>确定要停止 Bot 机器人吗？</p>',
+                okText: '停止',
+                okType: 'danger',
+                onOk: async () => {
+                    try {
+                        const result = await this.apiRequest('/api/bot/stop', 'POST');
+                        if (result.success) {
+                            FWUI.Toast.success('Bot 已停止');
+                            await this.botRefreshStatus();
+                        } else {
+                            FWUI.Toast.error(result.message || '停止失败');
+                        }
+                    } catch (e) {
+                        FWUI.Toast.error('停止失败: ' + e.message);
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Failed to stop bot:', e);
+        }
+    },
+
+    // 重置 Bot 钱包
+    async botResetWallet() {
+        try {
+            FWUI.Modal.confirm({
+                title: '重置 Bot 钱包',
+                content: '<p>⚠️ 确定要重置 Bot 钱包吗？此操作将生成新的钱包地址，旧钱包中的资金需要手动转移。</p>',
+                okText: '重置',
+                okType: 'danger',
+                onOk: async () => {
+                    try {
+                        const result = await this.apiRequest('/api/bot/reset-wallet', 'POST');
+                        if (result.success) {
+                            FWUI.Toast.success('钱包已重置');
+                            await this.botRefreshStatus();
+                        } else {
+                            FWUI.Toast.error(result.message || '重置失败');
+                        }
+                    } catch (e) {
+                        FWUI.Toast.error('重置失败: ' + e.message);
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Failed to reset bot wallet:', e);
+        }
+    },
+
+    // 加载 Bot 配置到表单
+    async botLoadConfig() {
+        try {
+            const config = await this.apiRequest('/api/bot/config');
+            if (!config) return;
+
+            // 填充表单 - 使用后端返回的字段名
+            const el = (id) => document.getElementById('botConfig' + id);
+            if (el('MinBet')) el('MinBet').value = config.bet_amount || '';
+            if (el('MaxBet')) el('MaxBet').value = config.bet_amount || ''; // 使用相同的下注金额
+            if (el('MatchInterval')) el('MatchInterval').value = config.create_interval || '';
+            if (el('MaxGames')) el('MaxGames').value = config.max_concurrent_rooms || '';
+            if (el('GasLimit')) el('GasLimit').value = config.commit_delay || '';
+            if (el('GasPrice')) el('GasPrice').value = config.reveal_delay || '';
+            if (el('AutoMatch')) el('AutoMatch').checked = config.auto_create_room || false;
+            if (el('AutoBet')) el('AutoBet').checked = config.auto_join_room || false;
+            if (el('AutoReveal')) el('AutoReveal').checked = config.auto_chain_match || false;
+            if (el('Headless')) el('Headless').checked = config.mimic_choice ? true : false;
+        } catch (e) {
+            console.error('Failed to load bot config:', e);
+        }
+    },
+
+    // 保存 Bot 配置
+    async botSaveConfig() {
+        try {
+            const updateData = {
+                bet_amount: parseFloat(document.getElementById('botConfigMinBet')?.value) || 1.0,
+                create_interval: parseInt(document.getElementById('botConfigMatchInterval')?.value) || 5,
+                max_concurrent_rooms: parseInt(document.getElementById('botConfigMaxGames')?.value) || 5,
+                commit_delay: parseInt(document.getElementById('botConfigGasLimit')?.value) || 6,
+                reveal_delay: parseInt(document.getElementById('botConfigGasPrice')?.value) || 1,
+                auto_create_room: document.getElementById('botConfigAutoMatch')?.checked || false,
+                auto_join_room: document.getElementById('botConfigAutoBet')?.checked || false,
+                auto_chain_match: document.getElementById('botConfigAutoReveal')?.checked || false,
+                mimic_choice: document.getElementById('botConfigHeadless')?.checked ? 1 : 0,
+            };
+
+            const result = await this.apiRequest('/api/bot/config', {
+                method: 'PUT',
+                body: JSON.stringify(updateData)
+            });
+
+            if (result.success) {
+                FWUI.Toast.success('Bot 配置已保存');
+            } else {
+                FWUI.Toast.error(result.message || '保存失败');
+            }
+        } catch (e) {
+            console.error('Failed to save bot config:', e);
+            FWUI.Toast.error('保存失败: ' + e.message);
+        }
+    },
+
+    // 加载 Bot 集群状态
+    async botLoadClusterStatus() {
+        try {
+            const status = await this.apiRequest('/api/bot/cluster/status');
+            const container = document.getElementById('botClusterStatus');
+            if (container) {
+                container.innerHTML = `
+                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                        <div style="text-align:center;">
+                            <div style="font-size:24px;font-weight:600;color:var(--primary-color);">${status.total_instances || 0}</div>
+                            <div style="color:var(--text-tertiary);font-size:12px;">总实例数</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:24px;font-weight:600;color:var(--success-color, #10b981);">${status.running_instances || 0}</div>
+                            <div style="color:var(--text-tertiary);font-size:12px;">运行中</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:24px;font-weight:600;color:var(--warning-color, #f59e0b);">${status.total_games || 0}</div>
+                            <div style="color:var(--text-tertiary);font-size:12px;">总游戏数</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:24px;font-weight:600;">${status.win_rate || 0}%</div>
+                            <div style="color:var(--text-tertiary);font-size:12px;">胜率</div>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (e) {
+            console.error('Failed to load cluster status:', e);
+        }
+    },
+
+    // 加载 Bot 实例列表
+    async botLoadInstances() {
+        try {
+            const instances = await this.apiRequest('/api/bot/cluster/instances');
+            const tbody = document.getElementById('botInstancesTbody');
+            if (!tbody) return;
+
+            if (!instances || instances.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-secondary);">暂无实例</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = instances.map(inst => `
+                <tr style="border-bottom:1px solid var(--border-color);">
+                    <td style="padding:8px;font-family:monospace;font-size:12px;">${inst.bot_id || inst.id}</td>
+                    <td style="padding:8px;">
+                        <span class="tag ${inst.is_running || inst.running ? 'tag-active' : 'tag-inactive'}">${inst.is_running || inst.running ? '运行中' : '已停止'}</span>
+                    </td>
+                    <td style="padding:8px;font-family:monospace;font-size:11px;">${inst.wallet_address || inst.wallet ? (inst.wallet_address || inst.wallet).slice(0, 8) + '...' : '-'}</td>
+                    <td style="padding:8px;">${inst.total_games || inst.games_count || 0}</td>
+                    <td style="padding:8px;text-align:center;">
+                        <button class="btn btn-outline" style="padding:2px 6px;font-size:11px;margin:2px;" 
+                                onclick="AdminApp.botInstanceAction('${inst.bot_id || inst.id}', '${inst.is_running || inst.running ? 'stop' : 'start'}')">
+                            ${inst.is_running || inst.running ? '⏹️ 停止' : '▶️ 启动'}
+                        </button>
+                        <button class="btn btn-outline" style="padding:2px 6px;font-size:11px;margin:2px;" 
+                                onclick="AdminApp.botInstanceAction('${inst.bot_id || inst.id}', 'restart')">
+                            🔄 重启
+                        </button>
+                        <button class="btn btn-danger" style="padding:2px 6px;font-size:11px;margin:2px;" 
+                                onclick="AdminApp.botInstanceAction('${inst.bot_id || inst.id}', 'delete')">
+                            🗑️ 删除
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        } catch (e) {
+            console.error('Failed to load bot instances:', e);
+        }
+    },
+
+    // Bot 实例操作
+    async botInstanceAction(instanceId, action) {
+        try {
+            const actionMap = {
+                start: { url: `/api/bot/cluster/instances/${instanceId}/start`, method: 'POST', msg: '启动' },
+                stop: { url: `/api/bot/cluster/instances/${instanceId}/stop`, method: 'POST', msg: '停止' },
+                restart: { url: `/api/bot/cluster/instances/${instanceId}/restart`, method: 'POST', msg: '重启' },
+                delete: { url: `/api/bot/cluster/instances/${instanceId}`, method: 'DELETE', msg: '删除' },
+            };
+            const config = actionMap[action];
+            if (!config) return;
+
+            FWUI.Modal.confirm({
+                title: `${config.msg}实例`,
+                content: `<p>确定要${config.msg} Bot 实例 <code>${instanceId}</code> 吗？</p>`,
+                okText: config.msg,
+                onOk: async () => {
+                    const result = await this.apiRequest(config.url, config.method);
+                    if (result.success) {
+                        FWUI.Toast.success(`${config.msg}成功`);
+                        await this.botLoadInstances();
+                        await this.botLoadClusterStatus();
+                    } else {
+                        FWUI.Toast.error(result.message || `${config.msg}失败`);
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Failed to execute bot instance action:', e);
+        }
+    },
+
+    // 创建 Bot 实例
+    async botCreateInstance() {
+        try {
+            FWUI.Modal.create({
+                title: '创建 Bot 实例',
+                width: '400px',
+                content: `
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label>策略ID</label>
+                        <input type="text" id="newBotStrategyId" placeholder="输入策略ID">
+                    </div>
+                `,
+                footer: `
+                    <button class="fwui-btn fwui-btn-default" data-action="cancel">取消</button>
+                    <button class="fwui-btn fwui-btn-primary" data-action="create">创建</button>
+                `
+            });
+
+            setTimeout(() => {
+                const cancelBtn = document.querySelector('[data-action="cancel"]');
+                const createBtn = document.querySelector('[data-action="create"]');
+                const modal = document.querySelector('.fwui-modal');
+                
+                if (cancelBtn) cancelBtn.addEventListener('click', () => modal?.remove());
+                if (createBtn) {
+                    createBtn.addEventListener('click', async () => {
+                        const strategyId = document.getElementById('newBotStrategyId')?.value;
+                        if (!strategyId) {
+                            FWUI.Toast.warning('请输入策略ID');
+                            return;
+                        }
+                        try {
+                            const result = await this.apiRequest('/api/bot/cluster/instances', {
+                                method: 'POST',
+                                body: JSON.stringify({ strategy_id: strategyId })
+                            });
+                            if (result.success) {
+                                FWUI.Toast.success('实例创建成功');
+                                modal?.remove();
+                                await this.botLoadInstances();
+                                await this.botLoadClusterStatus();
+                            } else {
+                                FWUI.Toast.error(result.message || '创建失败');
+                            }
+                        } catch (e) {
+                            FWUI.Toast.error('创建失败: ' + e.message);
+                        }
+                    });
+                }
+            }, 100);
+        } catch (e) {
+            console.error('Failed to create bot instance:', e);
+        }
+    },
+
+    // 批量操作
+    async botStartAll() {
+        await this._botBatchAction('start-all', '启动所有实例');
+    },
+
+    async botStopAll() {
+        await this._botBatchAction('stop-all', '停止所有实例');
+    },
+
+    async botRestartAll() {
+        await this._botBatchAction('restart-all', '重启所有实例');
+    },
+
+    async _botBatchAction(action, label) {
+        try {
+            FWUI.Modal.confirm({
+                title: label,
+                content: `<p>确定要${label}吗？</p>`,
+                okText: '确定',
+                onOk: async () => {
+                    const result = await this.apiRequest(`/api/bot/cluster/${action}`, 'POST');
+                    if (result.success) {
+                        FWUI.Toast.success(`${label}成功`);
+                        await this.botLoadInstances();
+                        await this.botLoadClusterStatus();
+                    } else {
+                        FWUI.Toast.error(result.message || `${label}失败`);
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Failed to execute batch action:', e);
+        }
+    },
+
+    // 加载 Bot 策略列表
+    async botLoadStrategies() {
+        try {
+            const strategies = await this.apiRequest('/api/bot/cluster/strategies');
+            const container = document.getElementById('botStrategiesList');
+            if (!container) return;
+
+            if (!strategies || strategies.length === 0) {
+                container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:20px;">暂无策略</div>';
+                return;
+            }
+
+            container.innerHTML = strategies.map(s => `
+                <div style="padding:10px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="font-weight:500;">${s.name || s.id}</span>
+                        <span class="tag tag-active">${s.type || 'default'}</span>
+                    </div>
+                    <div style="color:var(--text-tertiary);font-size:12px;margin-top:4px;">${s.description || '无描述'}</div>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error('Failed to load bot strategies:', e);
+        }
+    },
+
+    // 清空 Bot 日志
+    botClearLogs() {
+        const container = document.getElementById('botLogsContainer');
+        if (container) {
+            container.innerHTML = '<div style="color:var(--text-tertiary);">暂无日志</div>';
+        }
+        FWUI.Toast.success('日志已清空');
     },
 
     // 加载合约列表
@@ -1280,6 +1747,8 @@ const AdminApp = {
                 this.refreshAccounts();
                 this.refreshTokenList();
             }
+            // 加载代币信息（地址、RPC等）
+            this.loadTokenInfo();
             this._lastNodeRunning = status.running;
         } catch (e) {
             document.getElementById('nodeStatusText').textContent = '未运行';
@@ -1684,46 +2153,80 @@ const AdminApp = {
         }
     },
 
-    // 切换到本地网络
+    // 切换到本地网络（自动优先，失败则引导手动操作）
     async switchToLocalNetwork() {
         if (!window.ethereum) {
-            FWUI.Toast.warning('未检测到 MetaMask，请先安装钱包插件');
-            return;
+            FWUI.Toast.warning('未检测到 MetaMask/OKX Wallet，请先安装钱包插件');
+            return false;
         }
 
         const port = (document.getElementById('nodeConfigPort')?.value || String(CONFIG.RPC_PORT)).trim();
         const chainId = (document.getElementById('nodeConfigChainId')?.value || '5208888').trim();
         const symbol = (document.getElementById('nodeConfigSymbol')?.value || CONFIG.getNativeSymbol()).trim();
         const host = (document.getElementById('nodeConfigHost')?.value || '127.0.0.1').trim();
+        const networkName = `ChainRPS Local (${port})`;
 
         const hexChainId = '0x' + parseInt(chainId).toString(16);
         const rpcUrl = `http://${host}:${port}`;
 
-        // 从错误信息中提取已存在的 chain ID
-        const extractExistingChain = (msg) => {
-            const m = (msg || '').match(/chain\s+(0x[0-9a-fA-F]+)/i);
-            return m ? m[1] : null;
+        const showManualGuide = (reason) => {
+            const info = this._tokenInfo || {};
+            const netName = info.networkName || networkName;
+            FWUI.Modal.alert({
+                title: '📖 手动添加网络教程',
+                content: `
+                    <div style="line-height:1.9;">
+                        ${reason ? `<div style="background:rgba(239,68,68,0.08);color:var(--warning-color);padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:10px;">${reason}</div>` : ''}
+                        <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin-bottom:12px;">
+                            <div style="font-weight:600;margin-bottom:8px;">网络参数（点击复制）</div>
+                            <div style="font-size:12px;font-family:monospace;line-height:2;">
+                                <div>Network Name: <span style="cursor:pointer;color:var(--primary-color);" onclick="AdminApp.copyToClipboard('${netName}')">${netName}</span></div>
+                                <div>RPC URL: <span style="cursor:pointer;color:var(--primary-color);word-break:break-all;" onclick="AdminApp.copyToClipboard('${rpcUrl}')">${rpcUrl}</span></div>
+                                <div>Chain ID: <span style="cursor:pointer;color:var(--primary-color);" onclick="AdminApp.copyToClipboard('${chainId}')">${chainId}</span></div>
+                                <div>Symbol: <span style="cursor:pointer;color:var(--primary-color);" onclick="AdminApp.copyToClipboard('${symbol}')">${symbol}</span></div>
+                                <div>Decimals: 18</div>
+                            </div>
+                        </div>
+                        <div style="font-weight:600;margin-bottom:6px;">操作步骤（MetaMask / OKX 通用）</div>
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);font-size:12px;">
+                            <div style="font-weight:500;">1️⃣ 打开钱包 → 点击顶部网络下拉框</div>
+                            <div style="color:var(--text-secondary);margin-top:2px;">MetaMask: 左上角「Ethereum Mainnet」→「添加网络」→「添加自定义网络」</div>
+                            <div style="color:var(--text-secondary);margin-top:2px;">OKX: 顶部网络图标 →「添加网络」→「自定义网络」</div>
+                        </div>
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);font-size:12px;">
+                            <div style="font-weight:500;">2️⃣ 填入上方网络参数</div>
+                        </div>
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);font-size:12px;">
+                            <div style="font-weight:500;">3️⃣ 保存并切换 → 钱包将自动显示 ${symbol} 原生代币</div>
+                        </div>
+                        <div style="margin-top:10px;padding:8px 10px;background:rgba(16,185,129,0.08);border-radius:6px;font-size:12px;color:var(--text-primary);">
+                            💡 添加成功后，点击「一键添加 / 切换网络」按钮即可快速切换回此网络
+                        </div>
+                    </div>
+                `,
+                okText: '我知道了'
+            });
         };
 
         try {
             FWUI.Toast.info(`正在切换到本地网络 (ChainID: ${chainId})...`);
 
-            // 1. 先尝试直接切换到配置的 chain ID
+            // 1. 先尝试直接切换（若网络已存在）
             try {
                 await window.ethereum.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{chainId: hexChainId}],
                 });
-                FWUI.Toast.success('已切换到本地网络');
+                FWUI.Toast.success('✅ 已切换到本地网络');
                 this._afterNetworkSwitch();
-                return;
+                return true;
             } catch (switchError) {
                 if (switchError.code !== 4902) {
                     throw switchError;
                 }
             }
 
-            // 2. 配置的 chain ID 不存在，尝试添加
+            // 2. 网络不存在 → 尝试自动添加
             const isLocalHttp = rpcUrl.startsWith('http://') && (
                 rpcUrl.includes('127.0.0.1') ||
                 rpcUrl.includes('localhost') ||
@@ -1731,76 +2234,61 @@ const AdminApp = {
             );
 
             if (isLocalHttp) {
-                FWUI.Modal.confirm({
-                    title: '添加本地测试网络到钱包',
-                    content: `
-                        <div style="line-height:1.8;">
-                            <p>钱包出于安全考虑不允许通过 <code>wallet_addEthereumChain</code> 添加 HTTP 网络。</p>
-                            <p>请手动在钱包中添加以下网络配置：</p>
-                            <div style="background:#f5f5f5;padding:12px;border-radius:6px;font-family:monospace;font-size:13px;margin:12px 0;">
-                                <div><b>Network Name:</b> Localhost ${port}</div>
-                                <div><b>New RPC URL:</b> ${rpcUrl}</div>
-                                <div><b>Chain ID:</b> ${chainId} (${hexChainId})</div>
-                                <div><b>Currency Symbol:</b> ${symbol}</div>
-                                <div><b>Decimals:</b> 18</div>
-                            </div>
-                            <p style="color:#888;font-size:12px;">操作路径：钱包 -> 网络 -> 添加自定义网络 -> 填入以上信息</p>
-                        </div>
-                    `,
-                    okText: '我知道了',
-                    cancelText: '关闭',
-                    onOk: () => {
-                        FWUI.Toast.success('请在钱包中添加网络后，再点击「切换钱包网络」');
-                    }
-                });
-                return;
+                FWUI.Toast.warning('钱包不允许自动添加 HTTP 网络，请手动配置');
+                showManualGuide('本地 HTTP RPC 地址出于安全原因不被钱包自动添加，请手动在钱包中添加。');
+                return false;
             }
 
+            // 非本地 HTTP，尝试自动添加网络
             try {
                 await window.ethereum.request({
                     method: 'wallet_addEthereumChain',
                     params: [{
                         chainId: hexChainId,
-                        chainName: `Localhost ${port}`,
+                        chainName: networkName,
                         nativeCurrency: {name: symbol, symbol: symbol, decimals: 18},
                         rpcUrls: [rpcUrl],
                         blockExplorerUrls: null,
                     }],
                 });
-                FWUI.Toast.success('已添加并切换到本地网络');
+                FWUI.Toast.success('✅ 已添加并切换到本地网络');
                 this._afterNetworkSwitch();
-                return;
+                return true;
             } catch (addError) {
                 const addMsg = (addError.message || '').toLowerCase();
-                const existingHex = extractExistingChain(addError.message);
+                const m = (addError.message || '').match(/chain\s+(0x[0-9a-fA-F]+)/i);
+                const existingHex = m ? m[1] : null;
 
                 // 3. 同 RPC 不同 chain ID → 自动切换到已存在的那个
                 if ((addMsg.includes('same rpc endpoint') || addMsg.includes('existing network')) && existingHex) {
                     const existingDec = parseInt(existingHex, 16);
-                    FWUI.Toast.info(
-                        `检测到已有同 RPC 网络 (ChainID: ${existingDec})，正在切换...`
-                    );
+                    FWUI.Toast.info(`检测到已有同 RPC 网络 (ChainID: ${existingDec})，正在切换...`);
                     try {
                         await window.ethereum.request({
                             method: 'wallet_switchEthereumChain',
                             params: [{chainId: existingHex}],
                         });
-                        // 自动同步配置面板的 chain ID
                         const chainIdInput = document.getElementById('nodeConfigChainId');
                         if (chainIdInput) chainIdInput.value = existingDec;
-                        FWUI.Toast.success(
-                            `已切换到本地网络 (ChainID: ${existingDec})`
-                        );
+                        FWUI.Toast.success(`✅ 已切换到本地网络 (ChainID: ${existingDec})`);
                         this._afterNetworkSwitch();
+                        return true;
                     } catch (e2) {
                         FWUI.Toast.error('切换失败: ' + (e2.message || e2));
+                        showManualGuide('钱包中存在相同 RPC 但无法自动切换，请手动操作。');
+                        return false;
                     }
-                } else {
-                    throw addError;
                 }
+
+                // 4. 其他错误 → 显示手动指引
+                FWUI.Toast.warning('自动添加失败，请手动配置网络');
+                showManualGuide(`自动添加网络失败：${addError.message || addError}`);
+                return false;
             }
         } catch (e) {
             FWUI.Toast.error('切换网络失败: ' + (e.message || e));
+            showManualGuide('发生未知错误，请按以下步骤手动添加网络。');
+            return false;
         }
     },
 
@@ -3022,6 +3510,343 @@ const AdminApp = {
             if (redisEl && data.redis_url) redisEl.value = data.redis_url;
             if (debugEl && data.debug != null) debugEl.value = data.debug;
         }).catch(() => {
+        });
+    },
+
+    // ==================== 代币信息 & 钱包引导 ====================
+
+    // 从后端加载代币信息并填充显示
+    async loadTokenInfo() {
+        try {
+            const data = await this.apiRequest('/api/ext/chain-config');
+            if (!data) return;
+
+            const rpcUrl = data.rpc_url || '';
+            const chainId = data.chain_id || '';
+            const nativeSymbol = data.native_currency?.symbol || CONFIG.getNativeSymbol();
+            const nativeName = data.native_currency?.name || CONFIG.getNativeName();
+            const nativeDecimals = data.native_currency?.decimals || 18;
+            const usdcAddress = data.settlement_token?.address || '';
+            const networkName = data.network_name || 'ChainRPS Local';
+
+            const setText = (id, text) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = text || '-';
+            };
+
+            // 填充【充值原生代币】面板引导卡片
+            setText('fundGuideNativeSymbol', nativeSymbol);
+            setText('fundGuideSymbol', nativeSymbol);
+            setText('fundGuideRpcUrl', rpcUrl);
+            setText('fundGuideChainId', chainId);
+            const fundSymEl = document.getElementById('fundNativeSymbol');
+            if (fundSymEl) fundSymEl.textContent = nativeSymbol;
+
+            // 填充【充值 USDC】面板引导卡片
+            const fundUsdcEl = document.getElementById('fundGuideUsdcAddress');
+            if (fundUsdcEl) {
+                fundUsdcEl.textContent = usdcAddress || '未部署';
+                fundUsdcEl.setAttribute('onclick',
+                    `AdminApp.copyToClipboard('${usdcAddress}')`);
+            }
+            setText('fundTokenGuideRpcUrl', rpcUrl);
+            setText('fundTokenGuideChainId', chainId);
+
+            // 缓存代币信息供钱包添加使用
+            this._tokenInfo = {
+                nativeSymbol,
+                nativeName,
+                nativeDecimals,
+                usdcAddress,
+                chainId,
+                rpcUrl,
+                networkName,
+            };
+        } catch (e) {
+            console.warn('加载代币信息失败:', e);
+        }
+    },
+
+    // 复制文本到剪贴板
+    copyToClipboard(text) {
+        if (!text || text === '-') {
+            FWUI.Toast.warning('没有可复制的内容');
+            return;
+        }
+        try {
+            navigator.clipboard.writeText(text).then(() => {
+                FWUI.Toast.success('已复制到剪贴板');
+            }).catch(() => {
+                // 降级方案
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                FWUI.Toast.success('已复制到剪贴板');
+            });
+        } catch (e) {
+            FWUI.Toast.error('复制失败: ' + e.message);
+        }
+    },
+
+    // 查看 Bot 配置
+    async viewBotConfig() {
+        try {
+            const config = await this.apiRequest('/api/bot/config');
+            if (!config) {
+                FWUI.Modal.alert({
+                    title: 'Bot 配置',
+                    content: '<p style="color:var(--text-tertiary);">无法获取 Bot 配置信息</p>'
+                });
+                return;
+            }
+
+            const formatConfig = (data) => {
+                return Object.entries(data).map(([k, v]) => {
+                    let displayVal = v;
+                    if (typeof v === 'boolean') displayVal = v ? '✅ 是' : '❌ 否';
+                    else if (v === null || v === undefined) displayVal = '-';
+                    else if (typeof v === 'object') displayVal = JSON.stringify(v);
+                    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-color);">
+                        <span style="color:var(--text-secondary);">${k}</span>
+                        <span style="color:var(--text-primary);font-family:monospace;font-size:12px;max-width:280px;word-break:break-all;text-align:right;">${displayVal}</span>
+                    </div>`;
+                }).join('');
+            };
+
+            FWUI.Modal.alert({
+                title: '🤖 Bot 配置信息',
+                content: `
+                    <div style="max-height:400px;overflow-y:auto;">
+                        <div style="background:var(--bg-secondary);padding:10px;border-radius:6px;margin-bottom:10px;">
+                            <div style="font-size:11px;color:var(--text-tertiary);">API URL</div>
+                            <div style="font-family:monospace;font-size:13px;color:var(--primary-color);cursor:pointer;" 
+                                 onclick="AdminApp.copyToClipboard('/api/bot/config')" title="点击复制">/api/bot/config</div>
+                        </div>
+                        <div style="font-weight:600;margin-bottom:6px;">当前配置</div>
+                        ${formatConfig(config)}
+                    </div>
+                `,
+                okText: '关闭'
+            });
+        } catch (e) {
+            console.error('获取 Bot 配置失败:', e);
+            FWUI.Toast.error('获取 Bot 配置失败');
+        }
+    },
+
+    // 添加原生币到钱包（直接尝试自动切换网络，失败则显示指引）
+    async addNativeTokenToWallet() {
+        if (!window.ethereum) {
+            FWUI.Toast.warning('未检测到钱包插件，请先安装 MetaMask 或 OKX Wallet');
+            return;
+        }
+        await this.switchToLocalNetwork();
+    },
+
+    // 添加 USDC 代币到钱包（自动优先，失败则引导手动操作）
+    async addUsdcTokenToWallet() {
+        if (!window.ethereum) {
+            FWUI.Toast.warning('未检测到钱包插件，请先安装 MetaMask 或 OKX Wallet');
+            return;
+        }
+        const info = this._tokenInfo || {};
+        const usdcAddress = info.usdcAddress || '';
+
+        if (!usdcAddress) {
+            FWUI.Modal.alert({
+                title: 'USDC 未部署',
+                content: `
+                    <div style="line-height:1.8;">
+                        <p>当前本地链上 USDC 合约尚未部署。</p>
+                        <p>请先在 <b>🪙 测试代币管理</b> 面板中部署 USDC 代币，或点击下方按钮重新部署。</p>
+                        <div style="margin-top:12px;">
+                            <button class="btn btn-primary" onclick="AdminApp.redeployUsdc()" style="width:100%;">
+                                💰 重新部署 USDC
+                            </button>
+                        </div>
+                    </div>
+                `
+            });
+            return;
+        }
+
+        const decimals = 6;
+        const symbol = 'USDC';
+
+        const showUsdcManualGuide = (reason) => {
+            FWUI.Modal.alert({
+                title: '📖 手动添加 USDC 教程',
+                content: `
+                    <div style="line-height:1.9;">
+                        ${reason ? `<div style="background:rgba(239,68,68,0.08);color:var(--warning-color);padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:10px;">${reason}</div>` : ''}
+                        <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin-bottom:12px;">
+                            <div style="font-weight:600;margin-bottom:8px;">USDC 代币参数（点击复制）</div>
+                            <div style="font-size:12px;font-family:monospace;line-height:2;">
+                                <div>Symbol: ${symbol}</div>
+                                <div>Decimals: ${decimals}</div>
+                                <div>合约地址: <span style="cursor:pointer;color:var(--primary-color);word-break:break-all;" onclick="AdminApp.copyToClipboard('${usdcAddress}')" title="点击复制">${usdcAddress}</span></div>
+                            </div>
+                        </div>
+                        <div style="font-weight:600;margin-bottom:6px;">操作步骤（MetaMask / OKX 通用）</div>
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);font-size:12px;">
+                            <div style="font-weight:500;">1️⃣ 确保钱包已切换到 ChainRPS Local 网络</div>
+                        </div>
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);font-size:12px;">
+                            <div style="font-weight:500;">2️⃣ 钱包主界面 →「资产」Tab → 底部「添加自定义代币」</div>
+                        </div>
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);font-size:12px;">
+                            <div style="font-weight:500;">3️⃣ 粘贴上方合约地址 → 自动填充 Symbol/Decimals → 确认添加</div>
+                        </div>
+                        <div style="margin-top:10px;display:flex;gap:8px;">
+                            <button class="btn btn-primary" onclick="AdminApp.copyToClipboard('${usdcAddress}')" style="flex:1;">📋 复制 USDC 地址</button>
+                            <button class="btn btn-outline" onclick="AdminApp.switchToLocalNetwork()" style="flex:1;">🔗 添加 / 切换网络</button>
+                        </div>
+                    </div>
+                `,
+                okText: '我知道了'
+            });
+        };
+
+        try {
+            FWUI.Toast.info('正在添加 USDC 到钱包...');
+
+            // 1. 先确保网络已就绪
+            const netOk = await this.switchToLocalNetwork();
+            if (!netOk) {
+                FWUI.Toast.warning('请先完成网络切换，再添加 USDC');
+                return;
+            }
+
+            // 2. 自动添加 USDC 代币
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_watchAsset',
+                    params: [{
+                        type: 'ERC20',
+                        options: {
+                            address: usdcAddress,
+                            symbol: symbol,
+                            decimals: decimals,
+                            image: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png',
+                        },
+                    }]
+                });
+                FWUI.Toast.success('✅ USDC 已添加到钱包');
+            } catch (e) {
+                // 用户可能取消了，或者钱包不支持自动添加
+                const errMsg = e.message || String(e);
+                FWUI.Toast.warning('自动添加失败，请手动操作');
+                showUsdcManualGuide(`钱包未完成自动添加（${errMsg}），请按以下步骤手动添加 USDC 代币。`);
+            }
+        } catch (e) {
+            FWUI.Toast.error('添加代币失败: ' + (e.message || e));
+            showUsdcManualGuide('发生错误，请按以下步骤手动添加 USDC 代币。');
+        }
+    },
+
+    // 显示手动添加网络教程
+    showManualNetworkGuide() {
+        const info = this._tokenInfo || {};
+        const symbol = info.nativeSymbol || CONFIG.getNativeSymbol();
+        const name = info.nativeName || CONFIG.getNativeName();
+        const rpcUrl = info.rpcUrl || '';
+        const chainId = info.chainId || '';
+        const networkName = info.networkName || 'ChainRPS Local';
+
+        const steps = [
+            { title: '1️⃣ 打开钱包', desc: '打开 MetaMask / OKX Wallet，确保已解锁' },
+            { title: '2️⃣ 进入网络管理', desc: '点击顶部网络下拉框 → 选择「添加网络」或「自定义网络」' },
+            { title: '3️⃣ 填写网络信息', desc: `按下方信息填写（点击字段可复制）` },
+            { title: '4️⃣ 保存并切换', desc: '保存后钱包会自动切换到新网络，原生代币将自动显示' },
+        ];
+
+        FWUI.Modal.alert({
+            title: '📖 手动添加网络教程',
+            content: `
+                <div style="line-height:1.9;">
+                    <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin-bottom:12px;">
+                        <div style="font-weight:600;margin-bottom:8px;">网络参数（点击复制）</div>
+                        <div style="font-size:12px;font-family:monospace;line-height:2;">
+                            <div>Network Name: <span style="cursor:pointer;color:var(--primary-color);" onclick="AdminApp.copyToClipboard('${networkName}')">${networkName}</span></div>
+                            <div>RPC URL: <span style="cursor:pointer;color:var(--primary-color);word-break:break-all;" onclick="AdminApp.copyToClipboard('${rpcUrl}')">${rpcUrl}</span></div>
+                            <div>Chain ID: <span style="cursor:pointer;color:var(--primary-color);" onclick="AdminApp.copyToClipboard('${chainId}')">${chainId}</span></div>
+                            <div>Symbol: <span style="cursor:pointer;color:var(--primary-color);" onclick="AdminApp.copyToClipboard('${symbol}')">${symbol}</span></div>
+                            <div>Decimals: 18</div>
+                        </div>
+                    </div>
+                    <div style="font-weight:600;margin-bottom:6px;">操作步骤</div>
+                    ${steps.map(s => `
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);">
+                            <div style="font-weight:500;font-size:13px;">${s.title}</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${s.desc}</div>
+                        </div>
+                    `).join('')}
+                    <div style="margin-top:10px;padding:8px 10px;background:rgba(16,185,129,0.08);border-radius:6px;font-size:12px;color:var(--text-primary);">
+                        💡 添加成功后，钱包会默认显示 <b>${symbol}</b> 原生代币余额；其他代币需另行添加。
+                    </div>
+                </div>
+            `
+        });
+    },
+
+    // 显示手动添加 USDC 教程
+    showManualUsdcGuide() {
+        const info = this._tokenInfo || {};
+        const usdcAddress = info.usdcAddress || '';
+
+        if (!usdcAddress) {
+            FWUI.Modal.alert({
+                title: 'USDC 未部署',
+                content: `
+                    <div style="line-height:1.8;">
+                        <p>当前本地链上 USDC 合约尚未部署。</p>
+                        <p>请先在 <b>🪙 测试代币管理</b> 面板中部署 USDC 代币。</p>
+                    </div>
+                `
+            });
+            return;
+        }
+
+        const steps = [
+            { title: '1️⃣ 添加网络', desc: `先确保钱包已添加 ChainRPS Local 网络（RPC: ${info.rpcUrl || '-'}）` },
+            { title: '2️⃣ 打开资产页面', desc: '钱包主界面 → 点击「资产」Tab → 拉到最底部 → 点击「添加自定义代币」' },
+            { title: '3️⃣ 填入合约地址', desc: `在「代币合约地址」处粘贴下方 USDC 合约地址（符号和小数位会自动填充）` },
+            { title: '4️⃣ 确认添加', desc: '点击「添加」或「导入」，钱包资产列表将出现 USDC 代币' },
+        ];
+
+        FWUI.Modal.alert({
+            title: '📖 手动添加 USDC 教程',
+            content: `
+                <div style="line-height:1.9;">
+                    <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin-bottom:12px;">
+                        <div style="font-weight:600;margin-bottom:8px;">USDC 代币参数（点击复制）</div>
+                        <div style="font-size:12px;font-family:monospace;line-height:2;">
+                            <div>Symbol: USDC</div>
+                            <div>Decimals: 6</div>
+                            <div>合约地址: <span style="cursor:pointer;color:var(--primary-color);word-break:break-all;" onclick="AdminApp.copyToClipboard('${usdcAddress}')" title="点击复制">${usdcAddress}</span></div>
+                        </div>
+                    </div>
+                    <div style="font-weight:600;margin-bottom:6px;">操作步骤</div>
+                    ${steps.map(s => `
+                        <div style="margin-bottom:8px;padding:8px 10px;background:var(--bg-card);border-radius:6px;border:1px solid var(--border-color);">
+                            <div style="font-weight:500;font-size:13px;">${s.title}</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${s.desc}</div>
+                        </div>
+                    `).join('')}
+                    <div style="margin-top:10px;padding:8px 10px;background:rgba(99,102,241,0.08);border-radius:6px;font-size:12px;color:var(--text-primary);">
+                        💡 部分钱包（如 OKX）可能需要先点击"添加代币"并手动选择网络，请确保已切到 ChainRPS Local 网络。
+                    </div>
+                    <div style="margin-top:10px;display:flex;gap:8px;">
+                        <button class="btn btn-primary" onclick="AdminApp.copyToClipboard('${usdcAddress}')" style="flex:1;">📋 复制 USDC 地址</button>
+                        <button class="btn btn-outline" onclick="AdminApp.switchToLocalNetwork()" style="flex:1;">🔗 添加 / 切换网络</button>
+                    </div>
+                </div>
+            `
         });
     },
 };

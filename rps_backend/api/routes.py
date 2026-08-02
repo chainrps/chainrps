@@ -12,6 +12,7 @@ from rps_backend.api.endpoints.user import router as user_router
 from rps_backend.api.endpoints.extension import router as extension_router
 from rps_backend.api.endpoints.admin import router as admin_router
 from rps_backend.api.endpoints.auth import router as auth_router
+from rps_backend.api.endpoints.bot import router as bot_router
 
 router = APIRouter()
 router.include_router(game_router)
@@ -19,3 +20,4 @@ router.include_router(user_router)
 router.include_router(admin_router)
 router.include_router(auth_router)
 router.include_router(extension_router)
+router.include_router(bot_router)

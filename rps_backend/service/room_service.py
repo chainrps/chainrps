@@ -113,6 +113,8 @@ class RoomManager:
             #   revealing:     揭晓中，至少 1 人已揭晓
             #   settled:       已结算
             "fund_stage": "local_frozen",
+            # seat_mode: "open" = 空位对其他玩家开放, "ai" = 空位保留给 AI
+            "seat_mode": "open",
         }
 
         self._rooms[room_id] = room
@@ -185,6 +187,9 @@ class RoomManager:
 
         # 广播房间列表变更（房间被占用，从大厅消失）
         self._broadcast_room_list_changed("room_joined", room_id)
+
+        # 通知 Bot：玩家加入房间
+        self._notify_bot_room_joined(room_id, player_address)
 
         return {
             "success": True,
@@ -275,6 +280,9 @@ class RoomManager:
         # 准备状态变化也通知大厅（房间卡片上的准备标记需要同步）
         self._broadcast_room_list_changed("ready_changed", room_id)
 
+        # 通知 Bot：有玩家准备了，可能需要立即加入该房间
+        self._notify_bot_player_ready(room_id)
+
         if room["creator_ready"] and room["player2_ready"]:
             # 双方都准备了，停止双方的未准备超时
             self._stop_unready_timer(room["creator"])
@@ -286,6 +294,9 @@ class RoomManager:
 
             # 倒计时开始也通知大厅（房间卡片状态变为 countdown）
             self._broadcast_room_list_changed("countdown_start", room_id)
+
+            # 通知 Bot：准备状态变更
+            self._notify_bot_ready_changed(room_id)
 
             asyncio.create_task(self._start_countdown(room_id))
 
@@ -714,6 +725,9 @@ class RoomManager:
         # 广播房间列表变更（房间状态变为 game_started，大厅卡片需要更新）
         self._broadcast_room_list_changed("game_started", room_id)
 
+        # 通知 Bot：游戏开始
+        self._notify_bot_game_started(room_id, game_id)
+
     # 上报链上对局ID
     async def report_chain_game(self, room_id: str, creator_address: str, chain_game_id: int) -> dict:
         """
@@ -773,6 +787,9 @@ class RoomManager:
                 },
             ))
 
+        # 通知 Bot：链上对局已创建
+        self._notify_bot_chain_game_created(room_id, chain_game_id)
+
         return {"success": True, "chain_game_id": chain_game_id}
 
     # 获取房间信息
@@ -820,6 +837,77 @@ class RoomManager:
             })
 
         return sorted(active_rooms, key=lambda r: r["created_at"], reverse=True)
+
+    def cleanup_player_rooms(self, player_address: str) -> None:
+        """
+        清理玩家的残留状态
+        
+        从 _player_rooms 中移除玩家记录，并将相关房间重置为可用状态。
+        用于 Bot 启动时的状态恢复，防止异常退出后的状态残留。
+        """
+        player_lower = player_address.lower()
+        if player_lower not in self._player_rooms:
+            return
+
+        room_id = self._player_rooms.pop(player_lower, None)
+        if room_id:
+            room = self._rooms.get(room_id)
+            if room:
+                # 如果玩家是 player2，移除 player2
+                if room.get("player2", "").lower() == player_lower:
+                    room["player2"] = None
+                    room["player2_ready"] = False
+                    if room["status"] == ROOM_STATUS["JOINED"]:
+                        room["status"] = ROOM_STATUS["CREATED"]
+                # 如果玩家是 creator，不清理（房间由 creator 拥有）
+                self._rooms[room_id] = room
+                redis_client.cache_room_state(room_id, room)
+                self._broadcast_room_list_changed("room_reopened", room_id)
+
+    def is_player_in_room(self, player_address: str) -> bool:
+        """检查玩家是否已在某个房间中"""
+        return player_address.lower() in self._player_rooms
+
+    def get_player_room_id(self, player_address: str) -> Optional[str]:
+        """获取玩家所在的房间 ID，如不在房间中返回 None"""
+        return self._player_rooms.get(player_address.lower())
+
+    def set_seat_mode(self, room_id: str, creator_address: str, seat_mode: str) -> dict:
+        """
+        设置房间空位模式
+
+        Args:
+            room_id: 房间ID
+            creator_address: 创建者地址（权限校验）
+            seat_mode: "open" 或 "ai"
+
+        Returns:
+            {"success": True} 或 {"success": False, "message": "..."}
+        """
+        room = self._rooms.get(room_id)
+        if not room:
+            return {"success": False, "message": "房间不存在"}
+
+        if room["creator"].lower() != creator_address.lower():
+            return {"success": False, "message": "仅创建者可设置空位模式"}
+
+        if seat_mode not in ("open", "ai"):
+            return {"success": False, "message": "无效的空位模式"}
+
+        if room["status"] not in [ROOM_STATUS["CREATED"], ROOM_STATUS["JOINED"]]:
+            return {"success": False, "message": "当前阶段不可设置空位模式"}
+
+        room["seat_mode"] = seat_mode
+        self._rooms[room_id] = room
+        redis_client.cache_room_state(room_id, room)
+
+        self._broadcast_room_list_changed("seat_mode_changed", room_id)
+
+        # 如果切换到 AI 模式，通知 Bot 加入
+        if seat_mode == "ai" and not room.get("player2"):
+            self._notify_bot_seat_ai(room_id)
+
+        return {"success": True, "seat_mode": seat_mode}
 
     # 玩家退出房间
     def leave_room(self, room_id: str, player_address: str) -> dict:
@@ -1165,6 +1253,92 @@ class RoomManager:
         redis_client.delete_cached_room_state(room_id)
         # 广播房间列表变更
         self._broadcast_room_list_changed("room_removed", room_id)
+
+    # ==================== Bot 通知辅助方法 ====================
+
+    def _notify_bot_room_joined(self, room_id: str, player_address: str) -> None:
+        """通知 Bot：有玩家加入房间"""
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running:
+                asyncio.create_task(bot_service.on_room_joined(room_id, player_address))
+        except Exception:
+            pass
+        try:
+            from rps_backend.service.bot_manager import bot_manager
+            asyncio.create_task(bot_manager.dispatch_room_joined(room_id, player_address))
+        except Exception:
+            pass
+
+    def _notify_bot_player_ready(self, room_id: str) -> None:
+        """通知 Bot：有玩家准备好了，可能需要立即扫描并加入该房间"""
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running:
+                asyncio.create_task(bot_service.on_player_ready(room_id))
+        except Exception:
+            pass
+        try:
+            from rps_backend.service.bot_manager import bot_manager
+            asyncio.create_task(bot_manager.dispatch_player_ready(room_id))
+        except Exception:
+            pass
+
+    def _notify_bot_ready_changed(self, room_id: str) -> None:
+        """通知 Bot：准备状态变更"""
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running:
+                asyncio.create_task(bot_service.on_room_ready_changed(room_id))
+        except Exception:
+            pass
+        try:
+            from rps_backend.service.bot_manager import bot_manager
+            asyncio.create_task(bot_manager.dispatch_room_ready_changed(room_id))
+        except Exception:
+            pass
+
+    def _notify_bot_game_started(self, room_id: str, game_id: int) -> None:
+        """通知 Bot：游戏开始"""
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running:
+                asyncio.create_task(bot_service.on_game_started_event(room_id, game_id))
+        except Exception:
+            pass
+        try:
+            from rps_backend.service.bot_manager import bot_manager
+            asyncio.create_task(bot_manager.dispatch_game_started(room_id, game_id))
+        except Exception:
+            pass
+
+    def _notify_bot_chain_game_created(self, room_id: str, chain_game_id: int) -> None:
+        """通知 Bot：链上对局已创建"""
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running:
+                asyncio.create_task(bot_service.on_chain_game_created(room_id, chain_game_id))
+        except Exception:
+            pass
+        try:
+            from rps_backend.service.bot_manager import bot_manager
+            asyncio.create_task(bot_manager.dispatch_chain_game_created(room_id, chain_game_id))
+        except Exception:
+            pass
+
+    def _notify_bot_seat_ai(self, room_id: str) -> None:
+        """通知 Bot：玩家邀请 AI 加入空位"""
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running:
+                asyncio.create_task(bot_service.on_seat_ai_invited(room_id))
+        except Exception:
+            pass
+        try:
+            from rps_backend.service.bot_manager import bot_manager
+            asyncio.create_task(bot_manager.dispatch_seat_ai_invited(room_id))
+        except Exception:
+            pass
 
 
 # 房间管理器实例

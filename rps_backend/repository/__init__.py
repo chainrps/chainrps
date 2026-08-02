@@ -44,6 +44,26 @@ from .database import (
     # 审计日志操作
     add_audit_log,
     list_audit_logs,
+    # Bot 实例操作
+    create_bot_instance,
+    get_bot_instance,
+    list_bot_instances,
+    update_bot_instance,
+    delete_bot_instance,
+    get_next_bot_id,
+    get_used_wallet_indices,
+    increment_bot_stats,
+    # Bot 日志操作
+    add_bot_log,
+    get_bot_logs,
+    clear_bot_logs,
+    # Bot 活跃房间操作
+    add_bot_active_room,
+    update_bot_active_room,
+    remove_bot_active_room,
+    get_bot_active_rooms,
+    # Bot 集群统计
+    get_cluster_stats,
 )
 
 __all__ = [
@@ -86,4 +106,24 @@ __all__ = [
     # 审计日志操作
     "add_audit_log",
     "list_audit_logs",
+    # Bot 实例操作
+    "create_bot_instance",
+    "get_bot_instance",
+    "list_bot_instances",
+    "update_bot_instance",
+    "delete_bot_instance",
+    "get_next_bot_id",
+    "get_used_wallet_indices",
+    "increment_bot_stats",
+    # Bot 日志操作
+    "add_bot_log",
+    "get_bot_logs",
+    "clear_bot_logs",
+    # Bot 活跃房间操作
+    "add_bot_active_room",
+    "update_bot_active_room",
+    "remove_bot_active_room",
+    "get_bot_active_rooms",
+    # Bot 集群统计
+    "get_cluster_stats",
 ]

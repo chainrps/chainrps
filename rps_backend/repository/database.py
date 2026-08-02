@@ -10,13 +10,48 @@ SQLite 数据库管理模块（数据访问层）
 注意：本模块仅负责数据记录与缓存，不参与胜负判定，
 胜负判定由链上合约完成，后端通过事件同步结果。
 """
+import json
 import os
 import sqlite3
 from datetime import datetime
-from typing import Optional, List
+from pathlib import Path
+from typing import Optional, List, Dict, Tuple, Any
 
 from ..config import DATABASE_PATH, RPC_LOCAL_PORT, RPC_LOCAL_NETWORK, RPC_CHAIN_ID
 from ..models import GameState
+
+
+def _load_defaults_from_schema() -> Dict[str, Tuple[str, str, str]]:
+    """
+    从 config_schema.json 加载所有默认配置项。
+    
+    返回格式: { config_key: (default_value_str, category, description) }
+    用于初始化 system_config 表和重置操作。
+    """
+    schema_path = Path(__file__).parent.parent / "config" / "config_schema.json"
+    defaults = {}
+    try:
+        if schema_path.exists():
+            with open(schema_path, "r", encoding="utf-8") as f:
+                schema = json.load(f)
+            for name, config_def in schema.get("configs", {}).items():
+                db_key = config_def.get("key", "")
+                if db_key:
+                    default = config_def.get("default")
+                    if default is not None:
+                        defaults[db_key] = (
+                            str(default),
+                            config_def.get("category", "system"),
+                            config_def.get("description", name),
+                        )
+    except Exception:
+        pass
+    return defaults
+
+
+# 系统配置默认值（从 config_schema.json 动态加载）
+# 格式: { config_key: (default_value_str, category, description) }
+SYSTEM_CONFIG_DEFAULTS = _load_defaults_from_schema()
 
 
 # ==================== 数据库连接 ====================
@@ -170,6 +205,74 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_admin ON admin_audit_logs(admin_address)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_logs_action ON admin_audit_logs(action)")
 
+        # ============ Bot 实例表 ============
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_instances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                strategy TEXT NOT NULL DEFAULT 'random',
+                wallet_index INTEGER NOT NULL,
+                wallet_address TEXT NOT NULL,
+                token TEXT NOT NULL DEFAULT 'USDC',
+                bet_amount REAL NOT NULL DEFAULT 10.0,
+                status TEXT NOT NULL DEFAULT 'idle',
+                error_message TEXT,
+                auto_create_room INTEGER DEFAULT 1,
+                auto_join_room INTEGER DEFAULT 1,
+                create_interval INTEGER DEFAULT 60,
+                scan_interval INTEGER DEFAULT 10,
+                commit_delay INTEGER DEFAULT 3,
+                reveal_delay INTEGER DEFAULT 2,
+                max_concurrent_rooms INTEGER DEFAULT 3,
+                wallet_balance_threshold REAL DEFAULT 1.0,
+                total_rooms_created INTEGER DEFAULT 0,
+                total_rooms_joined INTEGER DEFAULT 0,
+                total_games_played INTEGER DEFAULT 0,
+                total_wins INTEGER DEFAULT 0,
+                total_losses INTEGER DEFAULT 0,
+                total_draws INTEGER DEFAULT 0,
+                total_bet_amount REAL DEFAULT 0.0,
+                avg_commit_delay REAL DEFAULT 0.0,
+                avg_reveal_delay REAL DEFAULT 0.0,
+                created_at TEXT,
+                started_at TEXT,
+                updated_at TEXT
+            )
+        """)
+
+        # Bot 运行日志表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id TEXT NOT NULL,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                details TEXT,
+                created_at TEXT
+            )
+        """)
+
+        # Bot 当前活跃房间表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_active_rooms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                game_id INTEGER,
+                status TEXT NOT NULL,
+                opponent TEXT,
+                bet_amount REAL,
+                joined_at TEXT
+            )
+        """)
+
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_instances_status ON bot_instances(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_logs_bot_id ON bot_logs(bot_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_logs_level ON bot_logs(level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_active_rooms_bot ON bot_active_rooms(bot_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_active_rooms_status ON bot_active_rooms(status)")
+
         # 创建管理员账户表（用于登录认证）
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS admins (
@@ -187,6 +290,46 @@ def init_database():
         _init_default_config(cursor)
 
         conn.commit()
+
+        # 迁移：旧版本 bot_active_rooms 表的 room_id 列是 INTEGER，需要迁移为 TEXT
+        # SQLite 不支持 ALTER COLUMN，使用重建表方式
+        try:
+            cursor.execute("PRAGMA table_info(bot_active_rooms)")
+            columns = {row["name"]: dict(row) for row in cursor.fetchall()}
+            if "room_id" in columns and columns["room_id"].get("type", "").upper() == "INTEGER":
+                print("🔧 迁移 bot_active_rooms 表：room_id 列从 INTEGER 改为 TEXT")
+                cursor.execute("ALTER TABLE bot_active_rooms RENAME TO bot_active_rooms_old")
+                cursor.execute("""
+                    CREATE TABLE bot_active_rooms (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        bot_id TEXT NOT NULL,
+                        room_id TEXT NOT NULL,
+                        game_id INTEGER,
+                        status TEXT NOT NULL,
+                        opponent TEXT,
+                        bet_amount REAL,
+                        joined_at TEXT
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO bot_active_rooms (id, bot_id, room_id, game_id, status, opponent, bet_amount, joined_at)
+                    SELECT id, bot_id, CAST(room_id AS TEXT), game_id, status, opponent, bet_amount, joined_at
+                    FROM bot_active_rooms_old
+                """)
+                cursor.execute("DROP TABLE bot_active_rooms_old")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_active_rooms_bot ON bot_active_rooms(bot_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_bot_active_rooms_status ON bot_active_rooms(status)")
+                conn.commit()
+                print("✅ bot_active_rooms 表迁移完成")
+        except Exception as e:
+            print(f"⚠️ bot_active_rooms 表迁移失败: {e}")
+            # 尝试回滚
+            try:
+                cursor.execute("DROP TABLE IF EXISTS bot_active_rooms")
+                cursor.execute("ALTER TABLE bot_active_rooms_old RENAME TO bot_active_rooms")
+                conn.commit()
+            except Exception:
+                pass
     finally:
         conn.close()
 
@@ -510,37 +653,6 @@ def get_player_stats(address: str) -> Optional[dict]:
 
 
 # ==================== 默认配置初始化 ====================
-
-# 初始化默认配置 默认系统配置
-# 系统配置默认值（唯一来源，初始化和重置都使用此表）
-# 格式: { config_key: (default_value, category, description)
-SYSTEM_CONFIG_DEFAULTS = {
-    # 合约配置
-    "fee_rate": ("200", "contract", "手续费率（基点，100=1%）"),
-    # 游戏配置
-    "commit_timeout": ("66", "game", "提交哈希超时时间（秒）"),
-    "reveal_timeout": ("88", "game", "揭晓出拳超时时间（秒）"),
-    "room_max_lifetime": ("3600", "game", "房间最大存在时间（秒），超时自动关闭（1小时=3600）"),
-    "supported_tokens": ("USDC,POL", "game", "支持的代币列表（逗号分隔）"),
-    "max_bet_amount": ("10000", "game", "最大下注金额"),
-    "min_bet_amount": ("0.1", "game", "最小下注金额"),
-    # 主链配置
-    "chain_id": ("5208888", "chain", "目标区块链网络 Chain ID"),
-    "recommended_chain_name": ("ChainRPS Local", "chain", "推荐主链名称（统一标识名）"),
-    "network_name": ("ChainRPS Local", "chain", "网络显示名称"),
-    "rpc_url": (f"http://127.0.0.1:8686", "chain", "RPC 节点 URL"),
-    "block_explorer": ("", "chain", "区块浏览器 URL（可选）"),
-    "contract_address": ("", "chain", "ChainRPS 游戏合约地址"),
-    "native_symbol": ("POL", "chain", "网络原生代币符号"),
-    "native_name": ("Polygon", "chain", "网络原生代币名称"),
-    "native_decimals": ("18", "chain", "原生代币精度"),
-    # 系统配置
-    "maintenance_mode": ("0", "system", "维护模式开关（0=关闭, 1=开启）"),
-    "official_website": ("https://chainrps.io", "system", "官方网站"),
-    "official_twitter": ("@ChainRPS", "system", "官方 Twitter"),
-    "official_discord": ("discord.gg/chainrps", "system", "官方 Discord"),
-}
-
 
 def _init_default_config(cursor):
     now = datetime.utcnow().isoformat()
@@ -921,5 +1033,302 @@ def upsert_player_from_chain(address: str):
             )
 
         conn.commit()
+    finally:
+        conn.close()
+
+
+# ==================== Bot 实例操作 ====================
+
+def create_bot_instance(bot_data: dict) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        bot_data["created_at"] = now
+        bot_data["updated_at"] = now
+
+        columns = [
+            "bot_id", "name", "strategy", "wallet_index", "wallet_address",
+            "token", "bet_amount", "status", "error_message",
+            "auto_create_room", "auto_join_room", "create_interval",
+            "scan_interval", "commit_delay", "reveal_delay",
+            "max_concurrent_rooms", "wallet_balance_threshold",
+            "created_at", "updated_at"
+        ]
+        values = [
+            bot_data.get("bot_id"), bot_data.get("name"),
+            bot_data.get("strategy", "random"), bot_data.get("wallet_index"),
+            bot_data.get("wallet_address"), bot_data.get("token", "USDC"),
+            bot_data.get("bet_amount", 10.0), bot_data.get("status", "idle"),
+            bot_data.get("error_message"),
+            bot_data.get("auto_create_room", 1), bot_data.get("auto_join_room", 1),
+            bot_data.get("create_interval", 60), bot_data.get("scan_interval", 10),
+            bot_data.get("commit_delay", 3), bot_data.get("reveal_delay", 2),
+            bot_data.get("max_concurrent_rooms", 3),
+            bot_data.get("wallet_balance_threshold", 1.0),
+            bot_data.get("created_at"), bot_data.get("updated_at")
+        ]
+        placeholders = ", ".join(["?" for _ in values])
+        cursor.execute(
+            f"INSERT INTO bot_instances ({', '.join(columns)}) VALUES ({placeholders})",
+            values
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_bot_instance(bot_id: str) -> Optional[dict]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM bot_instances WHERE bot_id = ?", [bot_id])
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_bot_instances(status: str = None, limit: int = None) -> List[dict]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        query = "SELECT * FROM bot_instances WHERE 1=1"
+        params = []
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        query += " ORDER BY id DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def update_bot_instance(bot_id: str, updates: dict) -> bool:
+    if not updates:
+        return False
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        values = list(updates.values()) + [bot_id]
+        cursor.execute(
+            f"UPDATE bot_instances SET {set_clause} WHERE bot_id = ?",
+            values
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def delete_bot_instance(bot_id: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM bot_instances WHERE bot_id = ?", [bot_id])
+        cursor.execute("DELETE FROM bot_logs WHERE bot_id = ?", [bot_id])
+        cursor.execute("DELETE FROM bot_active_rooms WHERE bot_id = ?", [bot_id])
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_next_bot_id() -> str:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT bot_id FROM bot_instances ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        if row and row["bot_id"]:
+            last_num = int(row["bot_id"].replace("bot_", ""))
+            return f"bot_{last_num + 1:03d}"
+        return "bot_001"
+    finally:
+        conn.close()
+
+
+def get_used_wallet_indices() -> List[int]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT wallet_index FROM bot_instances")
+        rows = cursor.fetchall()
+        return [row["wallet_index"] for row in rows]
+    finally:
+        conn.close()
+
+
+def increment_bot_stats(bot_id: str, field: str, value: float = 1) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"UPDATE bot_instances SET {field} = COALESCE({field}, 0) + ? WHERE bot_id = ?",
+            [value, bot_id]
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+# ==================== Bot 日志操作 ====================
+
+def add_bot_log(bot_id: str, level: str, message: str, details: str = None) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cursor.execute(
+            "INSERT INTO bot_logs (bot_id, level, message, details, created_at) VALUES (?, ?, ?, ?, ?)",
+            [bot_id, level, message, details, now]
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_bot_logs(bot_id: str = None, level: str = None, limit: int = 200) -> List[dict]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        query = "SELECT * FROM bot_logs WHERE 1=1"
+        params = []
+        if bot_id:
+            query += " AND bot_id = ?"
+            params.append(bot_id)
+        if level:
+            query += " AND level = ?"
+            params.append(level)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def clear_bot_logs(bot_id: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM bot_logs WHERE bot_id = ?", [bot_id])
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+# ==================== Bot 活跃房间操作 ====================
+
+def add_bot_active_room(bot_id: str, room_id: str, status: str,
+                        game_id: int = None, opponent: str = None,
+                        bet_amount: float = None) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        cursor.execute(
+            """INSERT INTO bot_active_rooms
+               (bot_id, room_id, game_id, status, opponent, bet_amount, joined_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [bot_id, room_id, game_id, status, opponent, bet_amount, now]
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def update_bot_active_room(bot_id: str, room_id: str, updates: dict) -> bool:
+    if not updates:
+        return False
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        values = list(updates.values()) + [bot_id, room_id]
+        cursor.execute(
+            f"UPDATE bot_active_rooms SET {set_clause} WHERE bot_id = ? AND room_id = ?",
+            values
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def remove_bot_active_room(bot_id: str, room_id: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM bot_active_rooms WHERE bot_id = ? AND room_id = ?",
+            [bot_id, room_id]
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_bot_active_rooms(bot_id: str) -> List[dict]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM bot_active_rooms WHERE bot_id = ? ORDER BY joined_at DESC",
+            [bot_id]
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_cluster_stats() -> dict:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as total FROM bot_instances")
+        total = cursor.fetchone()["total"]
+
+        cursor.execute("SELECT status, COUNT(*) as cnt FROM bot_instances GROUP BY status")
+        status_counts = {row["status"]: row["cnt"] for row in cursor.fetchall()}
+
+        cursor.execute(
+            "SELECT COALESCE(SUM(total_rooms_created), 0) as rooms_created, "
+            "COALESCE(SUM(total_games_played), 0) as games_played, "
+            "COALESCE(SUM(total_wins), 0) as wins, "
+            "COALESCE(SUM(total_losses), 0) as losses, "
+            "COALESCE(SUM(total_draws), 0) as draws, "
+            "COALESCE(SUM(total_bet_amount), 0) as total_bet "
+            "FROM bot_instances"
+        )
+        row = cursor.fetchone()
+        return {
+            "total_bots": total,
+            "running_bots": status_counts.get("running", 0),
+            "paused_bots": status_counts.get("paused", 0),
+            "error_bots": status_counts.get("error", 0),
+            "idle_bots": status_counts.get("idle", 0),
+            "total_rooms_created": row["rooms_created"],
+            "total_games_played": row["games_played"],
+            "total_wins": row["wins"],
+            "total_losses": row["losses"],
+            "total_draws": row["draws"],
+            "total_bet_amount": row["total_bet"],
+        }
     finally:
         conn.close()

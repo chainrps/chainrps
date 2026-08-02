@@ -1521,6 +1521,74 @@ class LocalChainService:
         }
         return {"success": True, "message": f"代币 {symbol} 已添加"}
 
+    # 注册代币到 RPS 合约（使用合约 owner 权限）
+    def register_token_on_contract(self, token_address: str, contract_address: str,
+                                    from_index: int = 0) -> Dict[str, Any]:
+        """
+        调用 RPS 合约的 setTokenSupport 注册代币。
+        使用 Ganache account[0]（合约部署者/owner）的权限。
+        """
+        if not self.is_running() or not self._w3:
+            return {"success": False, "message": "本地链未运行"}
+
+        if not self._accounts or from_index >= len(self._accounts):
+            return {"success": False, "message": f"账户索引 {from_index} 无效"}
+
+        try:
+            from web3 import Web3
+            import json
+
+            # 加载 RPS 合约 ABI
+            abi_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "contracts", "abi", "ChainRPS.json"
+            )
+            if not os.path.exists(abi_path):
+                return {"success": False, "message": f"ABI 文件不存在: {abi_path}"}
+
+            with open(abi_path, "r", encoding="utf-8") as f:
+                abi = json.load(f)
+
+            rps_contract = self._w3.eth.contract(
+                address=Web3.to_checksum_address(contract_address),
+                abi=abi,
+            )
+
+            # 检查是否已支持
+            supported = rps_contract.functions.supportedTokens(
+                Web3.to_checksum_address(token_address)
+            ).call()
+            if supported:
+                return {"success": True, "message": "代币已在合约中注册", "already_registered": True}
+
+            # 调用 setTokenSupport
+            from_address = self._accounts[from_index]
+            tx_params = {
+                "from": from_address,
+                "gas": 100000,
+                "gasPrice": self._w3.to_wei(20, 'gwei'),
+            }
+            tx = rps_contract.functions.setTokenSupport(
+                Web3.to_checksum_address(token_address), True
+            ).build_transaction(tx_params)
+
+            # 使用 Ganache 账户签名
+            if from_index < len(self._private_keys) and self._private_keys[from_index]:
+                private_key = self._private_keys[from_index]
+                account = self._w3.eth.account.from_key(private_key)
+                signed = account.sign_transaction(tx)
+                tx_hash = self._w3.eth.send_raw_transaction(signed.raw_transaction)
+            else:
+                tx_hash = self._w3.eth.send_transaction(tx)
+
+            receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
+            if receipt.get("status") == 1:
+                return {"success": True, "message": "代币已注册到合约", "tx_hash": tx_hash.hex()}
+            else:
+                return {"success": False, "message": f"setTokenSupport 交易失败 status={receipt.get('status')}"}
+        except Exception as e:
+            return {"success": False, "message": f"注册代币异常: {e}"}
+
     # 设置保活开关
     def set_keep_alive(self, enabled: bool, **start_kwargs) -> Dict[str, Any]:
         """

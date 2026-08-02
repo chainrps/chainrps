@@ -12,14 +12,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from contextlib import asynccontextmanager
 
-from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL, RPC_CHAIN_ID
+from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL, RPC_CHAIN_ID, BOT_ENABLED
 from rps_backend.api.routes import router
 from rps_backend.websocket import ws_manager, websocket_endpoint, heartbeat_loop
 from rps_backend.websocket.heartbeat import check_connections
 from rps_backend.websocket.signaling_endpoint import signaling_endpoint
 from rps_backend.repository import init_database
 from rps_backend.utils.redis_client import redis_client
-from rps_backend.service import contract_service
+from rps_backend.service import contract_service, bot_service
+from rps_backend.service.bot_manager import bot_manager
 from rps_backend.service.local_chain_service import get_local_chain_service
 
 
@@ -82,6 +83,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  本地链服务初始化失败: {e}")
 
+    # 初始化并启动 Bot 服务（仅限测试链）
+    if BOT_ENABLED and RPC_CHAIN_ID == 5208888:
+        try:
+            print("🤖 初始化 Bot 集群管理服务...")
+            # 初始化 BotManager（从数据库恢复实例）
+            await bot_manager.initialize()
+            # 同时初始化向后兼容的 bot_service 单实例
+            bot_initialized = await bot_service.initialize()
+            if bot_initialized:
+                # 确保 Bot 钱包已充值
+                await bot_service.ensure_wallet_funded()
+                # 自动启动默认 Bot
+                await bot_service.start()
+                status = bot_service.get_status()
+                print(f"✅ Bot 服务已启动: 钱包={status.get('wallet_address')}")
+
+            cluster_status = bot_manager.get_cluster_status()
+            running = cluster_status.get("running_instances", 0)
+            total = cluster_status.get("total_instances", 0)
+            print(f"✅ Bot 集群: {running}/{total} 实例运行中")
+        except Exception as e:
+            print(f"⚠️  Bot 启动异常（不影响主服务）: {e}")
+
     print(f"🚀 ChainRPS 后端服务启动")
     print(f"📡 API: http://{HOST}:{PORT}")
     print(f"📡 API 文档: http://{HOST}:{PORT}/docs")
@@ -94,6 +118,21 @@ async def lifespan(app: FastAPI):
     cleanup_task.cancel()
     contract_task.cancel()
     await contract_service.stop_listening()
+
+    # 停止 Bot 服务
+    try:
+        if bot_service._is_running:
+            await bot_service.stop()
+            print("🛑 Bot 服务已停止")
+    except Exception:
+        pass
+
+    # 关闭 BotManager（停止所有实例）
+    try:
+        await bot_manager.shutdown()
+        print("🛑 Bot 集群已关闭")
+    except Exception:
+        pass
     
     # 停止本地链保活
     try:

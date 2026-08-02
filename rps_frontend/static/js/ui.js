@@ -155,6 +155,7 @@ const UI = (function() {
             elements.connectWalletBtn.classList.add('hidden');
             elements.walletInfo.classList.remove('hidden');
             elements.walletAddress.textContent = formatAddress(address);
+            elements.walletAddress.title = '点击复制 - ' + address;
             if (balance !== undefined) {
                 const symbol = token || (typeof CONFIG !== 'undefined' ? CONFIG.getNativeSymbol() : 'POL');
                 elements.walletBalance.textContent = `${parseFloat(balance).toFixed(4)} ${symbol}`;
@@ -165,6 +166,7 @@ const UI = (function() {
         } else {
             elements.connectWalletBtn.classList.remove('hidden');
             elements.walletInfo.classList.add('hidden');
+            elements.walletAddress.title = '复制';
         }
     }
 
@@ -747,6 +749,26 @@ const UI = (function() {
         }
 
         updateRoomReady(room.creator_ready, room.player2_ready);
+
+        // 同步空位模式 UI
+        const seatMode = room.seat_mode || 'open';
+        const btnOpen = document.getElementById('seatModeOpen');
+        const btnAI = document.getElementById('seatModeAI');
+        if (btnOpen && btnAI) {
+            if (seatMode === 'ai') {
+                btnAI.classList.add('active');
+                btnOpen.classList.remove('active');
+            } else {
+                btnOpen.classList.add('active');
+                btnAI.classList.remove('active');
+            }
+        }
+
+        // 空位模式切换仅对创建者显示
+        const seatToggle = document.getElementById('seatModeToggle');
+        if (seatToggle) {
+            seatToggle.style.display = isCreator && !room.player2 ? 'flex' : 'none';
+        }
     }
 
     // 更新房间准备状态

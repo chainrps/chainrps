@@ -640,6 +640,9 @@ const App = (function () {
 
         document.getElementById('readyBtn').addEventListener('click', toggleReady);
 
+        document.getElementById('seatModeOpen').addEventListener('click', () => setSeatMode('open'));
+        document.getElementById('seatModeAI').addEventListener('click', () => setSeatMode('ai'));
+
         document.getElementById('leaveRoomBtn').addEventListener('click', async () => {
             if (!currentRoomId) {
                 UI.showStage('stageLobby');
@@ -1416,6 +1419,8 @@ const App = (function () {
                         currentToken = CONFIG.getDefaultToken();
                         UI.showTokenSelect(currentToken);
                     }
+                    // 更新下拉面板中的代币信息
+                    updateDropdownTokenInfo();
                 }
             } catch (e) {
                 console.warn('获取主链配置失败，使用本地配置:', e);
@@ -1748,14 +1753,24 @@ const App = (function () {
             let selectedToken = currentToken || 'USDC';
             let selectedAmount = currentAmount || 1;
 
+            // 获取代币地址信息
+            const tokenAddresses = CONFIG.getTokenAddresses();
+            const getTokenAddressInfo = (symbol) => {
+                const addr = tokenAddresses[symbol] || '';
+                const decimals = symbol === CONFIG.getNativeSymbol() ? 18 : 6;
+                const isNative = CONFIG.isNativeToken(addr);
+                return { address: addr, decimals, isNative };
+            };
+
             const modal = FWUI.Modal.create({
                 title: '➕ 创建房间',
                 closable: true,
                 maskClosable: true,
                 content: () => {
                     const tokenOptions = CONFIG.getGameTokenOptions();
+                    const initialInfo = getTokenAddressInfo(selectedToken);
                     return `
-                        <div style="margin-bottom: 20px;">
+                        <div style="margin-bottom: 16px;">
                             <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">选择代币</div>
                             <div style="display: flex; gap: 8px;">
                                 ${tokenOptions.map(t => `
@@ -1774,7 +1789,32 @@ const App = (function () {
                                 `).join('')}
                             </div>
                         </div>
-                        <div style="margin-bottom: 20px;">
+                        <div id="dialogTokenInfo" style="
+                            margin-bottom: 16px;
+                            padding: 10px 12px;
+                            background: #f8fafc;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 10px;
+                            font-size: 12px;
+                            line-height: 1.8;
+                        ">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                <span style="font-weight: 600; color: #0f172a;">代币信息</span>
+                                <button id="dialogAddToWallet" style="
+                                    padding: 3px 10px;
+                                    font-size: 11px;
+                                    background: #6366f1;
+                                    color: #fff;
+                                    border: none;
+                                    border-radius: 6px;
+                                    cursor: pointer;
+                                ">+ 添加到钱包</button>
+                            </div>
+                            <div>符号: <b>${selectedToken}</b></div>
+                            <div>合约地址: <code id="dialogTokenAddress" style="font-size: 11px; color: #6366f1; cursor: pointer;" title="点击复制">${initialInfo.isNative ? '原生币 (零地址)' : initialInfo.address}</code></div>
+                            <div>Decimals: ${initialInfo.decimals}</div>
+                        </div>
+                        <div style="margin-bottom: 16px;">
                             <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">下注金额</div>
                             <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
                                 ${presetAmounts.map(a => `
@@ -1797,7 +1837,7 @@ const App = (function () {
                                 border-radius: 10px;
                                 font-size: 14px;
                                 color: #0f172a;
-                                background: #f8fafc;
+                                background: #fff;
                                 box-sizing: border-box;
                                 outline: none;
                             " />
@@ -1828,6 +1868,85 @@ const App = (function () {
                 `
             });
 
+            // 更新代币信息显示
+            const updateTokenInfo = () => {
+                const info = getTokenAddressInfo(selectedToken);
+                const addrEl = modal.element.querySelector('#dialogTokenAddress');
+                if (addrEl) {
+                    addrEl.textContent = info.isNative ? '原生币 (零地址)' : info.address;
+                    addrEl.onclick = () => {
+                        if (!info.isNative) {
+                            navigator.clipboard.writeText(info.address).then(() => {
+                                FWUI.Toast.success('已复制合约地址');
+                            }).catch(() => {
+                                FWUI.Toast.info('地址: ' + info.address);
+                            });
+                        }
+                    };
+                }
+            };
+
+            // 添加到钱包按钮
+            const addToWalletBtn = modal.element.querySelector('#dialogAddToWallet');
+            if (addToWalletBtn) {
+                addToWalletBtn.addEventListener('click', async () => {
+                    if (!window.ethereum) {
+                        FWUI.Toast.warning('未检测到钱包插件');
+                        return;
+                    }
+                    const info = getTokenAddressInfo(selectedToken);
+                    if (info.isNative) {
+                        // 原生币：只需切换网络
+                        FWUI.Modal.confirm({
+                            title: '添加原生币到钱包',
+                            content: `<p><b>${selectedToken}</b> 是链的原生代币，只需添加/切换网络即可自动显示。</p>
+                                <p style="margin-top:8px;color:#64748b;font-size:12px;">Network: ${CONFIG.getCurrentNetwork().name} | RPC: ${CONFIG.getRpcUrl()}</p>`,
+                            okText: '切换网络',
+                            onOk: async () => {
+                                try {
+                                    const chainId = CONFIG.getChainId();
+                                    const hexChainId = '0x' + chainId.toString(16);
+                                    await window.ethereum.request({
+                                        method: 'wallet_switchEthereumChain',
+                                        params: [{chainId: hexChainId}],
+                                    });
+                                    FWUI.Toast.success('已切换网络');
+                                } catch (e) {
+                                    FWUI.Toast.warning('请在钱包中手动添加网络');
+                                }
+                            }
+                        });
+                    } else {
+                        // ERC20 代币：使用 wallet_watchAsset
+                        try {
+                            await window.ethereum.request({
+                                method: 'wallet_watchAsset',
+                                params: [{
+                                    type: 'ERC20',
+                                    options: {
+                                        address: info.address,
+                                        symbol: selectedToken,
+                                        decimals: info.decimals,
+                                    },
+                                }]
+                            });
+                            FWUI.Toast.success(`${selectedToken} 已添加到钱包`);
+                        } catch (e) {
+                            FWUI.Modal.alert({
+                                title: '手动添加代币',
+                                content: `<p>请在钱包中手动添加：</p>
+                                    <div style="background:#f8fafc;padding:10px;border-radius:6px;font-family:monospace;font-size:12px;margin-top:8px;">
+                                        <div>Symbol: ${selectedToken}</div>
+                                        <div>Address: ${info.address}</div>
+                                        <div>Decimals: ${info.decimals}</div>
+                                    </div>
+                                    <p style="margin-top:8px;color:#64748b;font-size:11px;">路径：钱包 → 资产 → 添加自定义代币</p>`
+                            });
+                        }
+                    }
+                });
+            }
+
             // 代币选择
             modal.element.querySelectorAll('.dialog-token-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -1838,6 +1957,7 @@ const App = (function () {
                         b.style.background = isActive ? '#6366f1' : '#fff';
                         b.style.color = isActive ? '#fff' : '#0f172a';
                     });
+                    updateTokenInfo();
                 });
             });
 
@@ -2312,6 +2432,54 @@ const App = (function () {
             }
         } catch (e) {
             FWUI.Toast.error(e.message || '获取房间信息失败');
+        }
+    }
+
+    // 设置房间空位模式（open/ai）
+    async function setSeatMode(mode) {
+        if (!currentRoomId) return;
+        const myAddress = Wallet.getAddress();
+        if (!myAddress) {
+            FWUI.Toast.warning('请先连接钱包');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${CONFIG.backendUrl}/api/game/room/seat-mode`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    room_id: currentRoomId,
+                    creator_address: myAddress,
+                    seat_mode: mode,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                updateSeatModeUI(mode);
+                FWUI.Toast.success(data.message || `已切换为${mode === 'ai' ? 'AI邀请' : '对玩家开放'}`);
+            } else {
+                FWUI.Toast.error(data.message || '设置失败');
+            }
+        } catch (err) {
+            console.error('设置空位模式失败:', err);
+            FWUI.Toast.error('网络错误，请重试');
+        }
+    }
+
+    function updateSeatModeUI(mode) {
+        const btnOpen = document.getElementById('seatModeOpen');
+        const btnAI = document.getElementById('seatModeAI');
+        if (!btnOpen || !btnAI) return;
+
+        if (mode === 'ai') {
+            btnAI.classList.add('active');
+            btnOpen.classList.remove('active');
+        } else {
+            btnOpen.classList.add('active');
+            btnAI.classList.remove('active');
         }
     }
 
@@ -3185,21 +3353,21 @@ const App = (function () {
         } catch (e) {
             console.error('创建链上对局失败:', e);
             const msg = e && e.message ? e.message : String(e);
-            // 用户主动取消：不展示"失败"字样
+            const suggestion = e && e.suggestion ? e.suggestion : null;
             if (e && e.userCancelled) {
                 FWUI.Toast.info(msg || '您已取消创建对局');
                 UI.setGameStatus('创建已取消，点击"重试创建对局"可继续');
             } else {
                 FWUI.Toast.error(msg || '创建链上对局失败');
-                UI.setGameStatus('创建失败，可点击下方按钮重试');
+                const statusText = suggestion
+                    ? `创建失败：${msg}。💡 ${suggestion}`
+                    : `创建失败，可点击下方按钮重试`;
+                UI.setGameStatus(statusText);
             }
-            // 不要切回 stageRoomWait：房间已处于 GAME_STARTED 状态无法离开，切回反而让用户困惑
-            // 保留在 stageGame 中显示当前状态与重试能力
             UI.showStage('stageGame');
             UI.setGameId('创建中...');
             UI.setMyStatus('创建对局');
             UI.setOpponentStatus('等待加入');
-            // 显示重试创建对局 + 退出房间按钮
             UI.showRetrySection('create');
         }
     }
@@ -3281,19 +3449,21 @@ const App = (function () {
         } catch (e) {
             console.error('加入链上对局失败:', e);
             const msg = e && e.message ? e.message : String(e);
+            const suggestion = e && e.suggestion ? e.suggestion : null;
             if (e && e.userCancelled) {
                 FWUI.Toast.info(msg || '您已取消加入对局');
                 UI.setGameStatus('加入已取消，点击"重试加入对局"可继续');
             } else {
                 FWUI.Toast.error(msg || '加入链上对局失败');
-                UI.setGameStatus('加入失败，可点击下方按钮重试');
+                const statusText = suggestion
+                    ? `加入失败：${msg}。💡 ${suggestion}`
+                    : `加入失败，可点击下方按钮重试`;
+                UI.setGameStatus(statusText);
             }
-            // 保留在 stageGame：避免切回 stageRoomWait 让用户误以为已经退出对局
             UI.showStage('stageGame');
             UI.setGameId(currentGameId);
             UI.setMyStatus('加入中');
             UI.setOpponentStatus('已就绪');
-            // 显示重试加入对局 + 退出房间按钮
             UI.showRetrySection('join');
         }
     }
@@ -3494,7 +3664,12 @@ const App = (function () {
                 requestMatchFromBackend();
             }
         } catch (e) {
-            FWUI.Toast.error(e.message || '操作失败');
+            const msg = e.message || '操作失败';
+            const suggestion = e.suggestion || null;
+            FWUI.Toast.error(msg);
+            if (suggestion) {
+                FWUI.Toast.info('💡 ' + suggestion);
+            }
             UI.showStage('stageLobby');
         }
     }
@@ -3612,7 +3787,12 @@ const App = (function () {
             pollGameUntilJoined();
 
         } catch (e) {
-            FWUI.Toast.error(e.message || '创建失败');
+            const msg = e.message || '创建失败';
+            const suggestion = e.suggestion || null;
+            FWUI.Toast.error(msg);
+            if (suggestion) {
+                FWUI.Toast.info('💡 ' + suggestion);
+            }
             UI.setStartButtonText('创建/加入私密对局', false);
         }
     }
@@ -3645,7 +3825,12 @@ const App = (function () {
             FWUI.Toast.success('加入对局成功！');
 
         } catch (e) {
-            FWUI.Toast.error(e.message || '加入失败');
+            const msg = e.message || '加入失败';
+            const suggestion = e.suggestion || null;
+            FWUI.Toast.error(msg);
+            if (suggestion) {
+                FWUI.Toast.info('💡 ' + suggestion);
+            }
             UI.setStartButtonText('创建/加入私密对局', false);
         }
     }
@@ -4284,6 +4469,119 @@ const App = (function () {
         });
     }
 
+    // 复制代币地址
+    function copyTokenAddress(el, isNative) {
+        if (isNative) {
+            FWUI.Toast.info('原生币无需合约地址');
+            return;
+        }
+        const text = el.textContent.trim();
+        if (!text || text === '-') {
+            FWUI.Toast.warning('暂无代币地址');
+            return;
+        }
+        copyToClipboard(text);
+        FWUI.Toast.success('已复制到剪贴板');
+    }
+
+    // 添加原生币到钱包（只需切换网络）
+    async function addNativeToWallet() {
+        if (!window.ethereum) {
+            FWUI.Toast.warning('未检测到钱包插件');
+            return;
+        }
+        const chainId = CONFIG.getChainId();
+        const rpcUrl = CONFIG.getRpcUrl();
+        const symbol = CONFIG.getNativeSymbol();
+        const hexChainId = '0x' + chainId.toString(16);
+
+        try {
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{chainId: hexChainId}],
+            });
+            FWUI.Toast.success(`已切换到 ${symbol} 网络`);
+        } catch (e) {
+            if (e.code === 4902) {
+                FWUI.Modal.confirm({
+                    title: '添加网络到钱包',
+                    content: `<p>钱包需要手动添加网络：</p>
+                        <div style="background:var(--bg-secondary);padding:10px;border-radius:6px;font-family:monospace;font-size:12px;margin:8px 0;">
+                            <div>RPC: ${rpcUrl}</div>
+                            <div>Chain ID: ${chainId} (${hexChainId})</div>
+                            <div>Symbol: ${symbol}</div>
+                        </div>
+                        <p style="color:var(--text-tertiary);font-size:11px;">路径：钱包 → 网络 → 添加自定义网络</p>`,
+                    okText: '复制RPC',
+                    onOk: () => copyToClipboard(rpcUrl)
+                });
+            } else {
+                FWUI.Toast.error('切换网络失败: ' + e.message);
+            }
+        }
+    }
+
+    // 添加 USDC 代币到钱包
+    async function addUsdcToWallet() {
+        if (!window.ethereum) {
+            FWUI.Toast.warning('未检测到钱包插件');
+            return;
+        }
+        const usdcAddr = CONFIG.getSettlementTokenAddress();
+        if (!usdcAddr) {
+            FWUI.Toast.warning('USDC 合约未部署');
+            return;
+        }
+
+        try {
+            await window.ethereum.request({
+                method: 'wallet_watchAsset',
+                params: [{
+                    type: 'ERC20',
+                    options: {
+                        address: usdcAddr,
+                        symbol: 'USDC',
+                        decimals: 6,
+                    },
+                }]
+            });
+            FWUI.Toast.success('USDC 已添加到钱包');
+        } catch (e) {
+            FWUI.Modal.confirm({
+                title: '手动添加 USDC',
+                content: `<p>请在钱包中手动添加 USDC：</p>
+                    <div style="background:var(--bg-secondary);padding:10px;border-radius:6px;font-family:monospace;font-size:12px;margin:8px 0;">
+                        <div>Symbol: USDC</div>
+                        <div>Address: <span style="cursor:pointer;color:var(--primary-color);" onclick="App.copyTokenAddress(this)">${usdcAddr}</span></div>
+                        <div>Decimals: 6</div>
+                    </div>
+                    <p style="color:var(--text-tertiary);font-size:11px;">路径：钱包 → 资产 → 添加自定义代币</p>`,
+                okText: '复制地址',
+                onOk: () => copyToClipboard(usdcAddr)
+            });
+        }
+    }
+
+    // 更新下拉面板中的代币信息
+    function updateDropdownTokenInfo() {
+        const nativeSym = CONFIG.getNativeSymbol();
+        const rpcUrlEl = document.getElementById('dropdownRpcUrl');
+        const chainIdEl = document.getElementById('dropdownChainId');
+        const nativeAddrEl = document.getElementById('dropdownNativeAddr');
+        const usdcAddrEl = document.getElementById('dropdownUsdcAddr');
+        const nativeLabel = document.getElementById('walletNativeSymbolLabel');
+
+        if (rpcUrlEl) rpcUrlEl.textContent = CONFIG.getRpcUrl();
+        if (chainIdEl) chainIdEl.textContent = CONFIG.getChainId();
+        if (nativeAddrEl) nativeAddrEl.textContent = '0x0000...0000';
+        if (nativeLabel) nativeLabel.textContent = nativeSym;
+
+        const usdcAddr = CONFIG.getSettlementTokenAddress();
+        if (usdcAddrEl) {
+            usdcAddrEl.textContent = usdcAddr ? usdcAddr : '未部署';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', init);
 
     return {
@@ -4291,6 +4589,11 @@ const App = (function () {
         // 获取当前模式
         getCurrentMode: () => currentMode,
         // 获取当前对局ID
-        getCurrentGameId: () => currentGameId
+        getCurrentGameId: () => currentGameId,
+        // 代币管理
+        copyTokenAddress,
+        addNativeToWallet,
+        addUsdcToWallet,
+        updateDropdownTokenInfo
     };
 })();

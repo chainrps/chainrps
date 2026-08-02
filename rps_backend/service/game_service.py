@@ -371,6 +371,13 @@ class GameManager:
         # 清理对局缓存
         redis_client.delete_cached_game_state(game_id)
 
+        # 通知 Bot：游戏结算完成
+        self._notify_bot_game_result(game_id, {
+            "winner": winner,
+            "is_draw": is_draw,
+            "fee": fee,
+        })
+
         # 同步：关联房间标记为已完成，停止所有计时器
         try:
             room_info = room_manager.get_player_room(player1 or "")
@@ -394,6 +401,24 @@ class GameManager:
             pass
 
         return {"success": True, "game_id": game_id}
+
+    # ==================== Bot 通知辅助方法 ====================
+
+    def _notify_bot_game_result(self, game_id: int, result: dict) -> None:
+        """通知 Bot：游戏结算完成"""
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running:
+                import asyncio
+                asyncio.create_task(bot_service.on_game_result_event(game_id, result))
+        except Exception:
+            pass
+        try:
+            from rps_backend.service.bot_manager import bot_manager
+            import asyncio
+            asyncio.create_task(bot_manager.dispatch_game_result(game_id, result))
+        except Exception:
+            pass
 
 
 # 全局游戏管理器实例

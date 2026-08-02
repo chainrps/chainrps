@@ -57,7 +57,7 @@
                             <span class="network-name" id="networkName">未知网络</span>
                         </div>
                         <div class="wallet-balance-large" id="walletBalance" title="点击查看所有代币余额" style="cursor: pointer;">-</div>
-                        <div class="wallet-address" id="walletAddress" title="点击复制完整地址">-</div>
+                        <div class="wallet-address" id="walletAddress" title="复制">-</div>
                     </div>
                     <button class="btn btn-ghost btn-disconnect" id="disconnectBtn" title="断开连接">
                         ✕
@@ -65,7 +65,7 @@
                 </div>
                 <!-- 多币种余额展开面板 -->
                 <div class="wallet-balances-dropdown hidden" id="walletBalancesDropdown">
-                    <div class="dropdown-header">代币余额</div>
+                    <div class="dropdown-header">代币余额 & 信息</div>
                     <div class="balance-item">
                         <span class="balance-symbol" id="walletNativeSymbolLabel">原生币</span>
                         <span class="balance-value" id="walletNativeBalance">-</span>
@@ -73,6 +73,27 @@
                     <div class="balance-item">
                         <span class="balance-symbol">USDC</span>
                         <span class="balance-value" id="walletUsdcBalance">-</span>
+                    </div>
+                    <div class="dropdown-token-info" id="dropdownTokenInfo">
+                        <div class="dropdown-token-row" id="dropdownNativeInfo">
+                            <span class="dropdown-token-label">原生币</span>
+                            <span class="dropdown-token-value" id="dropdownNativeAddr" title="点击复制" onclick="App.copyTokenAddress(this, true)">零地址</span>
+                            <button class="dropdown-add-btn" onclick="App.addNativeToWallet()">+ 添加</button>
+                        </div>
+                        <div class="dropdown-token-row" id="dropdownUsdcInfo">
+                            <span class="dropdown-token-label">USDC</span>
+                            <span class="dropdown-token-value" id="dropdownUsdcAddr" title="点击复制" onclick="App.copyTokenAddress(this, false)">-</span>
+                            <button class="dropdown-add-btn" onclick="App.addUsdcToWallet()">+ 添加</button>
+                        </div>
+                        <div class="dropdown-token-row">
+                            <span class="dropdown-token-label">RPC URL</span>
+                            <span class="dropdown-token-value" id="dropdownRpcUrl" style="font-size:10px;">-</span>
+                        </div>
+                        <div class="dropdown-token-row">
+                            <span class="dropdown-token-label">Chain ID</span>
+                            <span class="dropdown-token-value" id="dropdownChainId">-</span>
+                        </div>
+                        <div class="dropdown-token-hint">💡 添加代币后可在钱包中直接查看余额</div>
                     </div>
                 </div>
                 <!-- 网络切换下拉菜单 -->
@@ -214,6 +235,11 @@
                         </div>
 
                         <div class="room-actions">
+                            <div class="seat-mode-toggle" id="seatModeToggle">
+                                <span class="seat-mode-label">空位：</span>
+                                <button class="seat-mode-btn active" data-mode="open" id="seatModeOpen">对玩家开放</button>
+                                <button class="seat-mode-btn" data-mode="ai" id="seatModeAI">邀请 AI</button>
+                            </div>
                             <button class="btn btn-primary btn-large btn-block" id="readyBtn">
                                 <span id="readyBtnText">准备</span>
                             </button>
@@ -571,13 +597,13 @@
 <script src="../js/config.js?v=20260728a"></script>
 <script src="../js/wallet.js?v=20260728a"></script>
 <script src="../js/crypto.js?v=20260726d"></script>
-<script src="../js/contract.js?v=20260726d"></script>
+<script src="../js/contract.js?v=20260802a"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
 <script src="../js/p2p.js?v=20260729a"></script>
 <script src="../js/ui.js?v=20260728a"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20260726d"></script>
-<script src="../js/app.js?v=20260729b"></script>
+<script src="../js/app.js?v=20260802a"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

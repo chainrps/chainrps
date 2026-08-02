@@ -30,16 +30,20 @@ const Contract = (function() {
         } catch (e) {
             const msg = (e && e.message) ? e.message : String(e);
             const code = e && e.code != null ? e.code : null;
-            // 识别用户拒绝/取消（code 4001 是 EIP-1193 标准）
-            if (code === 4001 || /user rejected|user cancelled|用户拒绝|用户取消/i.test(msg)) {
-                const err = new Error(`您已在钱包中取消了「${actionDesc}」的签名请求`);
+
+            if (e && e.userCancelled) throw e;
+
+            const translated = _translateWalletError(e, actionDesc);
+
+            if (translated.userCancelled) {
+                const err = new Error(translated.message);
                 err.code = 4001;
                 err.userCancelled = true;
                 throw err;
             }
-            // 不吞其他错误，但补齐动作描述
-            if (msg.indexOf(actionDesc) === 0) throw e;
-            const err = new Error(`${actionDesc}失败：${msg}`);
+
+            const err = new Error(translated.message);
+            if (translated.suggestion) err.suggestion = translated.suggestion;
             if (code != null) err.code = code;
             if (e && e.data != null) err.data = e.data;
             throw err;
@@ -221,22 +225,149 @@ const Contract = (function() {
         return ethers.formatUnits(allowance, decimals);
     }
 
-    // 授权代币
+    // 将技术错误翻译为用户可理解的中文提示
+    function _translateWalletError(e, actionDesc) {
+        const msg = (e && e.message) ? e.message : String(e);
+        const code = e && e.code != null ? e.code : null;
+
+        if (code === 4001 || /user rejected|user cancelled|用户拒绝|用户取消/i.test(msg)) {
+            return {
+                userCancelled: true,
+                message: `您已取消「${actionDesc}」的操作`
+            };
+        }
+        if (/could not coalesce error/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：本地链连接异常，请确认本地链(Ganache)已启动且钱包连接的是正确网络`,
+                suggestion: '请检查：1) 本地链节点是否运行 2) 钱包网络配置是否正确（Chain ID: 5208888） 3) 钱包是否有足够的测试币'
+            };
+        }
+        if (/nonce too low/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：钱包 Nonce 过低，请重置钱包账户的 Nonce`,
+                suggestion: 'MetaMask: 设置 → 高级 → 清除活动数据；OKX: 设置 → 重置交易计数'
+            };
+        }
+        if (/nonce too high/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：钱包 Nonce 过高，请等待之前的交易打包完成后再试`,
+                suggestion: '等待之前的交易被区块确认，或重置钱包 Nonce'
+            };
+        }
+        if (/intrinsic gas too low|gas limit too low/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：Gas Limit 过低`,
+                suggestion: '请在钱包中提高 Gas Limit 后重试'
+            };
+        }
+        if (/gas price too low|underpriced/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：Gas 价格过低`,
+                suggestion: '请在钱包中提高 Gas 价格后重试'
+            };
+        }
+        if (/insufficient funds|not enough ether/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：钱包余额不足`,
+                suggestion: '请确保钱包有足够的测试币支付 Gas 费'
+            };
+        }
+        if (/execution reverted/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：链上执行被拒绝`,
+                suggestion: '可能是合约状态不满足条件（如合约已暂停、授权额度不足等）'
+            };
+        }
+        if (/Transaction failed/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：交易被节点拒绝`,
+                suggestion: '可能原因：1) 代币合约地址不正确 2) 合约已暂停 3) 钱包余额不足。请检查后重试'
+            };
+        }
+        if (/network changed|chain id.*mismatch|invalid chain id/.test(msg)) {
+            return {
+                userCancelled: false,
+                message: `「${actionDesc}」失败：网络不匹配`,
+                suggestion: '请确保钱包连接的是正确的网络（Chain ID: 5208888）'
+            };
+        }
+        if (msg.indexOf(actionDesc) === 0) {
+            return { userCancelled: false, message: msg };
+        }
+        return { userCancelled: false, message: `${actionDesc}失败：${msg}` };
+    }
+
+    // 授权代币（含自动重试、前置检查、友好错误提示）
     async function approveToken(tokenAddress, amount) {
         if (!signer) {
             throw new Error('钱包未连接');
         }
-        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「代币授权」的签名请求');
+        if (!isValidAddress(tokenAddress)) {
+            throw new Error('代币地址无效');
         }
-        return withWalletTimeout('授权代币', async () => {
-            const tokenContract = getTokenContract(tokenAddress);
-            const decimals = await tokenContract.decimals();
-            const amountWei = ethers.parseUnits(amount.toString(), decimals);
-            const tx = await tokenContract.approve(contractAddress, amountWei);
-            await tx.wait();
-            return tx;
-        });
+
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「代币授权」交易（自动管理 Nonce，无需手动设置）');
+        }
+
+        const MAX_RETRIES = 2;
+        let lastError = null;
+
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                return await withWalletTimeout('代币授权', async () => {
+                    const tokenContract = getTokenContract(tokenAddress);
+                    const decimals = await tokenContract.decimals();
+                    const amountWei = ethers.parseUnits(amount.toString(), decimals);
+                    const txOptions = {};
+                    if (attempt > 0) {
+                        try {
+                            const feeData = await provider.getFeeData();
+                            if (feeData && feeData.gasPrice) {
+                                txOptions.gasPrice = (feeData.gasPrice * BigInt(110)) / BigInt(100);
+                            }
+                        } catch (_) {}
+                    }
+                    const tx = await tokenContract.approve(contractAddress, amountWei, txOptions);
+                    const receipt = await tx.wait();
+                    return receipt || tx;
+                });
+            } catch (e) {
+                lastError = e;
+                const translated = _translateWalletError(e, '代币授权');
+
+                if (translated.userCancelled) {
+                    const err = new Error(translated.message);
+                    err.userCancelled = true;
+                    throw err;
+                }
+
+                if (attempt < MAX_RETRIES) {
+                    console.warn(`[Approve] 第${attempt + 1}次授权失败，自动重试:`, e.message);
+                    if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                        FWUI.Toast.info(`授权失败，自动重试中（${attempt + 1}/${MAX_RETRIES}）...`);
+                    }
+                    await new Promise(r => setTimeout(r, 800));
+                    continue;
+                }
+
+                const err = new Error(translated.message);
+                if (translated.suggestion) {
+                    err.suggestion = translated.suggestion;
+                }
+                err.details = e;
+                throw err;
+            }
+        }
+        throw lastError;
     }
 
     // 确保代币授权额度充足（不足则发起授权）
@@ -247,7 +378,19 @@ const Contract = (function() {
         if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
             return null;
         }
-        const allowance = await getAllowance(tokenAddress, account, contractAddress);
+
+        if (!isValidAddress(tokenAddress)) {
+            throw new Error('代币合约地址无效，请检查配置');
+        }
+
+        let allowance;
+        try {
+            allowance = await getAllowance(tokenAddress, account, contractAddress);
+        } catch (e) {
+            const translated = _translateWalletError(e, '查询授权');
+            throw new Error(`无法查询代币授权额度：${translated.message}`);
+        }
+
         if (parseFloat(allowance) < parseFloat(amount)) {
             return await approveToken(tokenAddress, amount);
         }

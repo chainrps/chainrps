@@ -356,12 +356,56 @@
         return modal;
     }
 
+    // 警告/提示对话框
+    function alert(options = {}) {
+        const {
+            title = '提示',
+            content = '',
+            okText = '确定',
+            onOk = null
+        } = options;
+
+        const modal = createModal({
+            title,
+            content,
+            closable: true,
+            maskClosable: true,
+            footer: `
+                <button class="fwui-btn fwui-btn-primary" data-action="ok" style="
+                    padding: 8px 24px;
+                    border-radius: 10px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    border: none;
+                    background: #6366f1;
+                    color: #fff;
+                    transition: all 0.15s ease;
+                ">${okText}</button>
+            `
+        });
+
+        const okBtn = modal.element.querySelector('[data-action="ok"]');
+        if (okBtn) {
+            okBtn.addEventListener('click', () => {
+                if (typeof onOk === 'function') {
+                    onOk();
+                }
+                modal.close();
+            });
+        }
+
+        return modal;
+    }
+
     window.FWUI = window.FWUI || {};
     window.FWUI.Modal = {
         // 创建模态框
         create: createModal,
         // 确认对话框
         confirm,
+        // 提示对话框
+        alert,
         // 输入对话框
         prompt
     };
