@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Polymarket 高级下单工具 - 连接 / 市场查询 / F3 下单 / 平仓 / 持仓 / 调用示例 / 日志">
+    <title>Polymarket 高级下单</title>
+    <link rel="icon" href="../favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../css/theme.css?v=20260813a">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ===== 顶栏 ===== */
+        .pm-header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow-sm);
+        }
+        .pm-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .pm-logo-icon {
+            background: linear-gradient(135deg, #0d6efd, #6610f2);
+            color: #fff;
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .pm-back { color: var(--primary-color); text-decoration: none; font-size: 14px; }
+        .pm-back:hover { text-decoration: underline; }
+        .pm-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: var(--radius-full);
+            font-size: 13px;
+            font-weight: 600;
+            background: var(--bg-success);
+            color: var(--success-color);
+            border: 1px solid var(--success-color);
+        }
+        .pm-status-pill .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--success-color);
+            box-shadow: 0 0 0 0 rgba(5,150,105,.5);
+            animation: pmPulse 2s infinite;
+        }
+        @keyframes pmPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(5,150,105,.5); }
+            70%  { box-shadow: 0 0 0 8px rgba(5,150,105,0); }
+            100% { box-shadow: 0 0 0 0 rgba(5,150,105,0); }
+        }
+
+        /* ===== 主容器 ===== */
+        .pm-main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* ===== 一级选项卡：快捷下单 / 高级下单 ===== */
+        .pm-tabs {
+            display: flex;
+            gap: 6px;
+            background: var(--bg-card);
+            padding: 6px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+        .pm-tab {
+            flex: 1;
+            text-align: center;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            color: var(--text-secondary);
+            background: transparent;
+            border: none;
+            transition: all var(--transition-fast);
+            user-select: none;
+        }
+        .pm-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+        /* 关键：激活态样式 —— 修复“点击后未切换选项卡样式”的问题 */
+        .pm-tab.active {
+            background: linear-gradient(135deg, #0d6efd, #6610f2);
+            color: #fff;
+            box-shadow: var(--shadow-md);
+        }
+
+        .pm-panel { display: none; }
+        .pm-panel.active { display: block; animation: pmFadeIn .2s ease-out; }
+        @keyframes pmFadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ===== 快捷下单 ===== */
+        .pm-quick {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 24px;
+        }
+        .pm-quick h2 { font-size: 18px; margin-bottom: 16px; }
+        .pm-quick .hint {
+            font-size: 13px; color: var(--text-tertiary);
+            margin-top: 12px;
+        }
+
+        /* ===== 高级下单：子导航 ===== */
+        .pm-subnav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            background: var(--bg-card);
+            padding: 10px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            margin-bottom: 18px;
+        }
+        .pm-subtab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            color: var(--text-secondary);
+            background: transparent;
+            border: 1px solid transparent;
+            transition: all var(--transition-fast);
+            user-select: none;
+        }
+        .pm-subtab:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .pm-subtab.active {
+            background: var(--info-light);
+            color: var(--info-color);
+            border-color: var(--info-color);
+            font-weight: 600;
+        }
+        .pm-subtab .kbd {
+            font-size: 11px;
+            background: var(--bg-tertiary);
+            color: var(--text-tertiary);
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-left: 2px;
+        }
+
+        .pm-subpanel { display: none; }
+        .pm-subpanel.active { display: block; animation: pmFadeIn .2s ease-out; }
+
+        .pm-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 20px;
+        }
+        .pm-card h3 { font-size: 16px; margin-bottom: 14px; display:flex; align-items:center; gap:8px; }
+        .pm-card .desc { font-size: 13px; color: var(--text-tertiary); margin-bottom: 14px; }
+
+        .pm-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+        .pm-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+        .pm-field label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+        .pm-field input, .pm-field select, .pm-field textarea {
+            padding: 9px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: var(--input-bg);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color var(--transition-fast);
+        }
+        .pm-field input:focus, .pm-field select:focus, .pm-field textarea:focus {
+            border-color: var(--info-color);
+        }
+        .pm-field textarea { resize: vertical; min-height: 80px; }
+
+        .pm-btn {
+            padding: 9px 18px;
+            border-radius: var(--radius-sm);
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .pm-btn-primary { background: linear-gradient(135deg, #0d6efd, #6610f2); color: #fff; }
+        .pm-btn-primary:hover { filter: brightness(1.08); box-shadow: var(--shadow-md); }
+        .pm-btn-ghost { background: var(--bg-tertiary); color: var(--text-secondary); }
+        .pm-btn-ghost:hover { background: var(--bg-hover); }
+        .pm-btn-danger { background: var(--danger-color); color: #fff; }
+        .pm-btn-danger:hover { filter: brightness(1.08); }
+        .pm-btn-success { background: var(--success-color); color: #fff; }
+
+        .pm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .pm-table th, .pm-table td {
+            text-align: left;
+            padding: 9px 12px;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .pm-table th { color: var(--text-tertiary); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+        .pm-table tr:hover td { background: var(--bg-hover); }
+        .pm-tag {
+            display: inline-block; padding: 2px 8px; border-radius: var(--radius-full);
+            font-size: 11px; font-weight: 600;
+        }
+        .pm-tag-buy { background: var(--bg-success); color: var(--success-color); }
+        .pm-tag-sell { background: var(--danger-light); color: var(--danger-color); }
+
+        .pm-code {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            font-family: 'SF Mono', Menlo, Consolas, monospace;
+            font-size: 12.5px;
+            color: var(--text-primary);
+            overflow-x: auto;
+            white-space: pre;
+            line-height: 1.55;
+        }
+        .pm-code .c-keyword { color: #d6336c; }
+        .pm-code .c-string  { color: var(--success-color); }
+        .pm-code .c-comment { color: var(--text-tertiary); font-style: italic; }
+        .pm-code .c-fn      { color: var(--info-color); }
+
+        .pm-log {
+            background: #0f1117;
+            color: #c8cdd6;
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            font-family: 'SF Mono', Menlo, Consolas, monospace;
+            font-size: 12.5px;
+            height: 320px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            border: 1px solid var(--border-color);
+        }
+        .pm-log .log-time { color: #5c6270; }
+        .pm-log .log-info  { color: #4dabf7; }
+        .pm-log .log-ok    { color: #51cf66; }
+        .pm-log .log-warn  { color: #ffd43b; }
+        .pm-log .log-err   { color: #ff6b6b; }
+        .pm-log .log-req   { color: #b197fc; }
+
+        .pm-kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; font-size: 14px; }
+        .pm-kv dt { color: var(--text-tertiary); }
+        .pm-kv dd { color: var(--text-primary); font-weight: 500; word-break: break-all; }
+        .pm-connected-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            color: var(--success-color); font-weight: 600;
+        }
+        .pm-connected-badge .dot {
+            width: 9px; height: 9px; border-radius: 50%; background: var(--success-color);
+            box-shadow: 0 0 0 0 rgba(5,150,105,.5); animation: pmPulse 2s infinite;
+        }
+
+        .pm-empty { color: var(--text-tertiary); font-size: 13px; padding: 16px 0; text-align: center; }
+        .pm-mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; }
+        .pm-muted { color: var(--text-tertiary); font-size: 12px; }
+        .pm-divider { height: 1px; background: var(--border-light); margin: 16px 0; }
+    </style>
+</head>
+<body>
+    <!-- 顶栏 -->
+    <header class="pm-header">
+        <a href="/" class="pm-logo">
+            <span class="pm-logo-icon">📊</span>
+            <span>Polymarket 下单工具</span>
+        </a>
+        <div style="display:flex; align-items:center; gap:16px;">
+            <span class="pm-status-pill" id="pmHeaderStatus">
+                <span class="dot"></span><span>已连接</span>
+            </span>
+            <a href="/" class="pm-back">← 返回首页</a>
+        </div>
+    </header>
+
+    <main class="pm-main">
+        <!-- 一级选项卡 -->
+        <div class="pm-tabs" role="tablist">
+            <button class="pm-tab active" data-tab="quick"   role="tab">快捷下单</button>
+            <button class="pm-tab"        data-tab="advanced" role="tab">高级下单</button>
+        </div>
+
+        <!-- ===== 快捷下单 ===== -->
+        <section class="pm-panel active" id="panel-quick">
+            <div class="pm-quick">
+                <h2>⚡ 快捷下单</h2>
+                <div class="pm-row">
+                    <div class="pm-field">
+                        <label>市场 / Condition ID</label>
+                        <input type="text" id="qMarket" placeholder="0x... condition id">
+                    </div>
+                    <div class="pm-field" style="max-width:120px;">
+                        <label>方向</label>
+                        <select id="qSide">
+                            <option value="BUY">买入 BUY</option>
+                            <option value="SELL">卖出 SELL</option>
+                        </select>
+                    </div>
+                    <div class="pm-field" style="max-width:140px;">
+                        <label>价格 (0~1)</label>
+                        <input type="number" id="qPrice" placeholder="0.50" step="0.01" min="0" max="1">
+                    </div>
+                    <div class="pm-field" style="max-width:140px;">
+                        <label>数量</label>
+                        <input type="number" id="qSize" placeholder="100" min="0">
+                    </div>
+                    <button class="pm-btn pm-btn-primary" id="qSubmit">下单</button>
+                </div>
+                <p class="hint">提示：快捷下单默认连接 CLOB Host，使用当前已授权账户提交限价单。</p>
+            </div>
+        </section>
+
+        <!-- ===== 高级下单 ===== -->
+        <section class="pm-panel" id="panel-advanced">
+            <!-- 子导航 -->
+            <nav class="pm-subnav" id="pmSubnav">
+                <button class="pm-subtab active" data-sub="status">🔗 连接状态</button>
+                <button class="pm-subtab"        data-sub="market">📊 市场查询</button>
+                <button class="pm-subtab"        data-sub="order">⚡ F3 下单</button>
+                <button class="pm-subtab"        data-sub="close">🔒 平仓</button>
+                <button class="pm-subtab"        data-sub="positions">📋 持仓</button>
+                <button class="pm-subtab"        data-sub="examples">📖 调用示例</button>
+                <button class="pm-subtab"        data-sub="logs">📜 日志</button>
+            </nav>
+
+            <!-- 1) 连接状态 -->
+            <div class="pm-subpanel active" id="sub-status">
+                <div class="pm-card">
+                    <h3>🔗 连接状态</h3>
+                    <p class="desc">当前 CLOB 客户端与账户的连接情况。</p>
+                    <dl class="pm-kv">
+                        <dt>连接状态</dt>
+                        <dd><span class="pm-connected-badge"><span class="dot"></span>已连接</span></dd>
+                        <dt>CLOB Host</dt>
+                        <dd class="pm-mono">clob.polymarket.com</dd>
+                        <dt>链 / Network</dt>
+                        <dd class="pm-mono">Polygon (137)</dd>
+                        <dt>当前账户</dt>
+                        <dd class="pm-mono" id="acctAddr">0x0000…0000</dd>
+                        <dt>API Key</dt>
+                        <dd class="pm-mono" id="apiKeyTag">未设置</dd>
+                        <dt>签名器</dt>
+                        <dd class="pm-mono">EIP-712 (L2 Header)</dd>
+                        <dt>代理钱包 (Safe)</dt>
+                        <dd class="pm-mono" id="proxyAddr">—</dd>
+                    </dl>
+                    <div class="pm-divider"></div>
+                    <div class="pm-row">
+                        <button class="pm-btn pm-btn-ghost" id="btnReconnect">重新连接</button>
+                        <button class="pm-btn pm-btn-ghost" id="btnDeriveKey">派生 API Key</button>
+                        <span class="pm-muted" id="connTime"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2) 市场查询 -->
+            <div class="pm-subpanel" id="sub-market">
+                <div class="pm-card">
+                    <h3>📊 市场查询</h3>
+                    <p class="desc">按 Condition ID 或 Token ID 查询市场行情与订单簿快照。</p>
+                    <div class="pm-row">
+                        <div class="pm-field">
+                            <label>Condition ID / Token ID</label>
+                            <input type="text" id="mktQuery" placeholder="0x... condition 或 token id">
+                        </div>
+                        <button class="pm-btn pm-btn-primary" id="mktSearch">查询</button>
+                        <button class="pm-btn pm-btn-ghost" id="mktOrderbook">拉取订单簿</button>
+                    </div>
+                    <div class="pm-divider"></div>
+                    <div id="mktResult">
+                        <p class="pm-empty">输入 Condition ID 后点击「查询」。</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3) F3 下单 -->
+            <div class="pm-subpanel" id="sub-order">
+                <div class="pm-card">
+                    <h3>⚡ F3 下单 <span class="pm-muted">（按 F3 快速提交）</span></h3>
+                    <p class="desc">高级限价单：可指定 Token ID、买卖方向、价格、数量，并选择立即成交或挂单。</p>
+                    <div class="pm-row">
+                        <div class="pm-field">
+                            <label>Token ID</label>
+                            <input type="text" id="oToken" placeholder="0x... token id">
+                        </div>
+                        <div class="pm-field" style="max-width:130px;">
+                            <label>方向</label>
+                            <select id="oSide"><option>BUY</option><option>SELL</option></select>
+                        </div>
+                        <div class="pm-field" style="max-width:130px;">
+                            <label>价格 (0~1)</label>
+                            <input type="number" id="oPrice" placeholder="0.50" step="0.01" min="0" max="1">
+                        </div>
+                        <div class="pm-field" style="max-width:130px;">
+                            <label>数量</label>
+                            <input type="number" id="oSize" placeholder="100" min="0">
+                        </div>
+                        <div class="pm-field" style="max-width:180px;">
+                            <label>订单类型</label>
+                            <select id="oType"><option value="GTC">GTC 挂单</option><option value="FOK">FOK 立即成交</option><option value="GTD">GTD 到期</option></select>
+                        </div>
+                    </div>
+                    <div class="pm-divider"></div>
+                    <div class="pm-row">
+                        <button class="pm-btn pm-btn-primary" id="oSubmit">⚡ 提交订单 (F3)</button>
+                        <button class="pm-btn pm-btn-ghost" id="oCancel">取消挂单</button>
+                        <span class="pm-muted" id="oHint">已就绪</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4) 平仓 -->
+            <div class="pm-subpanel" id="sub-close">
+                <div class="pm-card">
+                    <h3>🔒 平仓</h3>
+                    <p class="desc">对指定 Token 的持仓进行反向平仓。默认按对手盘最优价市价平仓。</p>
+                    <div class="pm-row">
+                        <div class="pm-field">
+                            <label>Token ID</label>
+                            <input type="text" id="cToken" placeholder="0x... token id">
+                        </div>
+                        <div class="pm-field" style="max-width:140px;">
+                            <label>平仓数量</label>
+                            <input type="number" id="cSize" placeholder="全部" min="0">
+                        </div>
+                        <button class="pm-btn pm-btn-danger" id="cSubmit">🔒 平仓</button>
+                        <button class="pm-btn pm-btn-ghost" id="cAll">一键全部平仓</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5) 持仓 -->
+            <div class="pm-subpanel" id="sub-positions">
+                <div class="pm-card">
+                    <h3>📋 持仓</h3>
+                    <p class="desc">当前账户在 Polymarket CLOB 的持仓与未实现盈亏。</p>
+                    <div style="overflow-x:auto;">
+                        <table class="pm-table" id="posTable">
+                            <thead>
+                                <tr><th>Token ID</th><th>方向</th><th>数量</th><th>均价</th><th>当前价</th><th>盈亏</th><th>操作</th></tr>
+                            </thead>
+                            <tbody id="posBody">
+                                <tr><td colspan="7" class="pm-empty">暂无持仓</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 6) 调用示例 -->
+            <div class="pm-subpanel" id="sub-examples">
+                <div class="pm-card">
+                    <h3>📖 调用示例</h3>
+                    <p class="desc">使用 py-clob-client 的典型调用片段。</p>
+<pre class="pm-code"><span class="c-comment"># 1) 初始化客户端并派生 API Key</span>
+<span class="c-keyword">from</span> py_clob_client.client <span class="c-keyword">import</span> ClobClient
+
+client = <span class="c-fn">ClobClient</span>(
+    host=<span class="c-string">"https://clob.polymarket.com"</span>,
+    key=PRIVATE_KEY,
+    chain_id=<span class="c-string">137</span>,
+)
+creds = client.<span class="c-fn">create_or_derive_api_creds</span>()
+
+<span class="c-comment"># 2) 查询市场订单簿</span>
+book = client.<span class="c-fn">get_order_book</span>(token_id)
+print(book)
+
+<span class="c-comment"># 3) F3 下单 —— 创建并提交限价单</span>
+<span class="c-keyword">from</span> py_clob_client.order_builder.builders <span class="c-keyword">import</span> build_order
+
+order = <span class="c-fn">build_order</span>(
+    token_id=token_id,
+    side=<span class="c-string">"BUY"</span>,
+    price=<span class="c-string">0.50</span>,
+    size=<span class="c-string">100</span>,
+)
+signed = client.<span class="c-fn">create_order</span>(order)
+resp = client.<span class="c-fn">post_order</span>(signed, order_type=<span class="c-string">"GTC"</span>)
+print(resp)
+
+<span class="c-comment"># 4) 平仓 / 取消挂单</span>
+client.<span class="c-fn">cancel</span>(order_id)
+client.<span class="c-fn">cancel_all</span>()</pre>
+                </div>
+            </div>
+
+            <!-- 7) 日志 -->
+            <div class="pm-subpanel" id="sub-logs">
+                <div class="pm-card">
+                    <h3>📜 日志</h3>
+                    <p class="desc">所有操作的请求 / 响应 / 状态记录。</p>
+                    <div class="pm-row" style="margin-bottom:12px;">
+                        <button class="pm-btn pm-btn-ghost" id="logClear">清空</button>
+                        <span class="pm-muted" id="logCount">0 条</span>
+                    </div>
+                    <div class="pm-log" id="logBox"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+    (function () {
+        "use strict";
+
+        /* ============ 状态 ============ */
+        var state = {
+            tab: "quick",          // quick | advanced
+            sub: "status",         // 当前子选项
+            account: "0x7F72A2777539913086a5f2d5914F35a742F827FD",
+            apiKey: "未设置",
+            positions: [],
+            connectedAt: new Date()
+        };
+
+        /* ============ DOM ============ */
+        var tabs   = document.querySelectorAll(".pm-tab");
+        var panels = { quick: document.getElementById("panel-quick"), advanced: document.getElementById("panel-advanced") };
+        var subtabs    = document.querySelectorAll(".pm-subtab");
+        var subpanels  = {
+            status:     document.getElementById("sub-status"),
+            market:      document.getElementById("sub-market"),
+            order:       document.getElementById("sub-order"),
+            close:       document.getElementById("sub-close"),
+            positions:   document.getElementById("sub-positions"),
+            examples:    document.getElementById("sub-examples"),
+            logs:        document.getElementById("sub-logs")
+        };
+
+        /* ============ 日志 ============ */
+        var logBox = document.getElementById("logBox");
+        var logCountEl = document.getElementById("logCount");
+        var logCount = 0;
+        function pad(n){ return n < 10 ? "0" + n : "" + n; }
+        function ts() {
+            var d = new Date();
+            return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+        }
+        function log(msg, level) {
+            level = level || "info";
+            var line = document.createElement("div");
+            line.innerHTML =
+                '<span class="log-time">[' + ts() + ']</span> ' +
+                '<span class="log-' + level + '">' + level.toUpperCase() + '</span> ' +
+                msg.replace(/</g, "&lt;");
+            logBox.appendChild(line);
+            logBox.scrollTop = logBox.scrollHeight;
+            logCount++;
+            logCountEl.textContent = logCount + " 条";
+        }
+
+        /* ============ 路由：#quick / #advanced/<sub> ============ */
+        function applyRoute() {
+            var hash = (location.hash || "#quick").replace(/^#/, "");
+            var parts = hash.split("/");
+            var tab = parts[0] === "advanced" ? "advanced" : "quick";
+            var sub = parts[1] || "status";
+            if (!subpanels[sub]) sub = "status";
+            setTab(tab, false);
+            if (tab === "advanced") setSub(sub, false);
+        }
+        function updateHash() {
+            if (state.tab === "advanced") {
+                location.hash = "#advanced/" + state.sub;
+            } else {
+                location.hash = "#quick";
+            }
+        }
+
+        /* ============ 一级选项卡切换（核心修复） ============ */
+        function setTab(tab, syncHash) {
+            state.tab = tab;
+            // 切换激活样式 —— 确保点击后正确切换当前选项卡样式
+            tabs.forEach(function (t) {
+                t.classList.toggle("active", t.dataset.tab === tab);
+            });
+            Object.keys(panels).forEach(function (k) {
+                panels[k].classList.toggle("active", k === tab);
+            });
+            if (syncHash !== false) updateHash();
+            log("切换选项卡 → " + (tab === "quick" ? "快捷下单" : "高级下单"), "info");
+        }
+
+        /* ============ 子选项切换 ============ */
+        function setSub(sub, syncHash) {
+            if (!subpanels[sub]) return;
+            state.sub = sub;
+            subtabs.forEach(function (s) {
+                s.classList.toggle("active", s.dataset.sub === sub);
+            });
+            Object.keys(subpanels).forEach(function (k) {
+                subpanels[k].classList.toggle("active", k === sub);
+            });
+            if (syncHash !== false) updateHash();
+            log("子选项 → " + sub, "info");
+        }
+
+        /* ============ 事件绑定 ============ */
+        tabs.forEach(function (t) {
+            t.addEventListener("click", function () { setTab(t.dataset.tab); });
+        });
+        subtabs.forEach(function (s) {
+            s.addEventListener("click", function () { setSub(s.dataset.sub); });
+        });
+        window.addEventListener("hashchange", applyRoute);
+
+        /* F3 快捷键 → 下单 */
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "F3") {
+                e.preventDefault();
+                setTab("advanced");
+                setSub("order");
+                setTimeout(function () { document.getElementById("oSubmit").focus(); }, 50);
+            }
+        });
+
+        /* ============ 业务交互（演示版，全部写入日志） ============ */
+        function $(id) { return document.getElementById(id); }
+
+        function short(addr) {
+            return addr ? (addr.slice(0, 8) + "…" + addr.slice(-6)) : "—";
+        }
+
+        function refreshConnInfo() {
+            $("acctAddr").textContent = state.account;
+            $("apiKeyTag").textContent = state.apiKey;
+            $("connTime").textContent = "已连接 " + Math.round((Date.now() - state.connectedAt.getTime()) / 1000) + "s";
+        }
+
+        $("btnReconnect").addEventListener("click", function () {
+            state.connectedAt = new Date();
+            log("POST /auth/derive-api-key 重新连接 CLOB…", "req");
+            setTimeout(function () {
+                state.apiKey = "pk-" + Math.random().toString(36).slice(2, 10) + "…";
+                refreshConnInfo();
+                log("连接成功，API Key 已派生：" + state.apiKey, "ok");
+            }, 400);
+        });
+
+        $("btnDeriveKey").addEventListener("click", function () {
+            log("POST /auth/derive-api-key", "req");
+            setTimeout(function () {
+                state.apiKey = "pk-" + Math.random().toString(36).slice(2, 10) + "…";
+                refreshConnInfo();
+                log("API Key 派生成功：" + state.apiKey, "ok");
+            }, 300);
+        });
+
+        $("mktSearch").addEventListener("click", function () {
+            var q = $("mktQuery").value.trim();
+            if (!q) { log("查询失败：Condition/Token ID 为空", "err"); return; }
+            log("GET /markets/" + short(q), "req");
+            setTimeout(function () {
+                var price = (Math.random()).toFixed(4);
+                var size  = Math.floor(Math.random() * 5000);
+                $("mktResult").innerHTML =
+                    '<dl class="pm-kv">' +
+                      '<dt>Token ID</dt><dd class="pm-mono">' + q + '</dd>' +
+                      '<dt>最新成交价</dt><dd class="pm-mono">' + price + '</dd>' +
+                      '<dt>买盘深度</dt><dd class="pm-mono">' + size + '</dd>' +
+                      '<dt>卖盘深度</dt><dd class="pm-mono">' + Math.floor(size * 0.8) + '</dd>' +
+                      '<dt>价差</dt><dd class="pm-mono">0.0' + Math.floor(Math.random()*9) + '</dd>' +
+                    '</dl>';
+                log("查询成功：价格 " + price + " 深度 " + size, "ok");
+            }, 300);
+        });
+
+        $("mktOrderbook").addEventListener("click", function () {
+            var q = $("mktQuery").value.trim();
+            if (!q) { log("拉取订单簿失败：Token ID 为空", "err"); return; }
+            log("GET /book?token_id=" + short(q), "req");
+            setTimeout(function () {
+                log("订单簿已拉取：bid 0.49 / ask 0.51", "ok");
+            }, 250);
+        });
+
+        $("oSubmit").addEventListener("click", function () {
+            var o = {
+                token: $("oToken").value.trim(),
+                side:  $("oSide").value,
+                price: $("oPrice").value,
+                size:  $("oSize").value,
+                type:  $("oType").value
+            };
+            if (!o.token || !o.price || !o.size) {
+                $("oHint").textContent = "参数不完整"; log("下单失败：参数不完整", "err"); return;
+            }
+            log("POST /order  " + o.side + " " + o.size + "@" + o.price + " type=" + o.type, "req");
+            setTimeout(function () {
+                var oid = "0x" + Math.random().toString(16).slice(2, 18);
+                log("订单已提交，order_id=" + short(oid), "ok");
+                $("oHint").textContent = "已提交 " + short(oid);
+                // 写入持仓
+                state.positions.push({
+                    token: o.token, side: o.side, size: parseFloat(o.size),
+                    avg: parseFloat(o.price), cur: parseFloat(o.price)
+                });
+                renderPositions();
+            }, 350);
+        });
+
+        $("oCancel").addEventListener("click", function () {
+            log("DELETE /order/cancel-all", "req");
+            setTimeout(function () { log("所有挂单已取消", "warn"); }, 200);
+        });
+
+        $("cSubmit").addEventListener("click", function () {
+            var t = $("cToken").value.trim();
+            var s = $("cSize").value;
+            if (!t) { log("平仓失败：Token ID 为空", "err"); return; }
+            log("POST /close token=" + short(t) + " size=" + (s || "全部"), "req");
+            setTimeout(function () {
+                state.positions = state.positions.filter(function (p) { return p.token !== t; });
+                renderPositions();
+                log("平仓完成：" + short(t), "ok");
+            }, 300);
+        });
+
+        $("cAll").addEventListener("click", function () {
+            if (!state.positions.length) { log("无持仓可平仓", "warn"); return; }
+            log("POST /close-all", "req");
+            setTimeout(function () {
+                state.positions = [];
+                renderPositions();
+                log("全部持仓已平仓", "ok");
+            }, 300);
+        });
+
+        function renderPositions() {
+            var body = $("posBody");
+            if (!state.positions.length) {
+                body.innerHTML = '<tr><td colspan="7" class="pm-empty">暂无持仓</td></tr>';
+                return;
+            }
+            body.innerHTML = state.positions.map(function (p) {
+                var pnl = ((p.cur - p.avg) * p.size * (p.side === "BUY" ? 1 : -1)).toFixed(2);
+                var pnlCls = parseFloat(pnl) >= 0 ? "pm-tag-buy" : "pm-tag-sell";
+                return '<tr>' +
+                    '<td class="pm-mono">' + short(p.token) + '</td>' +
+                    '<td><span class="pm-tag ' + (p.side === "BUY" ? "pm-tag-buy" : "pm-tag-sell") + '">' + p.side + '</span></td>' +
+                    '<td>' + p.size + '</td>' +
+                    '<td class="pm-mono">' + p.avg + '</td>' +
+                    '<td class="pm-mono">' + p.cur + '</td>' +
+                    '<td><span class="pm-tag ' + pnlCls + '">' + pnl + '</span></td>' +
+                    '<td><button class="pm-btn pm-btn-ghost" data-close="' + p.token + '">平仓</button></td>' +
+                    '</tr>';
+            }).join("");
+            body.querySelectorAll("[data-close]").forEach(function (b) {
+                b.addEventListener("click", function () {
+                    var tk = b.getAttribute("data-close");
+                    $("cToken").value = tk;
+                    setSub("close");
+                });
+            });
+        }
+
+        $("qSubmit").addEventListener("click", function () {
+            var o = {
+                market: $("qMarket").value.trim(),
+                side:   $("qSide").value,
+                price:  $("qPrice").value,
+                size:   $("qSize").value
+            };
+            if (!o.market || !o.price || !o.size) { log("快捷下单失败：参数不完整", "err"); return; }
+            log("POST /quick-order " + o.side + " " + o.size + "@" + o.price, "req");
+            setTimeout(function () { log("快捷下单成功", "ok"); }, 250);
+        });
+
+        $("logClear").addEventListener("click", function () {
+            logBox.innerHTML = "";
+            logCount = 0; logCountEl.textContent = "0 条";
+        });
+
+        /* ============ 初始化 ============ */
+        refreshConnInfo();
+        applyRoute();
+        log("页面已加载，CLOB 客户端就绪", "ok");
+        setInterval(refreshConnInfo, 5000);
+    })();
+    </script>
+</body>
+</html>

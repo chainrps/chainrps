@@ -283,6 +283,14 @@ async def demo_page():
     return FileResponse(demo_path)
 
 
+# Polymarket 高级下单工具（公共页面，无需登录）
+@app.get("/dev/polymarket")
+async def polymarket_page():
+    """Polymarket 高级下单工具页面（连接状态 / 市场查询 / F3 下单 / 平仓 / 持仓 / 调用示例 / 日志）"""
+    poly_path = os.path.join(STATIC_DIR, "html", "polymarket.html")
+    return FileResponse(poly_path)
+
+
 # 静态 HTML 页面
 @app.get("/html/{filename}")
 async def html_pages(filename: str):
