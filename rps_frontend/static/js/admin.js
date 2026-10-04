@@ -3883,9 +3883,15 @@ const AdminApp = {
                 return;
             }
 
-            const behindTag = data.is_behind
-                ? '<span class="tag" style="background:#fef3c7;color:#92400e;margin-left:6px;">落后 ' + data.behind_count + ' 个 commit</span>'
-                : '<span class="tag tag-active" style="margin-left:6px;">已是最新</span>';
+            const fetchFail = !data.fetch_ok;
+            let behindTag;
+            if (fetchFail) {
+                behindTag = '<span class="tag" style="background:#fee2e2;color:#991b1b;margin-left:6px;">⚠️ 无法连接远程</span>';
+            } else if (data.is_behind) {
+                behindTag = '<span class="tag" style="background:#fef3c7;color:#92400e;margin-left:6px;">落后 ' + data.behind_count + ' 个 commit</span>';
+            } else {
+                behindTag = '<span class="tag tag-active" style="margin-left:6px;">已是最新</span>';
+            }
 
             const localMsg = data.local_commit_msg ? ` - ${data.local_commit_msg}` : '';
             const remoteMsg = data.remote_commit ? ` (远程: ${data.remote_commit})` : '';

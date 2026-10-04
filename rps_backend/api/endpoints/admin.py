@@ -1377,23 +1377,28 @@ async def github_status():
     # 尝试 fetch 并获取远程最新 commit（快速，不影响工作目录）
     remote_head = ""
     fetch_ok = False
+    fetch_error = ""
     try:
-        # 不用 --depth=1，因为服务器可能本地比远程领先多个 commit
-        # 且 force push 场景下浅 fetch 会更新 ref 失败
-        fetch_result = _run_git(["fetch", "--all", "--prune"], project_root, timeout=15)
-        if fetch_result[0] == 0:
+        # 不用 --depth=1，因为 force push 场景下浅 fetch 更新 ref 会失败
+        fetch_code, _, fetch_err = _run_git(["fetch", "--all", "--prune"], project_root, timeout=15)
+        if fetch_code == 0:
             fetch_ok = True
-        _, remote_head, _ = _run_git(
+        else:
+            fetch_error = fetch_err.strip()[:200]
+        _, remote_head, rev_err = _run_git(
             ["rev-parse", f"origin/{branch}"] if branch else ["rev-parse", "origin/main"],
             project_root
         )
-    except Exception:
-        pass
+        if not remote_head.strip():
+            fetch_error = (fetch_error + " | rev-parse 失败: " + rev_err.strip()[:200]).strip(" |")
+    except Exception as e:
+        fetch_error = str(e)[:200]
 
     # 比较本地和远程 commit
     is_behind = False
     ahead_count = 0
     behind_count = 0
+    divergence = ""
     if commit and remote_head:
         code, ahead_behind, _ = _run_git(
             ["rev-list", "--left-right", "--count", f"{commit}...{remote_head}"],
@@ -1405,6 +1410,8 @@ async def github_status():
                 ahead_count = int(parts[0])
                 behind_count = int(parts[1])
                 is_behind = behind_count > 0
+                if ahead_count > 0 and behind_count > 0:
+                    divergence = "detached: 本地有未推送 + 远程有未拉取"
 
     return {
         "is_git_repo": True,
@@ -1414,10 +1421,13 @@ async def github_status():
         "local_commit_msg": commit_msg,
         "local_commit_time": commit_time,
         "remote_commit": remote_head[:8] if remote_head else "",
+        "fetch_ok": fetch_ok,
+        "fetch_error": fetch_error,
         "has_changes": has_changes,
         "ahead_count": ahead_count,
         "behind_count": behind_count,
         "is_behind": is_behind,
+        "divergence": divergence,
         "remote_info": remote,
     }
 

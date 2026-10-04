@@ -1,6 +1,6 @@
 {
   "name": "chainrps",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "type": "module",
   "description": "基于 Polygon 公链的极简去中心化双人博弈 DApp —— 链上公平猜拳游戏平台。",
   "directories": {
