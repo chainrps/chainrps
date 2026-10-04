@@ -1376,8 +1376,13 @@ async def github_status():
 
     # 尝试 fetch 并获取远程最新 commit（快速，不影响工作目录）
     remote_head = ""
+    fetch_ok = False
     try:
-        _run_git(["fetch", "--depth=1"], project_root, timeout=15)
+        # 不用 --depth=1，因为服务器可能本地比远程领先多个 commit
+        # 且 force push 场景下浅 fetch 会更新 ref 失败
+        fetch_result = _run_git(["fetch", "--all", "--prune"], project_root, timeout=15)
+        if fetch_result[0] == 0:
+            fetch_ok = True
         _, remote_head, _ = _run_git(
             ["rev-parse", f"origin/{branch}"] if branch else ["rev-parse", "origin/main"],
             project_root
