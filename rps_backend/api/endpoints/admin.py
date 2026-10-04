@@ -1,0 +1,1674 @@
+"""
+管理员 API 端点
+
+提供合约管理、系统配置、审计日志等管理员功能接口。
+所有接口均需要 JWT 登录认证（通过路由级 dependencies 强制校验）。
+"""
+import asyncio
+import json
+import os
+import time
+from functools import partial
+from typing import List, Optional
+
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
+
+from rps_backend.models import (
+    AuditLogEntry,
+    ContractAbiUpdate,
+    ContractRecord,
+    SystemConfigBatchUpdate,
+    SystemConfigItem,
+    SystemConfigUpdate,
+)
+from rps_backend.repository import (
+    add_audit_log,
+    add_contract_record,
+    batch_set_system_config,
+    get_all_system_config,
+    get_contract_by_address,
+    get_contract_by_id,
+    get_system_config_value,
+    list_audit_logs,
+    list_contracts,
+    set_system_config,
+    update_contract_abi,
+    update_contract_record,
+)
+from rps_backend.config import ADMIN_WHITELIST
+from rps_backend.api.endpoints.auth import get_current_admin
+
+# 路由级依赖：所有 /admin/* 接口强制要求 JWT 登录认证
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(get_current_admin)],
+)
+
+
+# 将同步阻塞的 local_chain_service 调用放到线程池执行，避免卡死事件循环
+async def _run_chain_async(func, *args, **kwargs):
+    """在线程池中执行同步的 LocalChainService 方法"""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
+
+
+# 验证管理员权限
+def _verify_admin(address: Optional[str], request: Request) -> str:
+    """
+    验证管理员权限
+
+    优先从请求参数获取 admin_address，其次检查 X-Admin-Address 头。
+    router 级别已有 JWT 认证，这里仅用于审计日志，不再强制要求地址。
+    """
+    admin_addr = address
+    if not admin_addr:
+        admin_addr = request.headers.get("X-Admin-Address")
+
+    if not admin_addr:
+        try:
+            from rps_backend.api.endpoints.auth import _extract_token, decode_token
+            token = _extract_token(request)
+            if token:
+                payload = decode_token(token)
+                if payload:
+                    admin_addr = f"jwt:{payload.get('username', 'admin')}"
+        except Exception:
+            pass
+        if not admin_addr:
+            admin_addr = "unknown"
+
+    if not ADMIN_WHITELIST:
+        return admin_addr.lower()
+
+    if admin_addr.lower().startswith("jwt:"):
+        return admin_addr.lower()
+
+    if admin_addr.lower() not in [a.lower() for a in ADMIN_WHITELIST]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    return admin_addr.lower()
+
+
+# ==================== 合约管理 ====================
+
+# 获取合约列表
+@router.get("/contracts", response_model=List[ContractRecord])
+async def list_admin_contracts(
+    network: Optional[str] = None,
+    status: Optional[str] = None,
+):
+    """获取合约列表"""
+    contracts = list_contracts(network=network, status=status)
+    return [ContractRecord(**c) for c in contracts]
+
+
+# 添加合约记录
+@router.post("/contracts")
+async def add_contract(contract: ContractRecord, request: Request):
+    """添加合约记录"""
+    admin_addr = _verify_admin(contract.deployed_by, request)
+
+    existing = get_contract_by_address(contract.address)
+    if existing:
+        raise HTTPException(status_code=400, detail="Contract already exists")
+
+    contract_id = add_contract_record(contract.model_dump())
+    add_audit_log(admin_addr, "add_contract", target=contract.address, new_value=contract.name)
+
+    if contract.network == "localhost" and contract.status == "active":
+        try:
+            from rps_backend.service.contract_service import contract_service
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(contract_service.update_contract_address(contract.address))
+            else:
+                loop.run_until_complete(contract_service.update_contract_address(contract.address))
+        except Exception as e:
+            print(f"⚠️  更新合约监听地址失败: {e}")
+
+    return {"success": True, "id": contract_id, "address": contract.address}
+
+
+# 获取合约编译产物
+@router.get("/contracts/compile-artifacts")
+async def get_compile_artifacts(request: Request):
+    """
+    获取合约编译产物（ABI + Bytecode），供前端部署使用。
+
+    读取顺序：
+    1. contracts/build/chainrps.json（完整编译产物，含 bytecode）
+    2. contracts/abi/ChainRPS.json（仅 ABI，无 bytecode）
+    3. 数据库已记录的合约 ABI
+
+    若以上均无 bytecode，则尝试自动编译合约（需 py-solc-x 和 OpenZeppelin 库）。
+    """
+    _verify_admin(None, request)
+
+    import json
+    import os
+
+    project_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    )
+
+    abi = None
+    bytecode = None
+
+    # 1. 尝试从 build 目录读取完整编译产物
+    build_dir = os.path.join(project_root, "contracts", "build")
+    compiled_path = os.path.join(build_dir, "chainrps.json")
+
+    if os.path.exists(compiled_path):
+        try:
+            with open(compiled_path, "r", encoding="utf-8") as f:
+                compiled = json.load(f)
+            abi = compiled.get("abi")
+            bytecode = compiled.get("bytecode")
+        except Exception:
+            pass #别删除，用于人工代码审核 便利
+
+    # 2. 回退：从 abi 目录读取 ABI 文件
+    if not abi:
+        abi_path = os.path.join(project_root, "contracts", "abi", "ChainRPS.json")
+        if os.path.exists(abi_path):
+            try:
+                with open(abi_path, "r", encoding="utf-8") as f:
+                    abi = json.load(f)
+            except Exception:
+                pass #别删除，用于人工代码审核 便利
+
+    # 3. 回退：从数据库已记录的合约中读取 ABI
+    if not abi:
+        contracts = list_contracts(status="active")
+        for c in contracts:
+            if c.get("abi"):
+                try:
+                    abi = json.loads(c["abi"]) if isinstance(c["abi"], str) else c["abi"]
+                except (json.JSONDecodeError, TypeError):
+                    abi = c["abi"]
+                break
+
+    # 4. 若仍无 bytecode，尝试自动编译（放到线程池，避免下载/编译阻塞事件循环）
+    if not bytecode:
+        try:
+            bytecode, abi = await _run_chain_async(_try_auto_compile, project_root) or (None, None)
+        except Exception as e:
+            print(f"⚠️  自动编译失败: {e}")
+
+    if not abi and not bytecode:
+        raise HTTPException(
+            status_code=404,
+            detail="未找到合约编译产物，且自动编译失败。请运行: python contracts/scripts/compile.py",
+        )
+
+    return {
+        "abi": abi if isinstance(abi, str) else json.dumps(abi) if abi else None,
+        "bytecode": bytecode,
+    }
+
+
+# 获取 MockERC20 编译产物
+@router.get("/contracts/mock-erc20-artifacts")
+async def get_mock_erc20_artifacts(request: Request):
+    """
+    获取 MockERC20 合约编译产物（ABI + Bytecode），用于部署测试代币。
+    """
+    _verify_admin(None, request)
+
+    import json
+    import os
+
+    project_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    )
+
+    abi = None
+    bytecode = None
+
+    # 1. 从 abi 目录读取预编译产物（优先）
+    abi_path = os.path.join(project_root, "contracts", "abi", "MockERC20.json")
+    if os.path.exists(abi_path):
+        try:
+            with open(abi_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "abi" in data and "bytecode" in data:
+                abi = data["abi"]
+                bytecode = data["bytecode"]
+        except Exception:
+            pass #别删除，用于人工代码审核 便利
+
+    # 2. 尝试从 build 目录读取
+    if not abi:
+        build_dir = os.path.join(project_root, "contracts", "build")
+        compiled_path = os.path.join(build_dir, "MockERC20.json")
+        if os.path.exists(compiled_path):
+            try:
+                with open(compiled_path, "r", encoding="utf-8") as f:
+                    compiled = json.load(f)
+                abi = compiled.get("abi")
+                bytecode = compiled.get("bytecode")
+            except Exception:
+                pass #别删除，用于人工代码审核 便利
+
+    # 3. 尝试自动编译 MockERC20（放到线程池，避免下载/编译阻塞事件循环）
+    if not abi or not bytecode:
+        try:
+            result = await _run_chain_async(_try_auto_compile_mock_erc20, project_root)
+            if result:
+                bytecode, abi = result
+        except Exception as e:
+            print(f"⚠️  MockERC20 自动编译失败: {e}")
+
+    if not abi or not bytecode:
+        raise HTTPException(
+            status_code=404,
+            detail="未找到 MockERC20 编译产物，且自动编译失败。",
+        )
+
+    return {
+        "abi": abi if isinstance(abi, str) else json.dumps(abi) if abi else None,
+        "bytecode": bytecode,
+    }
+
+
+# 尝试自动编译 MockERC20
+def _try_auto_compile_mock_erc20(project_root: str):
+    """尝试自动编译 MockERC20 合约"""
+    import sys
+
+    try:
+        from solcx import compile_standard, install_solc, get_installed_solc_versions, set_solc_version
+    except ImportError:
+        return None
+
+    contracts_dir = os.path.join(project_root, "contracts")
+    src_path = os.path.join(contracts_dir, "src", "MockERC20.sol")
+    oz_base = os.path.join(contracts_dir, "lib", "openzeppelin-contracts")
+
+    if not os.path.exists(src_path) or not os.path.exists(oz_base):
+        return None
+
+    solc_version = "0.8.20"
+    installed = [str(v) for v in get_installed_solc_versions()]
+    if solc_version not in installed:
+        install_solc(solc_version)
+    set_solc_version(solc_version)
+
+    with open(src_path, "r", encoding="utf-8") as f:
+        source_content = f.read()
+
+    input_json = {
+        "language": "Solidity",
+        "sources": {"MockERC20.sol": {"content": source_content}},
+        "settings": {
+            "outputSelection": {"*": {"*": ["abi", "evm.bytecode.object"]}},
+            "optimizer": {"enabled": True, "runs": 200},
+        },
+    }
+
+    def _import_callback(import_path: str):
+        if import_path.startswith("@openzeppelin/"):
+            rel = import_path.replace("@openzeppelin/", "")
+            full = os.path.join(oz_base, rel)
+            if os.path.exists(full):
+                with open(full, "r", encoding="utf-8") as f2:
+                    return {"contents": f2.read()}
+        return None
+
+    compiled = compile_standard(
+        input_json,
+        allow_paths=[oz_base],
+        import_callback=_import_callback,
+    )
+
+    if "contracts" in compiled and "MockERC20.sol" in compiled["contracts"]:
+        for contract_name, contract_data in compiled["contracts"]["MockERC20.sol"].items():
+            if contract_name == "MockERC20":
+                abi = contract_data.get("abi")
+                bytecode = contract_data.get("evm", {}).get("bytecode", {}).get("object")
+                if abi and bytecode:
+                    build_dir = os.path.join(project_root, "contracts", "build")
+                    os.makedirs(build_dir, exist_ok=True)
+                    output_path = os.path.join(build_dir, "MockERC20.json")
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        json.dump({"abi": abi, "bytecode": bytecode}, f, indent=2)
+                    return bytecode, abi
+    return None
+
+
+# 尝试自动编译合约
+def _try_auto_compile(project_root: str):
+    """
+    尝试自动编译合约，返回 (bytecode, abi) 元组。
+
+    需要：
+    - py-solc-x 已安装
+    - OpenZeppelin 合约库位于 contracts/lib/openzeppelin-contracts/
+    - solc 0.8.20 编译器（未安装会自动下载）
+
+    编译成功后将产物保存到 contracts/build/chainrps.json。
+    """
+    import sys
+
+    # 检查 py-solc-x 是否可用
+    try:
+        from solcx import compile_standard, install_solc, get_installed_solc_versions, set_solc_version
+    except ImportError:
+        print("⚠️  py-solc-x 未安装，无法自动编译。请运行: pip install py-solc-x")
+        return None
+
+    contracts_dir = os.path.join(project_root, "contracts")
+    src_path = os.path.join(contracts_dir, "src", "ChainRPS.sol")
+    oz_base = os.path.join(contracts_dir, "lib", "openzeppelin-contracts")
+
+    if not os.path.exists(src_path):
+        return None
+
+    if not os.path.exists(oz_base):
+        print("⚠️  OpenZeppelin 合约库未找到，无法自动编译")
+        return None
+
+    solc_version = "0.8.20"
+
+    # 确保 solc 已安装
+    installed = [str(v) for v in get_installed_solc_versions()]
+    if solc_version not in installed:
+        print(f"⬇️  正在下载 solc {solc_version}...")
+        install_solc(solc_version)
+
+    set_solc_version(solc_version)
+
+    # 读取源文件
+    with open(src_path, "r", encoding="utf-8") as f:
+        source_content = f.read()
+
+    standard_input = {
+        "language": "Solidity",
+        "sources": {src_path: {"content": source_content}},
+        "settings": {
+            "viaIR": True,
+            "optimizer": {"enabled": True, "runs": 200},
+            "outputSelection": {"*": {"*": ["abi", "evm.bytecode.object"]}},
+            "remappings": ["@openzeppelin/=" + oz_base + "/"],
+        },
+    }
+
+    print("🔨 自动编译合约中...")
+    compiled = compile_standard(
+        standard_input,
+        solc_version=solc_version,
+        allow_paths=contracts_dir,
+    )
+
+    # 提取 chainrps 合约产物
+    bytecode = None
+    abi = None
+    for source_path, contracts in compiled.get("contracts", {}).items():
+        for contract_name, data in contracts.items():
+            if contract_name == "chainrps":
+                abi = data.get("abi", [])
+                bytecode = data.get("evm", {}).get("bytecode", {}).get("object", "")
+                if bytecode and not bytecode.startswith("0x"):
+                    bytecode = "0x" + bytecode
+                break
+
+    if bytecode:
+        # 保存编译产物
+        build_dir = os.path.join(contracts_dir, "build")
+        os.makedirs(build_dir, exist_ok=True)
+        compiled_path = os.path.join(build_dir, "chainrps.json")
+        with open(compiled_path, "w", encoding="utf-8") as f:
+            json.dump({"abi": abi, "bytecode": bytecode}, f, indent=2, ensure_ascii=False)
+        print(f"💾 编译产物已保存: {compiled_path}")
+
+        # 同时更新 abi 文件
+        abi_path = os.path.join(contracts_dir, "abi", "ChainRPS.json")
+        os.makedirs(os.path.dirname(abi_path), exist_ok=True)
+        with open(abi_path, "w", encoding="utf-8") as f:
+            json.dump(abi, f, indent=2, ensure_ascii=False)
+
+    return bytecode, abi
+
+
+# 获取合约详情
+@router.get("/contracts/{contract_id}", response_model=ContractRecord)
+async def get_contract(contract_id: int):
+    """获取合约详情"""
+    contract = get_contract_by_id(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    return ContractRecord(**contract)
+
+
+# 更新合约 ABI
+@router.put("/contracts/{contract_id}/abi")
+async def update_abi(contract_id: int, body: ContractAbiUpdate, request: Request):
+    """更新合约 ABI"""
+    admin_addr = _verify_admin(body.admin_address, request)
+
+    contract = get_contract_by_id(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    update_contract_abi(contract_id, body.abi)
+    add_audit_log(admin_addr, "update_abi", target=str(contract_id))
+
+    return {"success": True}
+
+
+# 验证合约源代码
+@router.post("/contracts/{contract_id}/verify")
+async def verify_contract(contract_id: int, request: Request):
+    """验证合约源代码（占位，实际需调用区块浏览器 API）"""
+    admin_addr = _verify_admin(None, request)
+
+    contract = get_contract_by_id(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    add_audit_log(admin_addr, "verify_contract", target=str(contract_id))
+
+    return {
+        "success": True,
+        "message": "Contract verification requested",
+        "contract_id": contract_id,
+    }
+
+
+# 更新合约记录
+@router.patch("/contracts/{contract_id}")
+async def update_contract(contract_id: int, body: dict, request: Request):
+    """更新合约记录"""
+    admin_addr = _verify_admin(body.get("admin_address"), request)
+
+    contract = get_contract_by_id(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    updates = {k: v for k, v in body.items() if k != "admin_address"}
+    if updates:
+        update_contract_record(contract_id, updates)
+        add_audit_log(admin_addr, "update_contract", target=str(contract_id), new_value=str(updates))
+
+    return {"success": True}
+
+
+# ==================== 系统配置管理 ====================
+
+# 获取系统配置列表
+@router.get("/config", response_model=List[SystemConfigItem])
+async def get_config_list(category: Optional[str] = None):
+    """获取系统配置列表（附带每项的默认值）"""
+    from rps_backend.repository import get_all_system_config_defaults
+    configs = get_all_system_config(category=category)
+    defaults = get_all_system_config_defaults()
+    result = []
+    for c in configs:
+        item = dict(c)
+        item["default_value"] = defaults.get(item["config_key"])
+        result.append(SystemConfigItem(**item))
+    return result
+
+
+# 获取单个配置项
+@router.get("/config/{key}")
+async def get_config(key: str):
+    """获取单个配置项（含默认值）"""
+    value = get_system_config_value(key)
+    if value is None:
+        raise HTTPException(status_code=404, detail="Config key not found")
+    from rps_backend.repository import get_system_config_default
+    return {"key": key, "value": value, "default_value": get_system_config_default(key)}
+
+
+# 更新单个配置项
+@router.put("/config/{key}")
+async def update_config(key: str, body: SystemConfigUpdate, request: Request):
+    """更新单个配置项"""
+    admin_addr = _verify_admin(body.admin_address, request)
+
+    old_value = get_system_config_value(key)
+    set_system_config(key, body.value, updated_by=admin_addr)
+
+    add_audit_log(
+        admin_addr, "update_config",
+        target=key, old_value=str(old_value), new_value=body.value
+    )
+
+    return {"success": True, "key": key, "value": body.value}
+
+
+# 重置单个配置项为默认值
+@router.post("/config/{key}/reset")
+async def reset_single_config(key: str, request: Request):
+    """将单个配置项恢复为默认值"""
+    from rps_backend.repository import get_system_config_default, SYSTEM_CONFIG_DEFAULTS
+    admin_addr = _verify_admin(None, request)
+
+    # 检查该配置项是否有默认值
+    if key not in SYSTEM_CONFIG_DEFAULTS:
+        raise HTTPException(status_code=404, detail=f"配置项 {key} 不存在或无默认值")
+
+    old_value = get_system_config_value(key)
+    default_value = get_system_config_default(key)
+
+    if str(old_value) == str(default_value):
+        return {"success": True, "key": key, "value": default_value, "unchanged": True}
+
+    set_system_config(key, default_value, updated_by=admin_addr)
+
+    add_audit_log(
+        admin_addr, "reset_single_config",
+        target=key, old_value=str(old_value), new_value=str(default_value)
+    )
+
+    return {"success": True, "key": key, "value": default_value, "unchanged": False}
+
+
+# 批量更新配置
+@router.post("/config/batch")
+async def batch_update_config(body: SystemConfigBatchUpdate, request: Request):
+    """批量更新配置"""
+    admin_addr = _verify_admin(body.admin_address, request)
+
+    batch_set_system_config(body.items, updated_by=admin_addr)
+    add_audit_log(admin_addr, "batch_update_config", new_value=f"{len(body.items)} items")
+
+    return {"success": True, "updated": len(body.items)}
+
+
+# 重置系统配置
+@router.post("/config/reset")
+async def reset_config(body: dict, request: Request):
+    """
+    重置系统配置为默认值
+
+    将所有系统配置项恢复为初始化时的默认值，并记录每项变更到审计日志。
+    """
+    from rps_backend.repository import SYSTEM_CONFIG_DEFAULTS
+    admin_addr = _verify_admin(body.get("admin_address"), request)
+
+    reset_count = 0
+    for key, (default_value, category, desc) in SYSTEM_CONFIG_DEFAULTS.items():
+        old_value = get_system_config_value(key)
+        if old_value != default_value:
+            set_system_config(key, default_value, updated_by=admin_addr, description=desc)
+            add_audit_log(
+                admin_addr, "reset_config",
+                target=key, old_value=str(old_value), new_value=default_value,
+            )
+            reset_count += 1
+        else:
+            # 即使值相同也更新描述和分类，确保元数据完整
+            set_system_config(key, default_value, updated_by=admin_addr, description=desc)
+
+    if reset_count == 0:
+        message = "所有配置已是默认值，无需重置"
+    else:
+        message = f"已重置 {reset_count} 项配置为默认值"
+
+    return {"success": True, "message": message, "reset_count": reset_count}
+
+
+# 查看配置变更历史
+@router.get("/config/history")
+async def config_history(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+):
+    """查看配置变更历史（通过审计日志实现）"""
+    logs = list_audit_logs(action="update_config", page=page, size=size)
+    return {
+        "logs": [AuditLogEntry(**l) for l in logs],
+        "page": page,
+        "size": size,
+    }
+
+
+# 获取 RPC 配置（聚合多个配置项）
+@router.get("/config/rpc-config")
+async def get_rpc_config():
+    """获取 RPC 和合约地址配置"""
+    return {
+        "rpc_url": get_system_config_value("rpc_url") or "",
+        "backup_rpc_url": get_system_config_value("backup_rpc_url") or "",
+        "contract_address": get_system_config_value("contract_address") or "",
+    }
+
+
+# 获取环境配置
+@router.get("/config/env-config")
+async def get_env_config():
+    """获取 .env 环境配置"""
+    from rps_backend.config import HOST, PORT, REDIS_URL, DEBUG
+    return {
+        "host": HOST,
+        "port": str(PORT),
+        "redis_url": REDIS_URL,
+        "debug": str(DEBUG).lower(),
+    }
+
+
+# 重新加载环境配置
+@router.post("/config/reload-env")
+async def reload_env_config(request: Request):
+    """重新加载 .env 文件配置（服务端重新读取环境变量）"""
+    try:
+        from rps_backend.config import reload_config
+        reload_config()
+        return {"success": True, "message": "环境配置已重新加载"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重新加载失败: {str(e)}")
+
+
+# 测试 RPC 连接
+@router.get("/local-chain/test-rpc")
+async def test_rpc_connection(url: str = Query(..., description="RPC 节点 URL")):
+    """测试 RPC 节点连通性"""
+    import urllib.request
+    import json as json_mod
+
+    payload = json_mod.dumps({
+        "jsonrpc": "2.0",
+        "method": "eth_chainId",
+        "params": [],
+        "id": 1
+    }).encode()
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"}
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json_mod.loads(resp.read().decode())
+            chain_id_hex = data.get("result", "0x0")
+            chain_id = int(chain_id_hex, 16) if chain_id_hex.startswith("0x") else int(chain_id_hex)
+
+            # 尝试获取区块高度
+            payload2 = json_mod.dumps({
+                "jsonrpc": "2.0",
+                "method": "eth_blockNumber",
+                "params": [],
+                "id": 2
+            }).encode()
+            req2 = urllib.request.Request(
+                url,
+                data=payload2,
+                headers={"Content-Type": "application/json"}
+            )
+            block_number = 0
+            try:
+                with urllib.request.urlopen(req2, timeout=5) as resp2:
+                    data2 = json_mod.loads(resp2.read().decode())
+                    block_hex = data2.get("result", "0x0")
+                    block_number = int(block_hex, 16) if block_hex.startswith("0x") else int(block_hex)
+            except Exception:
+                pass
+
+            return {
+                "ok": True,
+                "chainId": chain_id,
+                "blockNumber": block_number,
+            }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ==================== 审计日志 ====================
+
+# 获取操作审计日志
+@router.get("/audit-logs")
+async def get_audit_logs(
+    admin_address: Optional[str] = None,
+    action: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+):
+    """获取操作审计日志"""
+    logs = list_audit_logs(admin_address=admin_address, action=action, page=page, size=size)
+    return {
+        "logs": [AuditLogEntry(**l) for l in logs],
+        "page": page,
+        "size": size,
+    }
+
+
+# ==================== 仪表盘统计 ====================
+
+# 管理员仪表盘
+@router.get("/dashboard")
+async def admin_dashboard():
+    """管理员仪表盘概览数据"""
+    from rps_backend.repository import get_connection
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) as total FROM games")
+        total_games = cursor.fetchone()["total"]
+
+        cursor.execute("SELECT COUNT(*) as total FROM games WHERE state = 'finished'")
+        finished_games = cursor.fetchone()["total"]
+
+        cursor.execute("SELECT COUNT(DISTINCT player1) + COUNT(DISTINCT player2) as approx FROM games")
+        approx_players = cursor.fetchone()["approx"]
+
+        cursor.execute("SELECT COALESCE(SUM(fee), 0) as total_fee FROM games WHERE state = 'finished'")
+        total_fee = cursor.fetchone()["total_fee"]
+
+        cursor.execute("SELECT COUNT(*) as total FROM contracts")
+        total_contracts = cursor.fetchone()["total"]
+
+        return {
+            "total_games": total_games,
+            "finished_games": finished_games,
+            "active_players_approx": approx_players,
+            "total_fee_collected": total_fee,
+            "total_contracts": total_contracts,
+        }
+    finally:
+        conn.close()
+
+
+# 获取系统健康状态（包含合约监听状态）- 公开接口
+@router.get("/health", include_in_schema=False)
+async def admin_health_check():
+    """获取系统健康状态，包含合约监听、Bot 等服务状态
+    
+    注意：此接口为仪表盘内部使用，需要管理员权限认证。
+    """
+    # 获取合约监听状态
+    try:
+        from rps_backend.service.contract_service import contract_service
+        contract_listening = contract_service.listening
+        contract_address = contract_service._contract_address if contract_service._contract_address else None
+        contract_w3_connected = contract_service.w3 is not None and contract_service.w3.is_connected() if contract_service.w3 else False
+    except Exception:
+        contract_listening = False
+        contract_address = None
+        contract_w3_connected = False
+
+    # 获取 Bot 状态
+    try:
+        from rps_backend.service.bot_service import bot_service
+        bot_running = bot_service._is_running
+        bot_wallet = bot_service._wallet_address if bot_service._wallet_address else None
+        instance = bot_service._instances.get(bot_service._default_instance_id) if hasattr(bot_service, '_instances') else None
+        bot_chain_matches = instance._total_chain_matches if instance else 0
+    except Exception:
+        bot_running = False
+        bot_wallet = None
+        bot_chain_matches = 0
+
+    # 获取 Redis 状态
+    try:
+        from rps_backend.utils.redis_client import redis_client
+        redis_ok = redis_client.is_connected()
+    except Exception:
+        redis_ok = False
+
+    return {
+        "redis": redis_ok,
+        "contract_listening": contract_listening,
+        "contract_address": contract_address,
+        "contract_w3_connected": contract_w3_connected,
+        "bot_running": bot_running,
+        "bot_wallet": bot_wallet,
+        "bot_chain_matches": bot_chain_matches,
+    }
+
+
+# ==================== 本地链管理 ====================
+
+# 获取本地链状态
+@router.get("/local-chain/status")
+async def get_local_chain_status():
+    """获取本地链状态（公开接口）"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    # get_node_status 内部会调用 is_running() 进行 HTTP 健康检测，可能阻塞数秒，
+    # 放到线程池执行避免卡死事件循环
+    return await _run_chain_async(service.get_node_status)
+
+
+# 启动本地链
+@router.post("/local-chain/start")
+async def start_local_chain(request: Request):
+    """启动本地链（开发环境功能，无需权限）
+
+    支持可选的自定义配置，全部参数均可省略使用默认值：
+    - chain_type: 链类型，可选 "ganache" | "hardhat"，默认 ganache
+    - host: 监听地址，默认 {RPC_LOCAL_HOST}
+    - port: 端口，默认 {RPC_LOCAL_PORT}
+    - chain_id: 链 ID，默认 {CHAIN_ID}（避免与 GoChain 冲突，防止 MetaMask 误识别）
+    - accounts_count: 生成账户数，默认 {DEFAULT_ACCOUNT_COUNT}
+    - default_balance: 每个账户默认余额，默认 {DEFAULT_BALANCE}
+    - symbol: 原生代币符号，默认 {RPC_SYMBOL}
+    - deterministic: 是否使用确定性助记词，默认 true
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    # 解析可选参数，缺省时使用 start_node 的内置默认值
+    kwargs = {}
+    if "chain_type" in body and body["chain_type"]:
+        kwargs["chain_type"] = str(body["chain_type"]).strip().lower()
+    if "host" in body and body["host"]:
+        kwargs["host"] = str(body["host"]).strip()
+    if "port" in body and body["port"]:
+        kwargs["port"] = int(body["port"])
+    if "chain_id" in body and body["chain_id"]:
+        kwargs["chain_id"] = int(body["chain_id"])
+    if "accounts_count" in body and body["accounts_count"]:
+        kwargs["accounts_count"] = int(body["accounts_count"])
+    if "default_balance" in body and body["default_balance"] is not None and body["default_balance"] != "":
+        kwargs["default_balance"] = float(body["default_balance"])
+    if "symbol" in body and body["symbol"]:
+        kwargs["symbol"] = str(body["symbol"]).strip()
+    if "deterministic" in body:
+        kwargs["deterministic"] = bool(body["deterministic"])
+    if "persist" in body and body["persist"] is not None:
+        kwargs["persist"] = bool(body["persist"])
+
+    result = await _run_chain_async(service.start_node, **kwargs)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "启动失败"))
+    return result
+
+
+# 停止本地链
+@router.post("/local-chain/stop")
+async def stop_local_chain():
+    """停止本地链（开发环境功能，无需权限）"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    result = await _run_chain_async(service.stop_node)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "停止失败"))
+    return result
+
+
+# 重置（清空）持久化链数据
+@router.post("/local-chain/reset-data")
+async def reset_local_chain_data():
+    """清空持久化链数据目录（开发环境功能）。
+
+    停止运行中的节点 → 删除 data/chaindata_<chain_type> 目录 → 重启节点。
+    重置后链状态恢复到创世，已部署合约将丢失。
+    仅对启用了持久化存储的 Ganache 生效；Hardhat 不支持持久化，操作无效。
+    """
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    result = await _run_chain_async(service.reset_chain_data)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "重置失败"))
+    return result
+
+
+# 获取保活状态
+@router.get("/local-chain/keep-alive")
+async def get_keep_alive_status():
+    """获取本地链保活功能状态"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    return {"success": True, **service.get_keep_alive_status()}
+
+
+# 设置保活开关
+@router.post("/local-chain/keep-alive")
+async def set_keep_alive(request: Request):
+    """
+    设置本地链保活功能开关。
+
+    开启保活后，如果节点意外退出，后台巡检会自动重启。
+    请求体：
+    - enabled: bool 是否开启保活
+    - chain_type: 链类型，可选 "ganache" | "hardhat"，默认 ganache
+    - persist: bool 是否启用持久化存储（仅 Ganache 支持，默认 true）
+    - 其余参数同 start_node（host, port, chain_id 等，可选，用于首次启动或重启时使用）
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    enabled = bool(body.get("enabled", False))
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    kwargs = {}
+    for key in ["chain_type", "host", "port", "chain_id", "accounts_count", "default_balance", "symbol", "deterministic", "persist"]:
+        if key in body and body[key] is not None:
+            if key == "chain_type":
+                kwargs[key] = str(body[key]).strip().lower()
+            elif key in ("port", "chain_id", "accounts_count"):
+                kwargs[key] = int(body[key])
+            elif key == "default_balance":
+                kwargs[key] = float(body[key])
+            elif key in ("deterministic", "persist"):
+                kwargs[key] = bool(body[key])
+            else:
+                kwargs[key] = str(body[key])
+
+    result = await _run_chain_async(service.set_keep_alive, enabled, **kwargs)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "操作失败"))
+    return result
+
+
+# 获取本地链账户列表
+@router.get("/local-chain/accounts")
+async def get_local_chain_accounts():
+    """获取本地链账户列表（含余额，开发环境功能）"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    # is_running() 和 get_accounts() 都会进行 RPC 调用，可能阻塞，放到线程池执行
+    def _get_accounts():
+        if not service.is_running():
+            return []
+        return service.get_accounts()
+    accounts = await _run_chain_async(_get_accounts)
+    return {"accounts": accounts}
+
+
+# 从本地链转账原生代币
+@router.post("/local-chain/send-eth")
+async def send_eth_from_local_chain(request: Request):
+    """从本地链账户转账原生代币到指定地址（开发环境功能）"""
+    body = await request.json()
+    from_index = body.get("from_index", 0)
+    to_address = body.get("to_address")
+    amount = body.get("amount", 1.0)
+
+    if not to_address:
+        return {"success": False, "message": "接收地址必填"}
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    # 将 is_running 检查与 send_eth 一并放到线程池，避免阻塞事件循环
+    def _do_send():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        return service.send_eth(from_index, to_address, float(amount))
+
+    result = await _run_chain_async(_do_send)
+    if not result.get("success"):
+        return {"success": False, "message": result.get("message", "转账失败")}
+    return result
+
+
+# 从本地链转账 ERC20 代币（如 USDC）
+@router.post("/local-chain/send-token")
+async def send_token_from_local_chain(request: Request):
+    """从本地链账户转账 ERC20 代币（如 USDC）到指定地址"""
+    body = await request.json()
+    from_index = body.get("from_index", 0)
+    to_address = body.get("to_address")
+    amount = body.get("amount", 1000)
+    symbol = body.get("symbol", "USDC")
+
+    if not to_address:
+        return {"success": False, "message": "接收地址必填"}
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    def _do_send_token():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        return service.send_token(symbol, to_address, float(amount), from_index)
+
+    result = await _run_chain_async(_do_send_token)
+    if not result.get("success"):
+        return {"success": False, "message": result.get("message", "代币转账失败")}
+    return result
+
+
+# 获取本地链代币列表
+@router.get("/local-chain/tokens")
+async def get_local_chain_tokens():
+    """获取本地链已部署的测试代币列表（开发环境功能）"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+    # is_running() 会进行 HTTP 健康检测，可能阻塞，放到线程池执行
+    def _get_tokens():
+        if not service.is_running():
+            return []
+        return service.get_tokens()
+    tokens = await _run_chain_async(_get_tokens)
+    return {"tokens": tokens}
+
+
+# 部署测试代币
+@router.post("/local-chain/deploy-token")
+async def deploy_local_token(request: Request):
+    """在本地链部署测试代币 (MockERC20，开发环境功能)"""
+    body = await request.json()
+    name = body.get("name", "Mock USDC")
+    symbol = body.get("symbol", "USDC")
+    decimals = int(body.get("decimals", 6))
+    initial_supply = int(body.get("initial_supply", 1_000_000))
+    from_index = int(body.get("from_index", 0))
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    # 部署合约涉及多次 RPC 调用和等待交易确认，必须放到线程池
+    def _do_deploy():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        return service.deploy_mock_erc20(
+            from_index=from_index,
+            name=name,
+            symbol=symbol,
+            decimals=decimals,
+            initial_supply=initial_supply,
+        )
+
+    result = await _run_chain_async(_do_deploy)
+    if not result.get("success"):
+        return {"success": False, "message": result.get("message", "部署失败")}
+    return result
+
+
+@router.post("/local-chain/redeploy-usdc")
+async def redeploy_usdc(request: Request):
+    """重新部署 USDC 并向所有账户分发（修复 USDC 余额为 0 的问题）"""
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    per_account_amount = float(body.get("per_account_amount", 100000))
+
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    def _do_redeploy():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行，请先开启节点"}
+        service._tokens.pop("USDC", None)
+        return service.deploy_and_distribute_usdc(
+            from_index=0,
+            per_account_amount=per_account_amount,
+        )
+
+    result = await _run_chain_async(_do_redeploy)
+    return result
+
+
+# ==================== 本地链浏览器 ====================
+
+# 统一查询接口（自动识别区块号/交易哈希/地址）
+@router.get("/local-chain/explorer/query/{query}")
+async def explorer_query(query: str):
+    """本地链浏览器统一查询接口
+
+    自动识别查询类型：
+    - 纯数字 → 按区块号查询区块
+    - 0x开头 + 64位十六进制 → 按交易哈希查询交易
+    - 0x开头 + 40位十六进制 → 按地址查询余额
+    """
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    q = query.strip()
+    if not q:
+        return {"success": False, "message": "查询内容为空", "type": None, "data": None}
+
+    # 所有 RPC 调用都放到线程池，避免阻塞事件循环
+    def _do_query():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行", "type": None, "data": None}
+
+        # 交易哈希：0x + 64 hex（容错：不带 0x 前缀也支持）
+        tx_hash = q if q.startswith("0x") else ("0x" + q if len(q) == 64 and all(c in "0123456789abcdefABCDEF" for c in q) else None)
+        if tx_hash and len(tx_hash) == 66:
+            data = service.get_transaction(tx_hash)
+            if data:
+                return {"success": True, "type": "transaction", "data": data}
+            return {"success": False, "message": "未找到该交易", "type": "transaction", "data": None}
+
+        # 地址：0x + 40 hex（容错：不带 0x 前缀也支持）
+        addr = q if q.startswith("0x") else ("0x" + q if len(q) == 40 and all(c in "0123456789abcdefABCDEF" for c in q) else None)
+        if addr and len(addr) == 42:
+            data = service.get_address_info(addr)
+            if data:
+                return {"success": True, "type": "address", "data": data}
+            return {"success": False, "message": "地址无效或查询失败", "type": "address", "data": None}
+
+        # 区块号：纯数字
+        if q.isdigit():
+            block_num = int(q)
+            data = service.get_block(block_num)
+            if data:
+                return {"success": True, "type": "block", "data": data}
+            return {"success": False, "message": "未找到该区块", "type": "block", "data": None}
+
+        return {"success": False, "message": "无法识别查询类型（支持区块号、交易哈希、钱包地址）", "type": None, "data": None}
+
+    return await _run_chain_async(_do_query)
+
+
+# 查询最新区块信息
+@router.get("/local-chain/explorer/latest-block")
+async def explorer_latest_block():
+    """获取本地链最新区块号和区块信息"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    # RPC 调用放到线程池执行
+    def _do_latest():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行", "block_number": None}
+        block_num = service.get_latest_block_number()
+        if block_num is None:
+            return {"success": False, "message": "查询失败", "block_number": None}
+        block = service.get_block(block_num)
+        return {"success": True, "block_number": block_num, "block": block}
+
+    return await _run_chain_async(_do_latest)
+
+
+# 查询地址的交易记录
+@router.get("/local-chain/explorer/address/{address}/transactions")
+async def explorer_address_transactions(address: str, scan_blocks: int = 100, limit: int = 50):
+    """查询本地链上指定地址的交易记录（扫描最近 N 个区块）"""
+    from rps_backend.service.local_chain_service import get_local_chain_service
+    service = get_local_chain_service()
+
+    # 限制扫描范围，避免性能问题：默认 100，最大 500
+    scan_blocks = min(max(scan_blocks, 10), 500)
+    limit = min(max(limit, 1), 200)
+
+    # 扫描区块是耗时的 RPC 操作，必须放到线程池执行
+    def _do_scan():
+        if not service.is_running():
+            return {"success": False, "message": "本地链未运行", "transactions": []}
+        data = service.get_address_transactions(address, scan_blocks, limit)
+        if data is None:
+            return {"success": False, "message": "查询失败", "transactions": []}
+        return {"success": True, **data}
+
+    return await _run_chain_async(_do_scan)
+
+
+# ==================== Redis 管理 ====================
+
+# 获取 Redis 状态
+@router.get("/redis/status")
+async def get_redis_status(request: Request):
+    """获取 Redis 节点状态"""
+    _verify_admin(None, request)
+    from rps_backend.service.redis_admin_service import get_redis_admin_service
+    service = get_redis_admin_service()
+    # get_status 内部会调用 redis ping()，可能阻塞，放到线程池
+    return await _run_chain_async(service.get_status)
+
+
+# 启动 Redis
+@router.post("/redis/start")
+async def start_redis(request: Request):
+    """启动 Redis 服务"""
+    _verify_admin(None, request)
+    from rps_backend.service.redis_admin_service import get_redis_admin_service
+    service = get_redis_admin_service()
+    # start_node 内部有 subprocess + time.sleep 循环，必须放到线程池
+    result = await _run_chain_async(service.start_node)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "启动失败"))
+    return result
+
+
+# 停止 Redis
+@router.post("/redis/stop")
+async def stop_redis(request: Request):
+    """停止 Redis 服务"""
+    _verify_admin(None, request)
+    from rps_backend.service.redis_admin_service import get_redis_admin_service
+    service = get_redis_admin_service()
+    # stop_node 内部有 subprocess + time.sleep，必须放到线程池
+    result = await _run_chain_async(service.stop_node)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "停止失败"))
+    return result
+
+
+# 获取 Redis 配置
+@router.get("/redis/config")
+async def get_redis_config(request: Request):
+    """获取 Redis 配置"""
+    _verify_admin(None, request)
+    from rps_backend.service.redis_admin_service import get_redis_admin_service
+    service = get_redis_admin_service()
+    result = await _run_chain_async(service.get_config)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "获取配置失败"))
+    return result
+
+
+# 获取 Redis 键列表
+@router.get("/redis/keys")
+async def get_redis_keys(
+    request: Request,
+    pattern: str = "*",
+    db: int = 0,
+    limit: int = 100,
+):
+    """获取 Redis 键列表"""
+    _verify_admin(None, request)
+    from rps_backend.service.redis_admin_service import get_redis_admin_service
+    service = get_redis_admin_service()
+    # Redis KEYS 命令在大库上会阻塞，放到线程池
+    result = await _run_chain_async(service.get_keys, pattern=pattern, db=db, limit=limit)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "获取键列表失败"))
+    return result
+
+
+# 清空 Redis 数据库
+@router.post("/redis/flush-db")
+async def flush_redis_db(request: Request):
+    """清空 Redis 数据库"""
+    _verify_admin(None, request)
+    body = await request.json()
+    db = int(body.get("db", 0))
+
+    if not body.get("confirm"):
+        raise HTTPException(status_code=400, detail="请确认清空操作")
+
+    from rps_backend.service.redis_admin_service import get_redis_admin_service
+    service = get_redis_admin_service()
+    result = await _run_chain_async(service.flush_db, db=db)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "清空失败"))
+    return result
+
+
+# 删除 Redis 指定键
+@router.post("/redis/delete-key")
+async def delete_redis_key(request: Request):
+    """删除 Redis 指定键"""
+    _verify_admin(None, request)
+    body = await request.json()
+    key = body.get("key")
+    if not key:
+        raise HTTPException(status_code=400, detail="键名必填")
+
+    from rps_backend.service.redis_admin_service import get_redis_admin_service
+    service = get_redis_admin_service()
+    result = await _run_chain_async(service.delete_key, key)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("message", "删除失败"))
+    return result
+
+
+# ==================== GitHub 代码管理 ====================
+
+def _get_project_root() -> str:
+    """获取项目根目录"""
+    return os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    )
+
+
+def _run_git(args: list, cwd: str, timeout: int = 30) -> tuple:
+    """执行 git 命令，返回 (returncode, stdout, stderr)"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        return -1, "", "命令执行超时"
+    except FileNotFoundError:
+        return -1, "", "git 未安装或不在 PATH 中"
+    except Exception as e:
+        return -1, "", str(e)
+
+
+@router.get("/github/status")
+async def github_status():
+    """获取 Git 仓库状态（当前分支、commit、远程信息等）"""
+    project_root = _get_project_root()
+
+    # 检查是否是 git 仓库
+    code, out, err = _run_git(["rev-parse", "--is-inside-work-tree"], project_root)
+    if code != 0 or out != "true":
+        return {
+            "is_git_repo": False,
+            "message": "当前目录不是 Git 仓库",
+            "project_root": project_root,
+        }
+
+    # 获取当前分支
+    _, branch, _ = _run_git(["branch", "--show-current"], project_root)
+
+    # 获取当前 commit
+    _, commit, _ = _run_git(["rev-parse", "HEAD"], project_root)
+    _, commit_msg, _ = _run_git(["log", "-1", "--pretty=%s"], project_root)
+    _, commit_time, _ = _run_git(["log", "-1", "--pretty=%cI"], project_root)
+
+    # 获取远程信息
+    _, remote, _ = _run_git(["remote", "-v"], project_root)
+
+    # 检查是否有未提交的更改
+    code, status_out, _ = _run_git(["status", "--porcelain"], project_root)
+    has_changes = bool(status_out)
+
+    # 尝试 fetch 并获取远程最新 commit（快速，不影响工作目录）
+    remote_head = ""
+    try:
+        _run_git(["fetch", "--depth=1"], project_root, timeout=15)
+        _, remote_head, _ = _run_git(
+            ["rev-parse", f"origin/{branch}"] if branch else ["rev-parse", "origin/main"],
+            project_root
+        )
+    except Exception:
+        pass
+
+    # 比较本地和远程 commit
+    is_behind = False
+    ahead_count = 0
+    behind_count = 0
+    if commit and remote_head:
+        code, ahead_behind, _ = _run_git(
+            ["rev-list", "--left-right", "--count", f"{commit}...{remote_head}"],
+            project_root
+        )
+        if code == 0 and ahead_behind.strip():
+            parts = ahead_behind.strip().split()
+            if len(parts) == 2:
+                ahead_count = int(parts[0])
+                behind_count = int(parts[1])
+                is_behind = behind_count > 0
+
+    return {
+        "is_git_repo": True,
+        "project_root": project_root,
+        "branch": branch or "(detached)",
+        "local_commit": commit[:8] if commit else "",
+        "local_commit_msg": commit_msg,
+        "local_commit_time": commit_time,
+        "remote_commit": remote_head[:8] if remote_head else "",
+        "has_changes": has_changes,
+        "ahead_count": ahead_count,
+        "behind_count": behind_count,
+        "is_behind": is_behind,
+        "remote_info": remote,
+    }
+
+
+@router.post("/github/pull")
+async def github_pull(request: Request):
+    """
+    从 GitHub 硬拉取最新代码（强制替换本地，以远程为准）
+
+    流程：
+    1. 记录当前 commit（用于审计）
+    2. git fetch origin
+    3. git reset --hard origin/<branch> （强制覆盖本地）
+    4. git clean -fd （清除未跟踪文件和目录）
+    5. 记录远程最新 commit
+    """
+    admin_addr = _verify_admin(None, request)
+
+    project_root = _get_project_root()
+
+    # 前置检查
+    code, out, _ = _run_git(["rev-parse", "--is-inside-work-tree"], project_root)
+    if code != 0 or out != "true":
+        raise HTTPException(status_code=400, detail="当前目录不是 Git 仓库")
+
+    # 获取当前分支
+    _, branch, _ = _run_git(["branch", "--show-current"], project_root)
+    if not branch:
+        # HEAD detached，尝试从远程推断
+        _, branch, _ = _run_git(["symbolic-ref", "--short", "origin/HEAD"], project_root)
+        if branch.startswith("origin/"):
+            branch = branch[7:]  # 去掉 origin/ 前缀
+        if not branch:
+            branch = "main"
+
+    # 记录拉取前 commit
+    _, before_commit, _ = _run_git(["rev-parse", "HEAD"], project_root)
+    _, before_msg, _ = _run_git(["log", "-1", "--pretty=%s"], project_root)
+
+    steps = []
+
+    # Step 1: git fetch
+    steps.append({"step": 1, "action": "fetch", "status": "running", "message": "正在从远程获取最新信息..."})
+    code, out, err = _run_git(["fetch", "--all", "--prune"], project_root, timeout=60)
+    if code != 0:
+        steps[-1]["status"] = "failed"
+        steps[-1]["message"] = f"fetch 失败: {err or out}"
+        raise HTTPException(status_code=500, detail={"message": "git fetch 失败", "steps": steps})
+    steps[-1]["status"] = "success"
+    steps[-1]["message"] = "fetch 完成"
+
+    # Step 2: git reset --hard
+    steps.append({"step": 2, "action": "reset", "status": "running", "message": f"正在强制重置到 origin/{branch}..."})
+    reset_ref = f"origin/{branch}"
+    code, out, err = _run_git(["reset", "--hard", reset_ref], project_root, timeout=30)
+    if code != 0:
+        steps[-1]["status"] = "failed"
+        steps[-1]["message"] = f"reset 失败: {err or out}"
+        raise HTTPException(status_code=500, detail={"message": "git reset --hard 失败", "steps": steps})
+    steps[-1]["status"] = "success"
+    steps[-1]["message"] = "reset 完成，本地代码已被远程覆盖"
+
+    # Step 3: git clean -fd（清除未跟踪文件）
+    steps.append({"step": 3, "action": "clean", "status": "running", "message": "正在清除未跟踪文件..."})
+    code, clean_out, clean_err = _run_git(["clean", "-fd"], project_root, timeout=30)
+    if code != 0:
+        steps[-1]["status"] = "failed"
+        steps[-1]["message"] = f"clean 失败: {clean_err or clean_out}"
+        raise HTTPException(status_code=500, detail={"message": "git clean -fd 失败", "steps": steps})
+    steps[-1]["status"] = "success"
+    steps[-1]["message"] = f"clean 完成，已清理未跟踪文件"
+
+    # 记录拉取后 commit
+    _, after_commit, _ = _run_git(["rev-parse", "HEAD"], project_root)
+    _, after_msg, _ = _run_git(["log", "-1", "--pretty=%s"], project_root)
+    _, after_time, _ = _run_git(["log", "-1", "--pretty=%cI"], project_root)
+
+    changed = before_commit != after_commit
+
+    # 记录审计日志
+    try:
+        add_audit_log(
+            admin_addr or "system",
+            "github_pull",
+            target=f"branch={branch}",
+            old_value=f"{before_commit[:8]} ({before_msg})" if before_commit else "",
+            new_value=f"{after_commit[:8]} ({after_msg})" if after_commit else "",
+        )
+    except Exception:
+        pass  # 审计日志失败不影响主流程
+
+    steps.append({"step": 4, "action": "complete", "status": "success", "message": "拉取完成"})
+
+    return {
+        "success": True,
+        "changed": changed,
+        "branch": branch,
+        "before_commit": before_commit[:8] if before_commit else "",
+        "before_msg": before_msg,
+        "after_commit": after_commit[:8] if after_commit else "",
+        "after_msg": after_msg,
+        "after_time": after_time,
+        "steps": steps,
+        "message": "代码已是最新" if not changed else f"已更新到 {after_commit[:8]}",
+    }
+
+
+# ==================== 服务管理 ====================
+
+@router.post("/server/restart")
+async def server_restart(request: Request):
+    """
+    重启后端服务
+
+    启动一个独立的重启脚本（detached 进程），等待当前进程退出后，
+    重新启动 uvicorn。当前请求在触发重启脚本后立即返回成功。
+    """
+    import subprocess
+    import sys
+
+    admin_addr = _verify_admin(None, request)
+
+    from rps_backend.config import HOST, PORT
+
+    # 获取项目根目录
+    project_root = _get_project_root()
+
+    # 获取当前进程 PID
+    current_pid = os.getpid()
+
+    # 重启脚本路径
+    restart_script = os.path.join(project_root, "scripts", "restart_server.py")
+
+    # 如果重启脚本不存在，创建它
+    if not os.path.exists(restart_script):
+        # 确保 scripts 目录存在
+        os.makedirs(os.path.dirname(restart_script), exist_ok=True)
+
+    # 获取 Python 可执行路径
+    python_exe = sys.executable
+
+    # 启动重启脚本（detached 方式，不随当前进程退出）
+    try:
+        # Windows: subprocess.CREATE_NEW_PROCESS_GROUP
+        # Unix: preexec_fn=os.setsid
+        startupinfo = None
+        creationflags = 0
+        if os.name == "nt":
+            # Windows 下需要隐藏窗口并创建新进程组
+            creationflags = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS
+            )
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        proc = subprocess.Popen(
+            [
+                python_exe,
+                restart_script,
+                str(current_pid),
+                project_root,
+                python_exe,
+                HOST,
+                str(PORT),
+            ],
+            cwd=project_root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=creationflags,
+            startupinfo=startupinfo,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"启动重启脚本失败: {str(e)}")
+
+    # 记录审计日志
+    try:
+        add_audit_log(
+            admin_addr,
+            "server_restart",
+            target=f"pid={current_pid}",
+        )
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "message": "重启指令已发送，服务将在几秒后恢复",
+        "current_pid": current_pid,
+        "restart_script": restart_script,
+    }
+
+
+@router.get("/server/status")
+async def server_status():
+    """获取服务器状态信息"""
+    import sys
+    import platform
+
+    from rps_backend.config import HOST, PORT
+
+    return {
+        "pid": os.getpid(),
+        "python_version": sys.version.split()[0],
+        "platform": platform.platform(),
+        "host": HOST,
+        "port": PORT,
+        "working_dir": os.getcwd(),
+    }
+
+
+# ==================== 调试工具 ====================
+
+@router.get("/rootfs/list")
+async def rootfs_list(path: str = ""):
+    """列出项目根目录下的文件/子目录（调试用）"""
+    project_root = _get_project_root()
+    target = os.path.join(project_root, path) if path else project_root
+
+    # 安全校验
+    dangerous_dirs = {".git", ".venv", "venv", "__pycache__", ".idea", ".vscode"}
+    real_target = os.path.realpath(target)
+    real_root = os.path.realpath(project_root)
+    if not real_target.startswith(real_root):
+        raise HTTPException(status_code=403, detail="路径越界")
+    parts = path.replace("\\", "/").split("/") if path else []
+    for p in parts:
+        if p.startswith(".") or p in dangerous_dirs:
+            raise HTTPException(status_code=403, detail=f"禁止访问: {p}")
+
+    if not os.path.isdir(real_target):
+        raise HTTPException(status_code=404, detail="目录不存在")
+
+    items = []
+    try:
+        for name in sorted(os.listdir(real_target)):
+            if name.startswith("."):
+                continue
+            if name in dangerous_dirs:
+                continue
+            full = os.path.join(real_target, name)
+            is_dir = os.path.isdir(full)
+            size = os.path.getsize(full) if os.path.isfile(full) else 0
+            mtime = os.path.getmtime(full)
+            items.append({
+                "name": name,
+                "is_dir": is_dir,
+                "size": size,
+                "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime)),
+            })
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    return {
+        "project_root": project_root,
+        "current_path": path or "/",
+        "items": items,
+    }

@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <!--    文件头-->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+          content="ChainRPS链上公平猜拳（石头剪刀布），基于Polygon区块链实现透明可验证的石头剪刀布博弈，无后台操控，对局结果链上可查。">
+    <!--    标题-->
+    <title>ChainRPS - 链上公平猜拳</title>
+
+    <!--    图标-->
+    <link rel="icon" href="../favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+
+    <!--    样式-->
+    <link rel="stylesheet" href="../css/theme.css?v=20261004j">
+    <link rel="stylesheet" href="../css/style.css?v=20261004j">
+</head>
+<body>
+<div id="app">
+    <header class="app-header">
+        <div class="header-left">
+            <div class="logo">
+                <!--                    <span class="logo-icon">✊ ✋ ✌️</span>-->
+                <a href="/">
+                    <img src="../img/ChainRPS.png" alt="ChainRPS" class="logo-image">
+
+                    <span class="logo-text">ChainRPS</span>
+                </a>
+            </div>
+        </div>
+
+
+        <div class="header-right">
+            <button class="theme-toggle" id="themeToggle" title="切换主题">
+                <span class="theme-icon">🌙</span>
+            </button>
+
+            <!-- 主链状态指示器 -->
+            <div class="chain-status-indicator" id="chainStatusIndicator" title="点击检测主链状态">
+                <span class="chain-status-dot" id="chainStatusDot">⚪</span>
+                <span class="chain-status-text" id="chainStatusText">检测中</span>
+            </div>
+
+            <div class="wallet-section" id="walletSection">
+                <button class="btn btn-primary btn-connect-wallet" id="connectWalletBtn">
+                    <span>连接钱包</span>
+                </button>
+                <div class="wallet-info hidden" id="walletInfo">
+                    <div class="wallet-avatar-container" title="点击查看钱包详情">
+                        <div class="wallet-avatar" id="walletAvatar">👤</div>
+                    </div>
+                    <div class="wallet-details">
+                        <span class="wallet-balance-large" id="walletBalance" title="点击查看所有代币余额" style="cursor: pointer;">-</span>
+                        <span class="wallet-address" id="walletAddress" title="点击复制">-</span>
+                    </div>
+                    <button class="btn btn-ghost btn-disconnect" id="disconnectBtn" title="断开连接">✕</button>
+                </div>
+                <!-- 多币种余额展开面板 -->
+                <div class="wallet-balances-dropdown hidden" id="walletBalancesDropdown">
+                    <!-- 用户身份区（置顶） -->
+                    <div class="dropdown-user-card">
+                        <div class="dropdown-user-avatar" id="dropdownUserAvatar">👤</div>
+                        <div class="dropdown-user-info">
+                            <div class="dropdown-user-address" id="dropdownUserAddress" title="点击复制">0x...</div>
+                            <!-- 网络切换入口（点击展开 inline 列表） -->
+                            <div class="dropdown-user-network" id="dropdownNetworkToggle" title="点击切换网络">
+                                <span class="dropdown-network-icon" id="dropdownNetworkIcon">🔗</span>
+                                <span class="dropdown-network-name" id="dropdownNetworkName">未知网络</span>
+                                <span class="dropdown-network-caret">▾</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- inline 网络选择列表（在 dropdown 内部展开，不遮挡用户信息） -->
+                    <div class="dropdown-network-list hidden" id="dropdownNetworkList">
+                        <div class="dnl-title">选择网络</div>
+                        <div id="dropdownNetworkItems"></div>
+                    </div>
+
+                    <!-- 余额区 -->
+                    <div class="dropdown-section-title">代币余额</div>
+                    <div class="balance-item">
+                        <span class="balance-symbol" id="walletNativeSymbolLabel">原生币</span>
+                        <span class="balance-value" id="walletNativeBalance">-</span>
+                    </div>
+                    <div class="balance-item">
+                        <span class="balance-symbol">USDC</span>
+                        <span class="balance-value" id="walletUsdcBalance">-</span>
+                    </div>
+
+                    <!-- 网络与代币合约地址 -->
+                    <div class="dropdown-section-title">网络 & 合约</div>
+                    <div class="dropdown-token-info" id="dropdownTokenInfo">
+                        <div class="dropdown-token-row">
+                            <span class="dropdown-token-label">Chain ID</span>
+                            <span class="dropdown-token-value" id="dropdownChainId">-</span>
+                        </div>
+                        <div class="dropdown-token-row">
+                            <span class="dropdown-token-label">RPC URL</span>
+                            <span class="dropdown-token-value" id="dropdownRpcUrl" style="font-size:10px;">-</span>
+                        </div>
+                        <div class="dropdown-token-row" id="dropdownNativeInfo">
+                            <span class="dropdown-token-label">原生币</span>
+                            <span class="dropdown-token-value" id="dropdownNativeAddr" title="点击复制" onclick="App.copyTokenAddress(this, true)">零地址</span>
+                        </div>
+                        <div class="dropdown-token-row" id="dropdownUsdcInfo">
+                            <span class="dropdown-token-label">USDC</span>
+                            <span class="dropdown-token-value" id="dropdownUsdcAddr" title="点击复制" onclick="App.copyTokenAddress(this, false)">-</span>
+                        </div>
+                    </div>
+
+                    <!-- 快捷入口栏（从侧栏整合过来） -->
+                    <div class="dropdown-quick-actions">
+                        <button class="dropdown-quick-btn" data-quick="history" title="历史记录">
+                            <span class="dq-icon">📋</span>
+                            <span class="dq-label">历史</span>
+                        </button>
+                        <button class="dropdown-quick-btn" data-quick="stats" title="我的统计">
+                            <span class="dq-icon">📊</span>
+                            <span class="dq-label">统计</span>
+                        </button>
+                        <button class="dropdown-quick-btn" data-quick="settings" title="设置">
+                            <span class="dq-icon">⚙️</span>
+                            <span class="dq-label">设置</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <section class="game-container">
+            <div class="game-stage" id="gameStage">
+                <div class="stage-home" id="stageHome">
+                    <div class="home-content">
+                        <h1 class="home-title">链上公平猜拳</h1>
+                        <p class="home-subtitle">密码学保证公平 · 链上自动结算 · 完全透明可验证</p>
+                    </div>
+                </div>
+
+                <div class="stage-lobby hidden" id="stageLobby">
+                    <div class="lobby-content">
+                        <div class="lobby-header">
+                            <div class="lobby-title-row">
+                                <h2 class="lobby-title">🏠 游戏大厅</h2>
+                                <div class="lobby-toolbar">
+                                    <label class="private-toggle" title="不向服务器传输对局信息">
+                                        <input type="checkbox" id="modePrivateCheckbox">
+                                        <span class="private-toggle-icon">🔒</span>
+                                        <span class="private-toggle-text">私密</span>
+                                    </label>
+                                    <button class="btn-icon" id="refreshRoomListBtn" title="刷新大厅">
+                                        <span>🔄</span>
+                                    </button>
+                                    <button class="view-switch-btn" id="viewSwitchBtn" title="切换列表/卡片视图">
+                                        <span class="view-icon">▦</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <p class="lobby-subtitle">创建房间或加入房间开始对局</p>
+                        </div>
+
+                        <div class="lobby-stats" id="lobbyStats">
+                            <div class="stat-item">
+                                <span class="stat-label">总房间</span>
+                                <span class="stat-value" id="statTotal">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">可加入</span>
+                                <span class="stat-value" id="statAvailable">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">已开始</span>
+                                <span class="stat-value" id="statStarted">0</span>
+                            </div>
+                        </div>
+
+                        <div class="room-list" id="roomList">
+                            <div class="empty-state">
+                                <span class="empty-icon">🏠</span>
+                                <p>暂无可用房间</p>
+                                <p class="empty-hint">点击下方按钮创建第一个房间</p>
+                            </div>
+                        </div>
+
+                        <div class="lobby-actions">
+                            <button class="btn btn-primary btn-large" id="createRoomBtn">
+                                <span>➕ 创建房间</span>
+                            </button>
+                            <button class="btn btn-outline btn-large" id="joinRoomBtn">
+                                <span>🔗 输入房间ID</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stage-room-wait hidden" id="stageRoomWait">
+                    <div class="room-wait-content">
+                        <button class="room-close-btn" id="roomExitBtn" title="离开房间" type="button">✕</button>
+
+                        <div class="room-header">
+                            <div class="room-id-badge" id="roomIdBadge" title="点击复制房间号">
+                                <span>房间 #</span><span id="roomIdDisplay"></span>
+                                <button class="btn-copy-room-id" id="copyRoomIdBtn" title="复制房间号" type="button">
+                                    <span>📋</span>
+                                </button>
+                            </div>
+                            <div class="room-status-badge" id="roomStatusBadge">等待对手</div>
+                        </div>
+
+                        <div class="room-players">
+                            <div class="room-player room-player-creator">
+                                <div class="player-avatar" id="roomCreatorAvatar">👤</div>
+                                <div class="player-info">
+                                    <div class="player-name" id="roomCreatorAddress"></div>
+                                    <div class="player-status" id="roomCreatorStatus">创建者</div>
+                                </div>
+                                <div class="player-ready-badge" id="roomCreatorReady">
+                                    <span class="ready-icon">⚪</span>
+                                    <span>未准备</span>
+                                </div>
+                            </div>
+
+                            <div class="room-vs">
+                                <span class="vs-text">VS</span>
+                                <span class="vs-stake" id="roomVsStake" title="本局赌注">--</span>
+                            </div>
+
+                            <div class="room-player room-player-opponent" id="roomOpponentCard">
+                                <button class="seat-avatar-btn" id="seatAvatarBtn" type="button" title="">
+                                    <span class="player-avatar seat-avatar-icon" id="seatAvatarIcon">➕</span>
+                                    <span class="seat-action-hint" id="seatActionHint"></span>
+                                </button>
+                                <div class="player-info">
+                                    <div class="player-name" id="roomOpponentAddress">等待对手...</div>
+                                    <div class="player-status" id="roomOpponentStatus">未加入</div>
+                                </div>
+                                <div class="player-ready-badge" id="roomOpponentReady">
+                                    <span class="ready-icon">⚪</span>
+                                    <span>未准备</span>
+                                </div>
+
+                                <!-- 空位操作菜单（仅房主可见） -->
+                                <div class="seat-menu hidden" id="seatMenu">
+                                    <button class="seat-menu-item" data-seat-action="open" type="button">
+                                        <span class="sm-icon">🔓</span>
+                                        <span class="sm-label">开放空位</span>
+                                        <span class="sm-check">✓</span>
+                                    </button>
+                                    <button class="seat-menu-item" data-seat-action="ai" type="button">
+                                        <span class="sm-icon">🤖</span>
+                                        <span class="sm-label">邀请 AI</span>
+                                        <span class="sm-check">✓</span>
+                                    </button>
+                                    <button class="seat-menu-item" data-seat-action="invite" type="button">
+                                        <span class="sm-icon">🔗</span>
+                                        <span class="sm-label">邀请好友</span>
+                                    </button>
+                                    <button class="seat-menu-item seat-menu-danger hidden" data-seat-action="kick" type="button">
+                                        <span class="sm-icon">✖</span>
+                                        <span class="sm-label">移出房间</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="room-countdown hidden" id="roomCountdown">
+                            <div class="countdown-circle">
+                                <span class="countdown-number" id="countdownNumber">15</span>
+                            </div>
+                            <p class="countdown-text">游戏即将开始...</p>
+                        </div>
+
+                        <div class="room-actions">
+                            <button class="btn btn-primary btn-large btn-block" id="readyBtn">
+                                <span id="readyBtnText">准备</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stage-matching hidden" id="stageMatching">
+                    <div class="matching-content">
+                        <div class="matching-spinner">
+                            <div class="spinner"></div>
+                        </div>
+                        <h2 class="matching-title">正在寻找对手...</h2>
+                        <p class="matching-text">请稍候，系统正在为你匹配同金额的玩家</p>
+                        <div class="matching-info">
+                            <div class="info-item">
+                                <span class="info-label">下注金额</span>
+                                <span class="info-value" id="matchingAmount">100 USDC</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">等待时间</span>
+                                <span class="info-value" id="matchingTime">0s</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-default btn-cancel-match" id="cancelMatchBtn">
+                            取消匹配
+                        </button>
+                    </div>
+                </div>
+
+                <div class="stage-game hidden" id="stageGame">
+                    <div class="game-header">
+                        <div class="game-status-badge" id="gameStatusBadge">准备中</div>
+                        <div class="game-fund-stage" id="gameFundStage">🔒 资金：本地冻结（准备阶段）</div>
+                        <div class="game-timer" id="gameTimer">--:--</div>
+                        <div class="game-id" id="gameIdDisplay">对局 #--</div>
+                        <button class="btn btn-icon btn-exit-game" id="exitGameBtn" title="退出房间">✕</button>
+                    </div>
+
+                    <div class="game-board">
+                        <div class="player-side player-opponent">
+                            <div class="player-avatar">👤</div>
+                            <div class="player-info">
+                                <div class="player-name" id="opponentAddress">等待对手...</div>
+                                <div class="player-status" id="opponentStatus">未连接</div>
+                            </div>
+                            <div class="player-choice" id="opponentChoice">
+                                <span class="choice-hidden">❓</span>
+                            </div>
+                        </div>
+
+                        <div class="game-vs">VS</div>
+
+                        <div class="player-side player-me">
+                            <div class="player-avatar">😎</div>
+                            <div class="player-info">
+                                <div class="player-name" id="myAddress">我的地址</div>
+                                <div class="player-status" id="myStatus">等待出拳</div>
+                            </div>
+                            <div class="player-choice" id="myChoice">
+                                <span class="choice-hidden">❓</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="game-actions" id="gameActions">
+                        <div class="choice-buttons">
+                            <button class="choice-btn choice-rock" data-choice="1">
+                                <span class="choice-emoji">✊</span>
+                                <span class="choice-name">石头</span>
+                            </button>
+                            <button class="choice-btn choice-paper" data-choice="2">
+                                <span class="choice-emoji">✋</span>
+                                <span class="choice-name">布</span>
+                            </button>
+                            <button class="choice-btn choice-scissors" data-choice="3">
+                                <span class="choice-emoji">✌️</span>
+                                <span class="choice-name">剪刀</span>
+                            </button>
+                        </div>
+
+                        <div class="choice-confirm hidden" id="choiceConfirmSection">
+                            <div class="selected-choice-preview" id="selectedChoicePreview"></div>
+                            <button class="btn btn-primary btn-large btn-block" id="confirmChoiceBtn">
+                                ✓ 确认出拳并上链
+                            </button>
+                            <button class="btn btn-secondary btn-block" id="cancelChoiceBtn">
+                                重新选择
+                            </button>
+                        </div>
+
+                        <div class="action-buttons hidden" id="revealSection">
+                            <button class="btn btn-success btn-large btn-block btn-reveal" id="revealBtn">
+                                揭晓出拳
+                            </button>
+                        </div>
+
+                        <div class="action-buttons hidden" id="timeoutSection">
+                            <button class="btn btn-danger btn-large btn-block btn-claim-timeout" id="claimTimeoutBtn">
+                                索赔超时胜利
+                            </button>
+                        </div>
+
+                        <div class="action-buttons hidden" id="retrySection">
+                            <button class="btn btn-primary btn-large btn-block" id="retryCreateBtn">
+                                ⟳ 重试创建对局
+                            </button>
+                            <button class="btn btn-primary btn-large btn-block hidden" id="retryJoinBtn">
+                                ⟳ 重试加入对局
+                            </button>
+                            <button class="btn btn-danger btn-block" id="leaveRoomInGameBtn">
+                                退出房间
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stage-result hidden" id="stageResult">
+                    <div class="result-content">
+                        <div class="result-icon" id="resultIcon">🏆</div>
+                        <h2 class="result-title" id="resultTitle">你赢了！</h2>
+                        <p class="result-desc" id="resultDesc">恭喜获得胜利</p>
+
+                        <div class="result-detail">
+                            <div class="result-row">
+                                <span class="result-label">你的出拳</span>
+                                <span class="result-value" id="resultMyChoice">✊ 石头</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">对手出拳</span>
+                                <span class="result-value" id="resultOpponentChoice">✌️ 剪刀</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">下注金额</span>
+                                <span class="result-value" id="resultAmount">100 USDC</span>
+                            </div>
+                            <div class="result-row result-win">
+                                <span class="result-label">获得奖金</span>
+                                <span class="result-value" id="resultPrize">+98 USDC</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">手续费 (2%)</span>
+                                <span class="result-value" id="resultFee">-2 USDC</span>
+                            </div>
+                        </div>
+
+                        <div class="result-actions">
+                            <button class="btn btn-primary btn-large btn-block btn-play-again" id="playAgainBtn">
+                                再来一局
+                            </button>
+                            <button class="btn btn-default btn-block btn-back-home" id="backHomeBtn">
+                                退出房间
+                            </button>
+                        </div>
+                        <p class="result-countdown" id="resultCountdown"></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <aside class="side-panel hidden" id="sidePanel">
+            <button class="side-panel-close" id="sidePanelCloseBtn" title="关闭">✕</button>
+            <div class="panel-content hidden" id="panelContent">
+                <div class="tab-content tab-history" id="tabHistory">
+                    <div class="view-toggle">
+                        <button class="view-btn active" data-view="list">📋 列表</button>
+                        <button class="view-btn" data-view="card">🃏 卡片</button>
+                    </div>
+                    <div class="history-list" id="historyList">
+                        <div class="empty-state">
+                            <span class="empty-icon">📭</span>
+                            <p>暂无对局记录</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content tab-stats hidden" id="tabStats">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="statTotalGames">0</div>
+                            <div class="stat-label">总对局</div>
+                        </div>
+                        <div class="stat-card stat-win">
+                            <div class="stat-value" id="statWins">0</div>
+                            <div class="stat-label">胜利</div>
+                        </div>
+                        <div class="stat-card stat-lose">
+                            <div class="stat-value" id="statLosses">0</div>
+                            <div class="stat-label">失败</div>
+                        </div>
+                        <div class="stat-card stat-draw">
+                            <div class="stat-value" id="statDraws">0</div>
+                            <div class="stat-label">平局</div>
+                        </div>
+                    </div>
+                    <div class="win-rate-section">
+                        <div class="win-rate-header">
+                            <span>胜率</span>
+                            <span id="winRateValue">0%</span>
+                        </div>
+                        <div class="win-rate-bar">
+                            <div class="win-rate-fill" id="winRateFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content tab-settings hidden" id="tabSettings">
+                    <div class="settings-section">
+                        <h4 class="settings-title">个人资料</h4>
+                        <div class="setting-item">
+                            <label>昵称</label>
+                            <input type="text" id="settingNickname" placeholder="设置你的昵称" class="setting-input">
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4 class="settings-title">网络与合约</h4>
+                        <div class="setting-item">
+                            <label>后端服务器 IP</label>
+                            <input type="text" id="settingServerIp" placeholder="127.0.0.1" class="setting-input">
+                            <small class="setting-hint">不连服务器时默认 127.0.0.1（辅助功能地址）</small>
+                        </div>
+                        <div class="setting-item">
+                            <label>后端端口</label>
+                            <input type="text" id="settingServerPort" placeholder="8000" class="setting-input">
+                        </div>
+                        <div class="setting-item">
+                            <label>合约地址（揭晓/结算标准）</label>
+                            <input type="text" id="settingContractAddress" placeholder="0x..." class="setting-input">
+                            <small class="setting-hint">当前网络合约地址，决定揭晓与结算的链上标准</small>
+                        </div>
+                        <button class="btn btn-outline btn-block" id="verifyContractBtn" style="margin-top: 8px;">
+                            验证合约
+                        </button>
+                    </div>
+                    <div class="settings-section">
+                        <h4 class="settings-title">外观</h4>
+                        <div class="setting-item">
+                            <label>主题</label>
+                            <select id="settingTheme" class="setting-select">
+                                <option value="light">浅色模式</option>
+                                <option value="dark">深色模式</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4 class="settings-title">游戏偏好</h4>
+                        <div class="setting-item">
+                            <label>默认模式</label>
+                            <select id="settingDefaultMode" class="setting-select">
+                                <option value="A">快速匹配</option>
+                                <option value="B">私密纯净</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>默认代币</label>
+                            <select id="settingDefaultToken" class="setting-select">
+                                <option value="POL">POL</option>
+                                <option value="USDC">USDC</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>超时策略</label>
+                            <select id="settingTimeoutChoice" class="setting-select">
+                                <option value="random">随机出拳</option>
+                                <option value="rock">石头</option>
+                                <option value="paper">布</option>
+                                <option value="scissors">剪刀</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4 class="settings-title">签名模式</h4>
+                        <div class="setting-item">
+                            <label>模式选择</label>
+                            <select id="settingSignatureMode" class="setting-select">
+                                <option value="A">A 模式：单次签名（每局需签名，无 gas 费）</option>
+                                <option value="B">B 模式：7 天零签名（授权 relayer 代操作）</option>
+                            </select>
+                            <small class="setting-hint">A 模式每局需在钱包签名；B 模式一次性授权 relayer 7 天代提交，期间无需逐局签名</small>
+                        </div>
+                        <div class="setting-item mode-b-status hidden" id="modeBStatusSection">
+                            <label>授权状态</label>
+                            <div class="mode-b-status-content" id="modeBStatusContent">查询中...</div>
+                            <button class="btn btn-outline btn-block" id="revokeRelayerBtn" style="margin-top: 8px;">
+                                撤销授权
+                            </button>
+                            <button class="btn btn-primary btn-block" id="authorizeRelayerBtn" style="margin-top: 8px;">
+                                授权 Relayer（7 天）
+                            </button>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4 class="settings-title">通知与声音</h4>
+                        <div class="setting-item setting-toggle-item">
+                            <label>启用通知</label>
+                            <label class="switch">
+                                <input type="checkbox" id="settingNotifications" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-item setting-toggle-item">
+                            <label>音效</label>
+                            <label class="switch">
+                                <input type="checkbox" id="settingSound" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-item setting-toggle-item">
+                            <label>自动揭晓</label>
+                            <label class="switch">
+                                <input type="checkbox" id="settingAutoReveal">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-item setting-toggle-item">
+                            <label>
+                                自动授权代币
+                                <small style="display:block;font-weight:400;opacity:0.7;margin-top:2px;">首次无限额授权，后续对局无需重复确认授权交易</small>
+                            </label>
+                            <label class="switch">
+                                <input type="checkbox" id="settingAutoApprove" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-block" id="saveSettingsBtn" style="margin-top: 16px;">
+                        保存设置
+                    </button>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <footer class="app-footer">
+        <div class="footer-links">
+            <a href="/explorer" class="footer-link" target="_blank">链上查询</a>
+            <a href="/guide" class="footer-link" target="_blank">使用文档</a>
+            <a href="/guide#demo" class="footer-link" target="_blank">阶段演示</a>
+            <a href="/admin" class="footer-link" target="_blank">管理面板</a>
+        </div>
+        <div class="footer-copyright">
+            <span>ChainRPS v1.0.13 · 公平 · 透明 · 可验证</span>
+        </div>
+    </footer>
+</div>
+
+<div id="walletModal"></div>
+<div id="toastContainer"></div>
+
+<script src="../js/ethers.umd.min.js"></script>
+
+<script src="../js/FWUI/modal.js?v=20260726d"></script>
+<script src="../js/FWUI/toast.js?v=20260726d"></script>
+<script src="../js/FWUI/button.js?v=20260726d"></script>
+<script src="../js/FWUI/input.js?v=20260726d"></script>
+
+<script src="../js/config.js?v=20260728a"></script>
+<script src="../js/wallet.js?v=20260728a"></script>
+<script src="../js/crypto.js?v=20260726d"></script>
+<script src="../js/contract.js?v=20261004p"></script>
+<script src="../js/websocket.js?v=20260726d"></script>
+<script src="../js/p2p.js?v=20260729a"></script>
+<script src="../js/ui.js?v=20261004j"></script>
+<script src="../js/history.js?v=20260726d"></script>
+<script src="../js/settings.js?v=20261004j"></script>
+<script src="../js/app.js?v=20261004r"></script>
+
+<!-- 主链状态详情面板 -->
+<div class="chain-status-panel hidden" id="chainStatusPanel">
+    <div class="chain-status-panel-header">
+        <span class="chain-status-panel-title">🔗 主链状态检测</span>
+        <button class="chain-status-panel-close" id="chainStatusPanelClose" title="关闭">×</button>
+    </div>
+    <div id="chainStatusPanelBody">
+        <div class="chain-status-row">
+            <span class="label">检测状态</span>
+            <span class="value" id="csCheckStatus">未检测</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">RPC 地址</span>
+            <span class="value" id="csRpcUrl">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">RPC 连通性</span>
+            <span class="value" id="csRpcReachable">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">响应延迟</span>
+            <span class="value" id="csLatency">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">节点 Chain ID</span>
+            <span class="value" id="csChainId">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">最新区块</span>
+            <span class="value" id="csBlockNumber">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">合约地址</span>
+            <span class="value" id="csContractAddress">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">合约代码</span>
+            <span class="value" id="csContractCode">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">错误信息</span>
+            <span class="value" id="csError">-</span>
+        </div>
+        <div class="chain-status-row">
+            <span class="label">检测时间</span>
+            <span class="value" id="csCheckedAt">-</span>
+        </div>
+    </div>
+    <div class="chain-status-actions">
+        <button id="csRecheckBtn" class="btn-primary">🔄 重新检测</button>
+        <button id="csOpenAdminBtn">⚙️ 管理面板</button>
+    </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChainRPS 链上查询 - 区块/交易/地址/合约查询">
+    <title>ChainRPS - 链上查询</title>
+    <link rel="icon" href="../favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../css/theme.css?v=20260728a">
+    <link rel="stylesheet" href="../css/style.css?v=20260728a">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .exp-header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .exp-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .exp-logo-icon {
+            background: linear-gradient(135deg, var(--primary-color), var(--accent));
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .exp-back {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .exp-back:hover {
+            text-decoration: underline;
+        }
+
+        .exp-main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .exp-main h1 {
+            font-size: 22px;
+            margin-bottom: 20px;
+        }
+
+        /* 复用 admin 页面的 lc-feature-bar 样式 */
+        .lc-feature-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+        }
+
+        .lc-feature-label {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .lc-feature-bar select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .lc-feature-panel {
+            display: none;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+
+        .lc-feature-panel.active {
+            display: block;
+            animation: lcPanelFadeIn 0.2s ease-out;
+        }
+
+        @keyframes lcPanelFadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 复用 admin 页面表单样式 */
+        .form-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .form-group {
+            flex: 1;
+            min-width: 180px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+        }
+
+        /* 下拉菜单 */
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+        }
+
+        .dropdown-header {
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .dropdown-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .dropdown-item:hover {
+            background: var(--bg-secondary);
+        }
+
+        /* 统计卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .stat-card .label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 16px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        /* 数据表格 */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .data-table th, .data-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+        }
+
+        .data-table th {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+        }
+
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin: 20px 0 16px;
+        }
+
+        @media (max-width: 768px) {
+            .exp-main { padding: 16px; }
+            .form-row { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+<header class="exp-header">
+    <a class="exp-logo" href="/">
+        <span class="exp-logo-icon">🔍</span>
+        <span>ChainRPS 链上查询</span>
+    </a>
+    <div style="display:flex;align-items:center;gap:12px;">
+        <button id="expThemeToggle" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px;color:var(--text-secondary);" title="切换主题">🌙</button>
+        <a href="/" class="exp-back">← 返回首页</a>
+    </div>
+</header>
+
+<main class="exp-main">
+    <h1>🔍 链上查询</h1>
+
+    <!-- 功能选择下拉框 -->
+    <div class="lc-feature-bar">
+        <label class="lc-feature-label" for="chainExplorerFeatureSelector">🧰 功能选择</label>
+        <select id="chainExplorerFeatureSelector" onchange="ExplorerApp.switchChainExplorerFeature(this.value)"
+                title="选择链上查询功能">
+            <option value="general">🔍 通用链浏览器</option>
+            <option value="contract">📋 合约状态查询</option>
+        </select>
+    </div>
+
+    <!-- 功能面板：通用链浏览器 -->
+    <div id="chain-explorer-feature-general" class="lc-feature-panel">
+        <div class="form-row" style="margin-bottom: 12px; align-items: flex-end;">
+            <div class="form-group" style="flex: 1;">
+                <label title="输入区块号、交易哈希或钱包地址进行查询">查询内容</label>
+                <input type="text" id="explorerQueryInput" placeholder="区块号 / 0x交易哈希 / 0x钱包地址"
+                       style="width: 100%;" title="支持区块号、交易哈希、钱包地址"
+                       onkeydown="if(event.key==='Enter')ExplorerApp.explorerSearch()">
+            </div>
+            <div class="form-group" style="display: flex; gap: 8px;">
+                <button class="btn btn-primary" onclick="ExplorerApp.explorerSearch()" title="执行查询">🔍 查询
+                </button>
+                <button class="btn btn-outline" onclick="ExplorerApp.explorerQueryLatest()" title="查询最新区块">📋
+                    最新区块
+                </button>
+            </div>
+        </div>
+        <div id="explorerResult" style="min-height: 40px; font-size: 13px; line-height: 1.6;">
+            <span style="color: var(--text-secondary);">💡 输入区块号、交易哈希或钱包地址，按回车或点击查询按钮。点击"最新区块"可查看链的最新状态。</span>
+        </div>
+    </div>
+
+    <!-- 功能面板：合约状态查询 -->
+    <div id="chain-explorer-feature-contract" class="lc-feature-panel">
+        <div class="form-row">
+            <div class="form-group" style="flex: 2; position: relative;">
+                <label title="要查询的智能合约地址">合约地址</label>
+                <div style="position: relative;">
+                    <input type="text" id="explorerContractAddress" placeholder="点击选择或输入合约地址"
+                           style="width: 100%;" onclick="ExplorerApp.showContractDropdown()"
+                           title="点击可从合约列表中选择，或手动输入合约地址">
+                    <div id="contractDropdown" class="dropdown-menu"
+                         style="display: none; max-height: 200px; overflow-y: auto;">
+                        <div class="dropdown-header">选择合约地址</div>
+                        <div id="contractDropdownItems"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group" style="display: flex; align-items: flex-end; gap: 8px;">
+                <button class="btn btn-primary" onclick="ExplorerApp.queryContractOnChain()"
+                        title="查询合约的基本信息和状态">查询合约
+                </button>
+                <button class="btn btn-outline" onclick="ExplorerApp.useActiveContract()"
+                        title="使用当前输入的合约地址进行查询">使用当前合约
+                </button>
+            </div>
+        </div>
+
+        <div id="chainContractInfo" style="display: none; margin-top: 20px;">
+            <h3 class="section-title">📋 合约详情</h3>
+            <div class="stats-grid" id="contractStatsGrid" style="margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="label">合约 Owner</div>
+                    <div class="value" id="chainContractOwner" style="font-size: 14px; word-break: break-all;">-
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">手续费接收者</div>
+                    <div class="value" id="chainFeeCollector" style="font-size: 14px; word-break: break-all;">-
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">官方开发者</div>
+                    <div class="value" id="chainDeveloper" style="font-size: 14px; word-break: break-all;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">游戏总数</div>
+                    <div class="value" id="chainGameCount">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">手续费率</div>
+                    <div class="value" id="chainFeeRate">0%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">暂停状态</div>
+                    <div class="value" id="chainPaused">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="chainGamesSection" style="display: none; margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 class="section-title">🎮 链上对局记录</h3>
+                <div style="display: flex; gap: 8px;">
+                    <input type="number" id="queryGameId" placeholder="游戏ID"
+                           style="width: 120px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;"
+                           title="输入链上对局ID进行精确查询">
+                    <button class="btn btn-outline" onclick="ExplorerApp.queryGameById()"
+                            title="根据ID查询特定对局的详细信息">按ID查询
+                    </button>
+                    <button class="btn btn-outline" onclick="ExplorerApp.loadChainGames()"
+                            title="刷新链上对局列表">
+                        刷新列表
+                    </button>
+                </div>
+            </div>
+
+            <div id="gameDetailCard"
+                 style="display: none; margin-bottom: 20px; padding: 16px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px;">
+                <h4 style="margin-bottom: 12px;">对局详情</h4>
+                <div id="gameDetailContent"></div>
+            </div>
+
+            <table class="data-table">
+                <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>玩家1</th>
+                    <th>玩家2</th>
+                    <th>金额</th>
+                    <th>代币</th>
+                    <th>状态</th>
+                    <th>赢家</th>
+                    <th>操作</th>
+                </tr>
+                </thead>
+                <tbody id="chainGamesTableBody">
+                <tr>
+                    <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-secondary);">
+                        请先查询合约
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                <span id="chainGamesPagination" style="font-size: 13px; color: var(--text-secondary);"></span>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-outline" id="prevChainGamesBtn"
+                            onclick="ExplorerApp.prevChainGamesPage()"
+                            disabled>上一页
+                    </button>
+                    <button class="btn btn-outline" id="nextChainGamesBtn"
+                            onclick="ExplorerApp.nextChainGamesPage()"
+                            disabled>下一页
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script src="../js/config.js?v=20260728a"></script>
+<script src="../js/FWUI/toast.js?v=20260728a"></script>
+<script src="/static/js/ethers.umd.min.js"></script>
+<script>
+(function() {
+    var saved = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+    var btn = document.getElementById('expThemeToggle');
+    if (btn) {
+        btn.textContent = saved === 'dark' ? '☀️' : '🌙';
+        btn.addEventListener('click', function() {
+            var cur = document.documentElement.getAttribute('data-theme') || 'light';
+            var next = cur === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            btn.textContent = next === 'dark' ? '☀️' : '🌙';
+        });
+    }
+})();
+</script>
+<script src="../js/explorer.js?v=20260731a"></script>
+</body>
+</html>

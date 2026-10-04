@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChainRPS 阶段演示 - 游戏流程动画与阶段模拟卡片">
+    <title>ChainRPS - 阶段演示</title>
+    <link rel="icon" href="../favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../css/theme.css?v=20260728a">
+    <link rel="stylesheet" href="../css/style.css?v=20260728a">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .demo-header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .demo-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .demo-logo-icon {
+            background: linear-gradient(135deg, var(--primary-color), var(--accent));
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .demo-back {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .demo-back:hover {
+            text-decoration: underline;
+        }
+
+        .demo-main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .demo-main h1 {
+            font-size: 22px;
+            margin-bottom: 20px;
+        }
+
+        /* 子 tab 栏（复用 admin 页面样式） */
+        .config-tab-bar {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .config-tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .config-tab-btn.active {
+            color: var(--text-primary);
+            border-bottom-color: var(--primary-color);
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        @media (max-width: 768px) {
+            .demo-main { padding: 16px; }
+            .config-tab-bar { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+<header class="demo-header">
+    <a class="demo-logo" href="/">
+        <span class="demo-logo-icon">🎮</span>
+        <span>ChainRPS 阶段演示</span>
+    </a>
+    <a href="/" class="demo-back">← 返回首页</a>
+</header>
+
+<main class="demo-main">
+    <h1>🎮 演示中心</h1>
+
+    <div class="config-tab-bar">
+        <button class="config-tab-btn active" data-demo-tab="cards" onclick="DemoApp.switchDemoTab('cards')">
+            🎴 阶段模拟卡片
+        </button>
+        <button class="config-tab-btn" data-demo-tab="animation" onclick="DemoApp.switchDemoTab('animation')">
+            🎬 游戏流程动画演示
+        </button>
+    </div>
+
+    <!-- 面板：阶段模拟卡片 -->
+    <div id="demoPanel-cards">
+        <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 13px;">
+            点击下方卡片可在新窗口中打开对应游戏阶段的模拟界面，无需连接链上即可预览各环节 UI 效果。
+        </p>
+        <div id="stageDemoGrid" class="stage-demo-grid"></div>
+    </div>
+
+    <!-- 面板：游戏流程动画演示 -->
+    <div id="demoPanel-animation" style="display:none;">
+        <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 13px;">
+            自动播放 ChainRPS 完整对局流程：大厅 → 创建/加入房间 → 准备 → 倒计时 → 出拳 → 揭晓 → 结算 →
+            结束。无需连接钱包即可预览。
+        </p>
+
+        <!-- 阶段进度条 -->
+        <div class="sd-progress-bar" id="sdProgressBar"></div>
+
+        <!-- 演示舞台 -->
+        <div class="sd-stage-wrap">
+            <div class="sd-stage" id="sdStage">
+                <!-- 场景内容由 JS 渲染 -->
+            </div>
+
+            <!-- 阶段说明角标 -->
+            <div class="sd-stage-info" id="sdStageInfo">
+                <div class="sd-stage-info-icon" id="sdInfoIcon">🏠</div>
+                <div class="sd-stage-info-text">
+                    <div class="sd-stage-info-title" id="sdInfoTitle">游戏大厅</div>
+                    <div class="sd-stage-info-desc" id="sdInfoDesc">浏览房间列表，创建或加入房间</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制台 -->
+        <div class="sd-controls">
+            <button class="btn btn-primary" id="sdPlayBtn" onclick="DemoApp.sdTogglePlay()">▶ 播放</button>
+            <button class="btn btn-outline" onclick="DemoApp.sdRestart()">⏮ 重新开始</button>
+            <button class="btn btn-outline" onclick="DemoApp.sdPrev()">⏪ 上一步</button>
+            <button class="btn btn-outline" onclick="DemoApp.sdNext()">⏩ 下一步</button>
+            <div class="sd-speed-group">
+                <label>速度</label>
+                <select id="sdSpeed" onchange="DemoApp.sdChangeSpeed(this.value)">
+                    <option value="2000">慢</option>
+                    <option value="1200" selected>正常</option>
+                    <option value="700">快</option>
+                    <option value="350">极速</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 阶段快捷跳转 -->
+        <div class="sd-jumps" id="sdJumps"></div>
+    </div>
+</main>
+
+<script src="../js/demo.js?v=20260730a"></script>
+</body>
+</html>

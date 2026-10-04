@@ -1,0 +1,569 @@
+{
+  "_description": "ChainRPS 配置定义 - 定义所有可配置项的结构、类型和默认值",
+  "_version": "1.0.0",
+  "_usage": "配置值存储在 SQLite 数据库的 system_config 表中，此文件定义配置的元数据结构",
+  "_load_order": [
+    "1. JSON schema 中的默认值",
+    "2. 环境变量 .env 中的值",
+    "3. 数据库 system_config 表中的值（最高优先级）"
+  ],
+
+  "categories": {
+    "server": "服务器配置",
+    "redis": "Redis 配置",
+    "database": "数据库配置",
+    "contract": "合约配置",
+    "chain": "区块链/RPC 配置",
+    "game": "游戏配置",
+    "timeout": "超时配置",
+    "websocket": "WebSocket 配置",
+    "auth": "认证配置",
+    "redis_key": "Redis Key 前缀",
+    "bot": "Bot 机器人配置",
+    "bot_pool": "Bot 钱包池配置",
+    "bot_strategy": "Bot 策略配置",
+    "deploy": "部署配置",
+    "system": "系统配置",
+    "security": "安全配置"
+  },
+
+  "configs": {
+    "HOST": {
+      "key": "host",
+      "category": "server",
+      "type": "string",
+      "default": "0.0.0.0",
+      "description": "服务器监听地址",
+      "env_key": "HOST"
+    },
+    "PORT": {
+      "key": "port",
+      "category": "server",
+      "type": "integer",
+      "default": 8000,
+      "description": "服务器监听端口",
+      "env_key": "PORT"
+    },
+    "REDIS_URL": {
+      "key": "redis_url",
+      "category": "redis",
+      "type": "string",
+      "default": "redis://localhost:6379/0",
+      "description": "Redis 连接 URL",
+      "env_key": "REDIS_URL"
+    },
+    "DATABASE_PATH": {
+      "key": "database_path",
+      "category": "database",
+      "type": "string",
+      "default": "./data/rps.db",
+      "description": "SQLite 数据库文件路径",
+      "env_key": "DATABASE_PATH"
+    },
+    "CONTRACT_ADDRESS": {
+      "key": "contract_address",
+      "category": "contract",
+      "type": "string",
+      "default": "0x5b1869D9A4C187F2EAa108f3062412ecf0526b24",
+      "description": "已部署的 ChainRPS 合约地址",
+      "env_key": "CONTRACT_ADDRESS"
+    },
+    "RPC_LOCAL_NETWORK": {
+      "key": "rpc_local_network",
+      "category": "chain",
+      "type": "string",
+      "default": "ChainRPS_Local",
+      "description": "本地链网络名称",
+      "env_key": "RPC_LOCAL_NETWORK"
+    },
+    "RPC_LOCAL_HOST": {
+      "key": "rpc_local_host",
+      "category": "chain",
+      "type": "string",
+      "default": "127.0.0.1",
+      "description": "本地链 RPC 主机",
+      "env_key": "RPC_LOCAL_HOST"
+    },
+    "RPC_LOCAL_PORT": {
+      "key": "rpc_local_port",
+      "category": "chain",
+      "type": "integer",
+      "default": 8686,
+      "description": "本地链 RPC 端口",
+      "env_key": "RPC_LOCAL_PORT"
+    },
+    "RPC_LOCAL_SYMBOL": {
+      "key": "rpc_local_symbol",
+      "category": "chain",
+      "type": "string",
+      "default": "POL",
+      "description": "本地链代币符号",
+      "env_key": "RPC_LOCAL_SYMBOL"
+    },
+    "RPC_LOCAL_ACCOUNT_COUNT": {
+      "key": "rpc_local_account_count",
+      "category": "chain",
+      "type": "integer",
+      "default": 10,
+      "description": "本地链预创建账户数量",
+      "env_key": "RPC_LOCAL_ACCOUNT_COUNT"
+    },
+    "RPC_LOCAL_BALANCE": {
+      "key": "rpc_local_balance",
+      "category": "chain",
+      "type": "float",
+      "default": 100000,
+      "description": "本地链初始账户余额",
+      "env_key": "RPC_LOCAL_BALANCE"
+    },
+    "RPC_NETWORK": {
+      "key": "rpc_network",
+      "category": "chain",
+      "type": "string",
+      "default": "ChainRPS_Local",
+      "description": "配置链网络名称",
+      "env_key": "RPC_NETWORK"
+    },
+    "RPC_URL": {
+      "key": "rpc_url",
+      "category": "chain",
+      "type": "string",
+      "default": "http://127.0.0.1:8686",
+      "description": "配置链 RPC URL",
+      "env_key": "RPC_URL"
+    },
+    "RPC_CHAIN_ID": {
+      "key": "rpc_chain_id",
+      "category": "chain",
+      "type": "integer",
+      "default": 5208888,
+      "description": "配置链 Chain ID",
+      "env_key": "RPC_CHAIN_ID"
+    },
+    "RPC_SYMBOL": {
+      "key": "rpc_symbol",
+      "category": "chain",
+      "type": "string",
+      "default": "POL",
+      "description": "配置链代币符号",
+      "env_key": "RPC_SYMBOL"
+    },
+    "COMMIT_TIMEOUT": {
+      "key": "commit_timeout",
+      "category": "timeout",
+      "type": "integer",
+      "default": 66,
+      "description": "提交哈希超时时间（秒）",
+      "env_key": "COMMIT_TIMEOUT"
+    },
+    "REVEAL_TIMEOUT": {
+      "key": "reveal_timeout",
+      "category": "timeout",
+      "type": "integer",
+      "default": 88,
+      "description": "揭晓出拳超时时间（秒）",
+      "env_key": "REVEAL_TIMEOUT"
+    },
+    "WS_HEARTBEAT_INTERVAL": {
+      "key": "ws_heartbeat_interval",
+      "category": "websocket",
+      "type": "integer",
+      "default": 30,
+      "description": "WebSocket 心跳间隔（秒）",
+      "env_key": "WS_HEARTBEAT_INTERVAL"
+    },
+    "JWT_ALGORITHM": {
+      "key": "jwt_algorithm",
+      "category": "auth",
+      "type": "string",
+      "default": "HS256",
+      "description": "JWT 加密算法（固定值）",
+      "env_key": "",
+      "readonly": true
+    },
+    "JWT_EXPIRE_HOURS": {
+      "key": "jwt_expire_hours",
+      "category": "auth",
+      "type": "integer",
+      "default": 24,
+      "description": "JWT Token 过期时间（小时）",
+      "env_key": "JWT_EXPIRE_HOURS"
+    },
+    "DEFAULT_ADMIN_USERNAME": {
+      "key": "default_admin_username",
+      "category": "auth",
+      "type": "string",
+      "default": "admin",
+      "description": "默认管理员用户名",
+      "env_key": "DEFAULT_ADMIN_USERNAME"
+    },
+    "MATCH_QUEUE_PREFIX": {
+      "key": "match_queue_prefix",
+      "category": "redis_key",
+      "type": "string",
+      "default": "rps:match:",
+      "description": "匹配队列 Redis Key 前缀",
+      "env_key": "MATCH_QUEUE_PREFIX"
+    },
+    "GAME_CACHE_PREFIX": {
+      "key": "game_cache_prefix",
+      "category": "redis_key",
+      "type": "string",
+      "default": "rps:game:",
+      "description": "游戏缓存 Redis Key 前缀",
+      "env_key": "GAME_CACHE_PREFIX"
+    },
+    "ROOM_CACHE_PREFIX": {
+      "key": "room_cache_prefix",
+      "category": "redis_key",
+      "type": "string",
+      "default": "rps:room:",
+      "description": "房间缓存 Redis Key 前缀",
+      "env_key": "ROOM_CACHE_PREFIX"
+    },
+    "WS_PREFIX": {
+      "key": "ws_prefix",
+      "category": "redis_key",
+      "type": "string",
+      "default": "rps:ws:",
+      "description": "WebSocket Redis Key 前缀",
+      "env_key": "WS_PREFIX"
+    },
+    "REDIS_BROADCAST_CHANNEL": {
+      "key": "redis_broadcast_channel",
+      "category": "redis_key",
+      "type": "string",
+      "default": "rps:broadcast",
+      "description": "Redis 广播频道名称",
+      "env_key": "REDIS_BROADCAST_CHANNEL"
+    },
+    "REDIS_DIRECT_CHANNEL": {
+      "key": "redis_direct_channel",
+      "category": "redis_key",
+      "type": "string",
+      "default": "rps:direct",
+      "description": "Redis 点对点消息频道",
+      "env_key": "REDIS_DIRECT_CHANNEL"
+    },
+    "BOT_ENABLED": {
+      "key": "bot_enabled",
+      "category": "bot",
+      "type": "boolean",
+      "default": true,
+      "description": "是否启用 Bot 功能",
+      "env_key": "BOT_ENABLED"
+    },
+    "BOT_WALLET_INDEX": {
+      "key": "bot_wallet_index",
+      "category": "bot",
+      "type": "integer",
+      "default": 9,
+      "description": "Bot 默认钱包索引",
+      "env_key": "BOT_WALLET_INDEX"
+    },
+    "BOT_TOKEN": {
+      "key": "bot_token",
+      "category": "bot",
+      "type": "string",
+      "default": "USDC",
+      "description": "Bot 使用的代币",
+      "env_key": "BOT_TOKEN"
+    },
+    "BOT_BET_AMOUNT": {
+      "key": "bot_bet_amount",
+      "category": "bot",
+      "type": "float",
+      "default": 10.0,
+      "description": "Bot 下注金额",
+      "env_key": "BOT_BET_AMOUNT"
+    },
+    "BOT_AUTO_CREATE_ROOM": {
+      "key": "bot_auto_create_room",
+      "category": "bot",
+      "type": "boolean",
+      "default": true,
+      "description": "Bot 自动创建房间",
+      "env_key": "BOT_AUTO_CREATE_ROOM"
+    },
+    "BOT_AUTO_JOIN_ROOM": {
+      "key": "bot_auto_join_room",
+      "category": "bot",
+      "type": "boolean",
+      "default": true,
+      "description": "Bot 自动加入房间",
+      "env_key": "BOT_AUTO_JOIN_ROOM"
+    },
+    "BOT_CREATE_INTERVAL": {
+      "key": "bot_create_interval",
+      "category": "bot",
+      "type": "integer",
+      "default": 60,
+      "description": "Bot 创建房间间隔（秒）",
+      "env_key": "BOT_CREATE_INTERVAL"
+    },
+    "BOT_SCAN_INTERVAL": {
+      "key": "bot_scan_interval",
+      "category": "bot",
+      "type": "integer",
+      "default": 10,
+      "description": "Bot 扫描房间间隔（秒）",
+      "env_key": "BOT_SCAN_INTERVAL"
+    },
+    "BOT_COMMIT_DELAY": {
+      "key": "bot_commit_delay",
+      "category": "bot",
+      "type": "integer",
+      "default": 3,
+      "description": "Bot 提交延迟（秒）",
+      "env_key": "BOT_COMMIT_DELAY"
+    },
+    "BOT_REVEAL_DELAY": {
+      "key": "bot_reveal_delay",
+      "category": "bot",
+      "type": "integer",
+      "default": 2,
+      "description": "Bot 揭晓延迟（秒）",
+      "env_key": "BOT_REVEAL_DELAY"
+    },
+    "BOT_MAX_CONCURRENT_ROOMS": {
+      "key": "bot_max_concurrent_rooms",
+      "category": "bot",
+      "type": "integer",
+      "default": 3,
+      "description": "Bot 最大并发房间数",
+      "env_key": "BOT_MAX_CONCURRENT_ROOMS"
+    },
+    "BOT_LABEL": {
+      "key": "bot_label",
+      "category": "bot",
+      "type": "string",
+      "default": "🤖 AI陪玩",
+      "description": "Bot 显示标签",
+      "env_key": "BOT_LABEL"
+    },
+    "BOT_WALLET_BALANCE_THRESHOLD": {
+      "key": "bot_wallet_balance_threshold",
+      "category": "bot",
+      "type": "float",
+      "default": 1.0,
+      "description": "Bot 钱包余额警告阈值",
+      "env_key": "BOT_WALLET_BALANCE_THRESHOLD"
+    },
+    "BOT_WALLET_POOL_START": {
+      "key": "bot_wallet_pool_start",
+      "category": "bot_pool",
+      "type": "integer",
+      "default": 1,
+      "description": "Bot 钱包池起始索引",
+      "env_key": "BOT_WALLET_POOL_START"
+    },
+    "BOT_WALLET_POOL_END": {
+      "key": "bot_wallet_pool_end",
+      "category": "bot_pool",
+      "type": "integer",
+      "default": 9,
+      "description": "Bot 钱包池结束索引",
+      "env_key": "BOT_WALLET_POOL_END"
+    },
+    "BOT_WALLET_INITIAL_ETH": {
+      "key": "bot_wallet_initial_eth",
+      "category": "bot_pool",
+      "type": "float",
+      "default": 1000.0,
+      "description": "Bot 钱包初始 ETH 余额",
+      "env_key": "BOT_WALLET_INITIAL_ETH"
+    },
+    "BOT_WALLET_INITIAL_USDC": {
+      "key": "bot_wallet_initial_usdc",
+      "category": "bot_pool",
+      "type": "float",
+      "default": 1000000.0,
+      "description": "Bot 钱包初始 USDC 余额",
+      "env_key": "BOT_WALLET_INITIAL_USDC"
+    },
+    "BOT_DEFAULT_STRATEGY": {
+      "key": "bot_default_strategy",
+      "category": "bot_strategy",
+      "type": "string",
+      "default": "random",
+      "description": "Bot 默认策略",
+      "env_key": "BOT_DEFAULT_STRATEGY"
+    },
+    "BOT_AUTO_CHAIN_MATCH": {
+      "key": "bot_auto_chain_match",
+      "category": "bot_strategy",
+      "type": "boolean",
+      "default": true,
+      "description": "Bot 自动链上匹配",
+      "env_key": "BOT_AUTO_CHAIN_MATCH"
+    },
+    "FEE_COLLECTOR": {
+      "key": "fee_collector",
+      "category": "deploy",
+      "type": "string",
+      "default": "",
+      "description": "手续费接收地址",
+      "env_key": "FEE_COLLECTOR"
+    },
+    "OFFICIAL_DEVELOPER": {
+      "key": "official_developer",
+      "category": "deploy",
+      "type": "string",
+      "default": "",
+      "description": "官方开发者地址",
+      "env_key": "OFFICIAL_DEVELOPER"
+    },
+    "CONTRACT_NAME": {
+      "key": "contract_name",
+      "category": "deploy",
+      "type": "string",
+      "default": "ChainRPS",
+      "description": "合约名称",
+      "env_key": "CONTRACT_NAME"
+    },
+    "CONTRACT_VERSION": {
+      "key": "contract_version",
+      "category": "deploy",
+      "type": "string",
+      "default": "v1.0.0",
+      "description": "合约版本",
+      "env_key": "CONTRACT_VERSION"
+    },
+    "NETWORK": {
+      "key": "network",
+      "category": "deploy",
+      "type": "string",
+      "default": "amoy",
+      "description": "部署网络名称",
+      "env_key": "NETWORK"
+    },
+    "FEE_RATE": {
+      "key": "fee_rate",
+      "category": "contract",
+      "type": "integer",
+      "default": 200,
+      "description": "手续费率（基点，100=1%）",
+      "env_key": ""
+    },
+    "ROOM_MAX_LIFETIME": {
+      "key": "room_max_lifetime",
+      "category": "game",
+      "type": "integer",
+      "default": 3600,
+      "description": "房间最大存在时间（秒），超时自动关闭（1小时=3600）",
+      "env_key": ""
+    },
+    "SUPPORTED_TOKENS": {
+      "key": "supported_tokens",
+      "category": "game",
+      "type": "string",
+      "default": "USDC,POL",
+      "description": "支持的代币列表（逗号分隔）",
+      "env_key": ""
+    },
+    "MAX_BET_AMOUNT": {
+      "key": "max_bet_amount",
+      "category": "game",
+      "type": "float",
+      "default": 10000,
+      "description": "最大下注金额",
+      "env_key": ""
+    },
+    "MIN_BET_AMOUNT": {
+      "key": "min_bet_amount",
+      "category": "game",
+      "type": "float",
+      "default": 0.1,
+      "description": "最小下注金额",
+      "env_key": ""
+    },
+    "CHAIN_ID": {
+      "key": "chain_id",
+      "category": "chain",
+      "type": "integer",
+      "default": 5208888,
+      "description": "目标区块链网络 Chain ID",
+      "env_key": "RPC_CHAIN_ID"
+    },
+    "RECOMMENDED_CHAIN_NAME": {
+      "key": "recommended_chain_name",
+      "category": "chain",
+      "type": "string",
+      "default": "ChainRPS Local",
+      "description": "推荐主链名称（统一标识名）",
+      "env_key": ""
+    },
+    "NETWORK_NAME": {
+      "key": "network_name",
+      "category": "chain",
+      "type": "string",
+      "default": "ChainRPS Local",
+      "description": "网络显示名称",
+      "env_key": ""
+    },
+    "BLOCK_EXPLORER": {
+      "key": "block_explorer",
+      "category": "chain",
+      "type": "string",
+      "default": "",
+      "description": "区块浏览器 URL（可选）",
+      "env_key": ""
+    },
+    "NATIVE_SYMBOL": {
+      "key": "native_symbol",
+      "category": "chain",
+      "type": "string",
+      "default": "POL",
+      "description": "网络原生代币符号",
+      "env_key": ""
+    },
+    "NATIVE_NAME": {
+      "key": "native_name",
+      "category": "chain",
+      "type": "string",
+      "default": "Polygon",
+      "description": "网络原生代币名称",
+      "env_key": ""
+    },
+    "NATIVE_DECIMALS": {
+      "key": "native_decimals",
+      "category": "chain",
+      "type": "integer",
+      "default": 18,
+      "description": "原生代币精度",
+      "env_key": ""
+    },
+    "MAINTENANCE_MODE": {
+      "key": "maintenance_mode",
+      "category": "system",
+      "type": "boolean",
+      "default": false,
+      "description": "维护模式开关",
+      "env_key": ""
+    },
+    "OFFICIAL_WEBSITE": {
+      "key": "official_website",
+      "category": "system",
+      "type": "string",
+      "default": "https://chainrps.io",
+      "description": "官方网站",
+      "env_key": ""
+    },
+    "OFFICIAL_TWITTER": {
+      "key": "official_twitter",
+      "category": "system",
+      "type": "string",
+      "default": "@ChainRPS",
+      "description": "官方 Twitter",
+      "env_key": ""
+    },
+    "OFFICIAL_DISCORD": {
+      "key": "official_discord",
+      "category": "system",
+      "type": "string",
+      "default": "discord.gg/chainrps",
+      "description": "官方 Discord",
+      "env_key": ""
+    }
+  }
+}

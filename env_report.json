@@ -1,0 +1,120 @@
+{
+  "total": 16,
+  "ok": 8,
+  "missing": 8,
+  "error": 0,
+  "results": [
+    {
+      "name": "Python",
+      "category": "runtime",
+      "status": "ok",
+      "version": "Python 3.14.5",
+      "details": "Python 运行环境"
+    },
+    {
+      "name": ".venv",
+      "category": "python-env",
+      "status": "ok",
+      "version": "D:\\git\\github\\chainrps\\chainrps\\.venv",
+      "details": "Python 虚拟环境已存在"
+    },
+    {
+      "name": "pyproject.toml",
+      "category": "config",
+      "status": "ok",
+      "version": "1.0.0",
+      "details": "项目配置文件存在"
+    },
+    {
+      "name": "Python依赖包",
+      "category": "python-deps",
+      "status": "missing",
+      "version": "已安装 9/10",
+      "details": "缺失: web3"
+    },
+    {
+      "name": "Node.js",
+      "category": "runtime",
+      "status": "ok",
+      "version": "v26.4.0",
+      "details": "Node.js 运行环境"
+    },
+    {
+      "name": "npm",
+      "category": "runtime",
+      "status": "missing",
+      "version": "",
+      "details": "未检测到 npm"
+    },
+    {
+      "name": "npm依赖",
+      "category": "npm-deps",
+      "status": "missing",
+      "version": "",
+      "details": "node_modules 不存在，需要 npm install"
+    },
+    {
+      "name": "Redis",
+      "category": "service",
+      "status": "missing",
+      "version": "",
+      "details": "未检测到 Redis，请安装 Redis 服务"
+    },
+    {
+      "name": "Ganache",
+      "category": "service",
+      "status": "missing",
+      "version": "",
+      "details": "未检测到 Ganache，需要通过 npm 安装"
+    },
+    {
+      "name": "Hardhat",
+      "category": "smart-contract",
+      "status": "missing",
+      "version": "",
+      "details": "未检测到 Hardhat"
+    },
+    {
+      "name": "Foundry",
+      "category": "smart-contract",
+      "status": "missing",
+      "version": "",
+      "details": "项目使用 Foundry，但未检测到 foundryup/forge"
+    },
+    {
+      "name": "remappings.txt",
+      "category": "config",
+      "status": "ok",
+      "version": "",
+      "details": "Foundry 映射配置存在: @openzeppelin/=lib/openzeppelin-contracts/contracts/..."
+    },
+    {
+      "name": ".env",
+      "category": "config",
+      "status": "missing",
+      "version": "",
+      "details": ".env 不存在，但 .env.example 存在，需复制配置"
+    },
+    {
+      "name": "foundry.toml",
+      "category": "config",
+      "status": "ok",
+      "version": "",
+      "details": "Foundry 配置文件存在"
+    },
+    {
+      "name": "data/rps.db",
+      "category": "data",
+      "status": "ok",
+      "version": "",
+      "details": "SQLite 数据库已存在"
+    },
+    {
+      "name": "rps_frontend/",
+      "category": "frontend",
+      "status": "ok",
+      "version": "",
+      "details": "前端目录存在"
+    }
+  ]
+}
