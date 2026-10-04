@@ -12,7 +12,7 @@ from functools import partial
 from typing import List, Optional
 
 # ==================== Git 自动 fetch 缓存 ====================
-_GIT_FETCH_INTERVAL = 60  # 后台每 60s fetch 一次
+_GIT_FETCH_INTERVAL = 86400  # 后台每 24h fetch 一次（前端轮询只读缓存，无性能开销）
 _GIT_LAST_FETCH = {"time": 0, "success": False, "error": ""}
 _GIT_FETCH_TASK: Optional[asyncio.Task] = None
 
