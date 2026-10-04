@@ -39,6 +39,9 @@ UNREADY_TIMEOUT = 60
 # 房间游戏总超时时间（秒）：游戏开始后 10 分钟未结束则自动关闭房间
 ROOM_GAME_TIMEOUT = 600
 
+# 空房间清理超时（秒）：创建后 5 分钟没玩家加入 = 僵尸房间，自动清理
+EMPTY_ROOM_TIMEOUT = 300
+
 # 房间默认最大生命周期（秒）：1 小时（可通过配置 room_max_lifetime 覆盖）
 DEFAULT_ROOM_MAX_LIFETIME = 3600
 
@@ -68,6 +71,8 @@ class RoomManager:
         self._game_timers: Dict[str, asyncio.Task] = {}
         # 房间生命周期超时任务（总最大存在时间）
         self._lifetime_timers: Dict[str, asyncio.Task] = {}
+        # 空房间清理计时器：创建后 5 分钟没玩家加入则自动关闭
+        self._empty_room_timers: Dict[str, asyncio.Task] = {}
 
     # 创建房间
     def create_room(self, creator_address: str, token: str, bet_amount: float) -> dict:
@@ -124,6 +129,9 @@ class RoomManager:
         # 启动房间生命周期总超时计时器
         self._start_lifetime_timer(room_id)
 
+        # 启动空房间清理计时器（5 分钟内没玩家加入就自动关闭）
+        self._start_empty_room_timer(room_id)
+
         # 广播房间列表变更，让游戏大厅实时刷新
         self._broadcast_room_list_changed("room_created", room_id)
 
@@ -171,6 +179,9 @@ class RoomManager:
         room["status"] = ROOM_STATUS["JOINED"]
 
         self._rooms[room_id] = room
+
+        # 有玩家加入了，停止空房间清理计时器
+        self._stop_empty_room_timer(room_id)
         self._player_rooms[player_lower] = room_id
         redis_client.cache_room_state(room_id, room)
 
@@ -464,6 +475,35 @@ class RoomManager:
         if not room_id:
             return
         task = self._lifetime_timers.pop(room_id, None)
+        if task:
+            task.cancel()
+
+    # 启动空房间清理计时器（创建后 EMPTY_ROOM_TIMEOUT 秒内没玩家加入则关闭）
+    def _start_empty_room_timer(self, room_id: str):
+        """启动空房间自动清理计时器"""
+        self._stop_empty_room_timer(room_id)
+
+        async def timeout_task():
+            await asyncio.sleep(EMPTY_ROOM_TIMEOUT)
+            room = self._rooms.get(room_id)
+            if not room:
+                return
+            # 只要还没 player2 加入，就清理（保护创建者）
+            if not room.get("player2") and room["status"] in (ROOM_STATUS["CREATED"],):
+                self._close_room(
+                    room_id,
+                    "empty_room_timeout",
+                    f"房间创建后 {EMPTY_ROOM_TIMEOUT // 60} 分钟无玩家加入，已自动关闭",
+                )
+
+        task = asyncio.create_task(timeout_task())
+        self._empty_room_timers[room_id] = task
+
+    def _stop_empty_room_timer(self, room_id: str):
+        """停止空房间清理计时器（有玩家加入后调用）"""
+        if not room_id:
+            return
+        task = self._empty_room_timers.pop(room_id, None)
         if task:
             task.cancel()
 

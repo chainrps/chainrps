@@ -273,7 +273,7 @@ class ContractService:
         每 5 秒拉取一次新增区块中的合约事件。
         所有 web3 同步调用都通过线程池执行，避免阻塞事件循环。
         """
-        poll_interval = 5  # 轮询间隔（秒）
+        poll_interval = 1  # 轮询间隔（秒）— 5s→1s，结算后前端看到结果快 5 倍
 
         try:
             while self.listening:

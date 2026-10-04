@@ -292,6 +292,36 @@ async def get_room_list():
     )
 
 
+# 游戏大厅实时统计（无 auth，公共接口）
+@router.get("/stats")
+async def game_stats():
+    """
+    游戏大厅实时统计数据
+
+    返回当前匹配队列人数、活跃房间数等，用于前端大厅展示。
+    """
+    # 活跃匹配请求数（正在排队的玩家）
+    queue_count = len(match_manager.active_matches)
+
+    # 活跃房间数（内存态）
+    all_rooms = room_manager._rooms
+    active_rooms = {k: v for k, v in all_rooms.items()
+                    if v.get("status") not in ("CLOSED", "FINISHED")}
+
+    # 按状态分类
+    status_counts = {}
+    for r in active_rooms.values():
+        s = r.get("status", "UNKNOWN")
+        status_counts[s] = status_counts.get(s, 0) + 1
+
+    return {
+        "queue_count": queue_count,
+        "active_rooms": len(active_rooms),
+        "room_status": status_counts,
+        "queue_position_avg": 0,  # 占位，Redis 队列实际位置可补
+    }
+
+
 # 获取玩家房间
 @router.get("/room/player/{player_address}")
 async def get_player_room(player_address: str):
