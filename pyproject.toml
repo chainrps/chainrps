@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chainrps"
-version = "1.0.17"
+version = "1.0.18"
 description = "链上公平猜拳游戏后端服务"
 readme = "README.md"
 requires-python = ">=3.11"
