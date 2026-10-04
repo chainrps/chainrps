@@ -20,6 +20,7 @@ from .database import (
     # 玩家统计操作
     update_player_stats,
     get_player_stats,
+    get_leaderboard,
     upsert_player_from_chain,
     # 用户配置操作
     get_user_preferences,
@@ -82,6 +83,7 @@ __all__ = [
     # 玩家统计操作
     "update_player_stats",
     "get_player_stats",
+    "get_leaderboard",
     "upsert_player_from_chain",
     # 用户配置操作
     "get_user_preferences",

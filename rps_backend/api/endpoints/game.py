@@ -37,7 +37,7 @@ from rps_backend.models import (
     # 方案B：Relayer 长期授权
     AuthorizeRelayerRequest,
 )
-from rps_backend.repository import get_game_record
+from rps_backend.repository import get_game_record, get_player_stats, get_leaderboard
 from rps_backend.service import game_manager, match_manager, room_manager
 from rps_backend.service.relayer_service import relayer_service
 
@@ -320,6 +320,42 @@ async def game_stats():
         "room_status": status_counts,
         "queue_position_avg": 0,  # 占位，Redis 队列实际位置可补
     }
+
+
+@router.get("/leaderboard")
+async def game_leaderboard(limit: int = 20, sort_by: str = "wins"):
+    """
+    玩家排行榜
+
+    Args:
+        limit: 返回前 N 名（默认 20，最大 100）
+        sort_by: 排序 wins/win_rate/total_games/total_won
+    """
+    rows = get_leaderboard(limit=limit, sort_by=sort_by)
+    return {
+        "success": True,
+        "total": len(rows),
+        "leaderboard": rows,
+    }
+
+
+@router.get("/player/{address}/stats")
+async def player_stats(address: str):
+    """
+    查询指定地址的玩家战绩
+    """
+    stats = get_player_stats(address.lower())
+    if not stats:
+        return {
+            "success": True,
+            "message": "该玩家尚无对局记录",
+            "stats": {
+                "address": address.lower(),
+                "total_games": 0, "wins": 0, "losses": 0, "draws": 0,
+                "total_wagered": 0, "total_won": 0, "win_rate": 0.0,
+            },
+        }
+    return {"success": True, "stats": stats}
 
 
 # 获取玩家房间

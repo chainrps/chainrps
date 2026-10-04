@@ -159,7 +159,7 @@ async def cleanup_loop():
 app = FastAPI(
     title="ChainRPS Backend",
     description="链上公平猜拳后端服务",
-    version="1.0.20",
+    version="1.0.21",
     lifespan=lifespan
 )
 

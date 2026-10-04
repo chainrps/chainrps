@@ -62,13 +62,19 @@ def get_connection():
     获取数据库连接
 
     使用 sqlite3.Row 作为 row_factory，使查询结果可通过列名访问。
-    同时确保数据库所在目录存在，避免首次启动时因目录缺失而失败。
+    启用 WAL 模式 + busy_timeout 提升并发读写性能。
     """
     db_dir = os.path.dirname(DATABASE_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(DATABASE_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    # WAL 模式：读写互不阻塞，吞吐量翻倍
+    conn.execute("PRAGMA journal_mode=WAL")
+    # 30 秒忙等待：避免 "database is locked"
+    conn.execute("PRAGMA busy_timeout=30000")
+    # 内存缓存加速查询
+    conn.execute("PRAGMA cache_size=-64000")  # ~64MB
     return conn
 
 
@@ -658,7 +664,51 @@ def get_player_stats(address: str) -> Optional[dict]:
             [address]
         )
         row = cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        result = dict(row)
+        # 动态计算胜率
+        total = result.get("total_games") or 0
+        wins = result.get("wins") or 0
+        result["win_rate"] = round(wins / total * 100, 1) if total > 0 else 0.0
+        return result
+    finally:
+        conn.close()
+
+
+# 获取排行榜
+def get_leaderboard(limit: int = 20, sort_by: str = "wins") -> List[dict]:
+    """
+    获取玩家排行榜
+
+    Args:
+        limit: 返回前 N 名（默认 20，最大 100）
+        sort_by: 排序字段 (wins/win_rate/total_games/total_won)
+    """
+    limit = max(1, min(limit, 100))
+    sort_map = {
+        "wins": "wins DESC",
+        "win_rate": "(CAST(wins AS FLOAT) / CASE WHEN total_games > 0 THEN total_games ELSE 1 END) DESC",
+        "total_games": "total_games DESC",
+        "total_won": "total_won DESC",
+    }
+    order = sort_map.get(sort_by, "wins DESC")
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT * FROM players WHERE total_games > 0 ORDER BY {order} LIMIT ?",
+            [limit]
+        )
+        rows = []
+        for row in cursor.fetchall():
+            d = dict(row)
+            total = d.get("total_games") or 0
+            wins = d.get("wins") or 0
+            d["win_rate"] = round(wins / total * 100, 1) if total > 0 else 0.0
+            rows.append(d)
+        return rows
     finally:
         conn.close()
 

@@ -174,28 +174,35 @@ class WebSocketManager:
             seen.add(addr_lower)
             await self.send_to_player(addr, message)
 
-    # 发送消息给房间内所有订阅者
+    # 发送消息给房间内所有订阅者（批量并发，减少 await 开销）
     async def send_to_room(self, room_id: str, message: WSMessage):
         """
         发送消息给订阅了指定房间的所有玩家
 
-        Args:
-            room_id: 房间ID
-            message: 要发送的 WSMessage
+        使用 asyncio.gather 批量发送，N 个玩家只需 1 次调度。
         """
         subscribers = self.room_subscriptions.get(room_id, set())
+        if not subscribers:
+            return
+        tasks = []
         for addr_lower in list(subscribers):
             original_addr = self._original_addresses.get(addr_lower, addr_lower)
-            await self.send_to_player(original_addr, message)
+            tasks.append(self.send_to_player(original_addr, message))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 发送消息给对局订阅者
+    # 发送消息给对局订阅者（批量并发）
     async def send_to_game(self, game_id: int, message: WSMessage):
-        """发送消息给订阅了指定对局的所有玩家"""
+        """发送消息给订阅了指定对局的所有玩家（批量并发）"""
         subscribers = self.game_subscriptions.get(game_id, set())
-        # 复制一份，避免发送过程中订阅集合发生变化
+        if not subscribers:
+            return
+        tasks = []
         for addr_lower in list(subscribers):
             original_addr = self._original_addresses.get(addr_lower, addr_lower)
-            await self.send_to_player(original_addr, message)
+            tasks.append(self.send_to_player(original_addr, message))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # 启动 Redis 全局广播订阅监听
     async def _start_pubsub_listener(self):
