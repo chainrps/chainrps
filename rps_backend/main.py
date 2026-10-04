@@ -52,6 +52,14 @@ async def lifespan(app: FastAPI):
     # 启动合约事件监听
     contract_task = asyncio.create_task(contract_service.start_listening())
 
+    # 启动 Git 自动 fetch 后台任务（每 60s 同步远程 refs，admin 面板版本检测响应 <50ms）
+    try:
+        from rps_backend.api.endpoints.admin import start_git_auto_fetch
+        await start_git_auto_fetch()
+        print("🔄 Git 自动 fetch 后台任务已启动 (60s/次)")
+    except Exception as e:
+        print(f"⚠️  Git 自动 fetch 任务启动失败（不影响主服务）: {e}")
+
     # 启动 WebSocket Pub/Sub 监听器（用于跨进程广播）
     await ws_manager._start_pubsub_listener()
     # 启动 WebSocket 点对点路由监听器（用于跨进程点对点消息）
@@ -159,7 +167,7 @@ async def cleanup_loop():
 app = FastAPI(
     title="ChainRPS Backend",
     description="链上公平猜拳后端服务",
-    version="1.0.22",
+    version="1.0.23",
     lifespan=lifespan
 )
 

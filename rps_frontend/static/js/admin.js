@@ -439,9 +439,12 @@ const AdminApp = {
         if (chainPanel) chainPanel.style.display = tabName === 'chain' ? '' : 'none';
         if (updatePanel) updatePanel.style.display = tabName === 'update' ? '' : 'none';
 
-        // 进入系统更新子 tab 时自动刷新 Git 状态
+        // 进入系统更新子 tab 时自动刷新 Git 状态 + 启动 30s 定时轮询
         if (tabName === 'update') {
             this.githubRefreshStatus();
+            this._startGithubAutoRefresh();
+        } else {
+            this._stopGithubAutoRefresh();
         }
 
         if (updateHash) {
@@ -3869,14 +3872,17 @@ const AdminApp = {
     /**
      * 刷新 Git 仓库状态
      */
-    async githubRefreshStatus() {
+    async githubRefreshStatus(forceRefresh = false) {
         const container = document.getElementById('gitStatusContent');
         if (!container) return;
 
         container.innerHTML = '<div style="color:var(--text-tertiary);">加载中...</div>';
 
         try {
-            const data = await this.apiRequest('/api/admin/github/status');
+            const url = forceRefresh
+                ? '/api/admin/github/status?force_refresh=true'
+                : '/api/admin/github/status';
+            const data = await this.apiRequest(url);
 
             if (!data.is_git_repo) {
                 container.innerHTML = `<div style="color:#ef4444;">❌ ${data.message || '不是 Git 仓库'}</div>`;
@@ -3899,6 +3905,8 @@ const AdminApp = {
             const dirtyTag = data.has_changes
                 ? '<span class="tag" style="background:#fee2e2;color:#991b1b;margin-left:6px;">有未提交修改</span>'
                 : '';
+            const ageSec = data.fetch_age_seconds || 0;
+            const ageLabel = ageSec < 10 ? '刚刚' : ageSec < 60 ? ageSec + 's 前' : Math.floor(ageSec / 60) + 'min 前';
 
             container.innerHTML = `
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -3907,7 +3915,7 @@ const AdminApp = {
                         <div style="font-weight:600;margin-top:2px;">${data.branch}${behindTag}</div>
                     </div>
                     <div style="padding:10px;background:var(--bg-secondary);border-radius:8px;">
-                        <div style="font-size:12px;color:var(--text-tertiary);">远程</div>
+                        <div style="font-size:12px;color:var(--text-tertiary);">远程 · 上次同步 ${ageLabel}</div>
                         <div style="font-weight:600;margin-top:2px;font-size:12px;word-break:break-all;">
                             ${data.remote_info.split('\n')[0] || '-'}
                         </div>
@@ -3925,6 +3933,26 @@ const AdminApp = {
             `;
         } catch (e) {
             container.innerHTML = `<div style="color:#ef4444;">❌ 获取失败: ${e.message}</div>`;
+        }
+    },
+
+    /**
+     * 启动 Git 状态自动轮询（30s）
+     */
+    _startGithubAutoRefresh() {
+        this._stopGithubAutoRefresh();
+        this._githubRefreshTimer = setInterval(() => {
+            this.githubRefreshStatus();
+        }, 30000);
+    },
+
+    /**
+     * 停止 Git 状态自动轮询
+     */
+    _stopGithubAutoRefresh() {
+        if (this._githubRefreshTimer) {
+            clearInterval(this._githubRefreshTimer);
+            this._githubRefreshTimer = null;
         }
     },
 

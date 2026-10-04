@@ -11,6 +11,35 @@ import time
 from functools import partial
 from typing import List, Optional
 
+# ==================== Git 自动 fetch 缓存 ====================
+_GIT_FETCH_INTERVAL = 60  # 后台每 60s fetch 一次
+_GIT_LAST_FETCH = {"time": 0, "success": False, "error": ""}
+_GIT_FETCH_TASK: Optional[asyncio.Task] = None
+
+
+async def start_git_auto_fetch():
+    """后台定时 git fetch，让 github/status 接口<50ms 响应"""
+    global _GIT_FETCH_TASK
+
+    async def _loop():
+        await asyncio.sleep(5)  # 等服务完全启动再开始
+        while True:
+            project_root = _get_project_root()
+            try:
+                code, _, err = await asyncio.to_thread(
+                    _run_git, ["fetch", "--all", "--prune"], project_root, 15
+                )
+                _GIT_LAST_FETCH["time"] = time.time()
+                _GIT_LAST_FETCH["success"] = (code == 0)
+                _GIT_LAST_FETCH["error"] = err.strip()[:200] if err else ""
+            except Exception as e:
+                _GIT_LAST_FETCH["time"] = time.time()
+                _GIT_LAST_FETCH["success"] = False
+                _GIT_LAST_FETCH["error"] = str(e)[:200]
+            await asyncio.sleep(_GIT_FETCH_INTERVAL)
+
+    _GIT_FETCH_TASK = asyncio.create_task(_loop())
+
 from fastapi import APIRouter, HTTPException, Query, Request, Depends
 
 from rps_backend.models import (
@@ -1346,8 +1375,13 @@ def _run_git(args: list, cwd: str, timeout: int = 30) -> tuple:
 
 
 @router.get("/github/status")
-async def github_status():
-    """获取 Git 仓库状态（当前分支、commit、远程信息等）"""
+async def github_status(force_refresh: bool = Query(False, description="强制立即 fetch 远程（忽略缓存）")):
+    """
+    获取 Git 仓库状态
+
+    默认使用后台定时 fetch 缓存（60s 一次），接口响应 <50ms。
+    force_refresh=true 可触发一次即时 fetch（响应会慢 1-2s）。
+    """
     project_root = _get_project_root()
 
     # 检查是否是 git 仓库
@@ -1374,25 +1408,42 @@ async def github_status():
     code, status_out, _ = _run_git(["status", "--porcelain"], project_root)
     has_changes = bool(status_out)
 
-    # 尝试 fetch 并获取远程最新 commit（快速，不影响工作目录）
+    # fetch 策略：force_refresh 时立即 fetch，否则用后台缓存
     remote_head = ""
     fetch_ok = False
     fetch_error = ""
-    try:
-        # 不用 --depth=1，因为 force push 场景下浅 fetch 更新 ref 会失败
+    fetch_age = 0
+
+    if force_refresh:
+        # 同步立即 fetch（阻塞最多 15s）
         fetch_code, _, fetch_err = _run_git(["fetch", "--all", "--prune"], project_root, timeout=15)
-        if fetch_code == 0:
-            fetch_ok = True
+        fetch_ok = (fetch_code == 0)
+        fetch_error = fetch_err.strip()[:200] if fetch_err else ""
+        _GIT_LAST_FETCH["time"] = time.time()
+        _GIT_LAST_FETCH["success"] = fetch_ok
+        _GIT_LAST_FETCH["error"] = fetch_error
+    else:
+        # 用后台缓存的 fetch 结果
+        fetch_age = int(time.time() - _GIT_LAST_FETCH["time"]) if _GIT_LAST_FETCH["time"] else 999
+        # 如果从未 fetch 过（刚启动），先同步 fetch 一次
+        if _GIT_LAST_FETCH["time"] == 0:
+            fetch_code, _, fetch_err = _run_git(["fetch", "--all", "--prune"], project_root, timeout=15)
+            fetch_ok = (fetch_code == 0)
+            fetch_error = fetch_err.strip()[:200] if fetch_err else ""
+            _GIT_LAST_FETCH["time"] = time.time()
+            _GIT_LAST_FETCH["success"] = fetch_ok
+            _GIT_LAST_FETCH["error"] = fetch_error
         else:
-            fetch_error = fetch_err.strip()[:200]
-        _, remote_head, rev_err = _run_git(
-            ["rev-parse", f"origin/{branch}"] if branch else ["rev-parse", "origin/main"],
-            project_root
-        )
-        if not remote_head.strip():
-            fetch_error = (fetch_error + " | rev-parse 失败: " + rev_err.strip()[:200]).strip(" |")
-    except Exception as e:
-        fetch_error = str(e)[:200]
+            fetch_ok = _GIT_LAST_FETCH["success"]
+            fetch_error = _GIT_LAST_FETCH["error"]
+
+    # 获取远程 HEAD（fetch 之后本地 refs 已是最新）
+    _, remote_head, rev_err = _run_git(
+        ["rev-parse", f"origin/{branch}"] if branch else ["rev-parse", "origin/main"],
+        project_root
+    )
+    if not remote_head.strip() and rev_err:
+        fetch_error = (fetch_error + " | rev-parse: " + rev_err.strip()[:200]).strip(" |")
 
     # 比较本地和远程 commit
     is_behind = False
@@ -1423,6 +1474,8 @@ async def github_status():
         "remote_commit": remote_head[:8] if remote_head else "",
         "fetch_ok": fetch_ok,
         "fetch_error": fetch_error,
+        "fetch_age_seconds": fetch_age,
+        "force_refresh": force_refresh,
         "has_changes": has_changes,
         "ahead_count": ahead_count,
         "behind_count": behind_count,
