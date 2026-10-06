@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [[package]]
@@ -294,7 +294,7 @@ wheels = [
 
 [[package]]
 name = "chainrps"
-version = "1.0.0"
+version = "1.0.24"
 source = { editable = "." }
 dependencies = [
     { name = "bcrypt" },
