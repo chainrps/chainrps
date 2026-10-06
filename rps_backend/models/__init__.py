@@ -125,6 +125,36 @@ class RevealChoiceSigRequest(BaseModel):
     s: str
 
 
+class CreateMatchSigRequest(BaseModel):
+    """代提交 createMatch 请求（方案A）
+
+    玩家用 EIP-712 链下签名授权 relayer 代为上链 createMatchWithSig。
+    amount 为最小单位（wei），如 10 USDC = 10_000_000（6 decimals）。
+    """
+    player_address: str
+    amount: int
+    token: str  # ERC20 代币合约地址（ETH 原生代币不支持 gasless）
+    nonce: int
+    deadline: int
+    v: int
+    r: str
+    s: str
+
+
+class JoinMatchSigRequest(BaseModel):
+    """代提交 joinMatch 请求（方案A）
+
+    玩家用 EIP-712 链下签名授权 relayer 代为上链 joinMatchWithSig。
+    """
+    game_id: int
+    player_address: str
+    nonce: int
+    deadline: int
+    v: int
+    r: str
+    s: str
+
+
 class AuthorizeRelayerRequest(BaseModel):
     """查询/授权 relayer 请求（方案B）"""
     player_address: str

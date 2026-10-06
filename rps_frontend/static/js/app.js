@@ -2,7 +2,9 @@
 const App = (function () {
     let currentMode = 'A';
     let currentToken = CONFIG.getDefaultToken();
-    let currentAmount = 100;
+    // 下注金额：优先读 localStorage 缓存，无缓存默认 1
+    const _savedAmount = (() => { try { const v = localStorage.getItem('rps_bet_amount'); const n = Number(v); return (v != null && !isNaN(n) && n > 0) ? n : 1; } catch (_) { return 1; } })();
+    let currentAmount = _savedAmount;
     let currentGameId = null;
     // 链上对局 ID 是否已确认（区别于本地 game_id，防止兜底轮询自毁）
     let chainGameIdResolved = false;
@@ -1863,9 +1865,10 @@ const App = (function () {
     // 显示创建房间对话框
     function showCreateRoomDialog() {
         return new Promise((resolve) => {
-            const presetAmounts = [1, 10, 50, 100, 500];
+            const presetAmounts = [1, 5, 10, 50, 100];
             let selectedToken = currentToken || 'USDC';
             let selectedAmount = currentAmount || 1;
+            let tokenInfoExpanded = false;
 
             // 获取代币地址信息
             const tokenAddresses = CONFIG.getTokenAddresses();
@@ -1883,28 +1886,40 @@ const App = (function () {
                 content: () => {
                     const tokenOptions = CONFIG.getGameTokenOptions();
                     const initialInfo = getTokenAddressInfo(selectedToken);
+                    // 代币下拉选项
+                    const tokenSelectOptions = tokenOptions.map(t =>
+                        `<option value="${t}" ${t === selectedToken ? 'selected' : ''}>${t}</option>`
+                    ).join('');
                     return `
-                        <div style="margin-bottom: 16px;">
-                            <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">选择代币</div>
-                            <div style="display: flex; gap: 8px;">
-                                ${tokenOptions.map(t => `
-                                    <button class="dialog-token-btn" data-token="${t}" style="
-                                        flex: 1;
-                                        padding: 10px;
-                                        border: 1px solid ${t === selectedToken ? '#6366f1' : '#e2e8f0'};
-                                        border-radius: 10px;
-                                        background: ${t === selectedToken ? '#6366f1' : '#fff'};
-                                        color: ${t === selectedToken ? '#fff' : '#0f172a'};
-                                        cursor: pointer;
-                                        font-size: 14px;
-                                        font-weight: 500;
-                                        transition: all 0.15s ease;
-                                    ">${t}</button>
-                                `).join('')}
+                        <div style="margin-bottom: 14px;">
+                            <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">代币</div>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <select id="dialogTokenSelect" style="
+                                    flex: 1;
+                                    padding: 9px 12px;
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 10px;
+                                    font-size: 14px;
+                                    color: #0f172a;
+                                    background: #fff;
+                                    outline: none;
+                                    cursor: pointer;
+                                ">${tokenSelectOptions}</select>
+                                <button id="dialogTokenInfoToggle" style="
+                                    padding: 9px 10px;
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 10px;
+                                    background: #fff;
+                                    cursor: pointer;
+                                    font-size: 12px;
+                                    color: #64748b;
+                                    white-space: nowrap;
+                                " title="查看代币详情">详情 ▾</button>
                             </div>
                         </div>
                         <div id="dialogTokenInfo" style="
-                            margin-bottom: 16px;
+                            display: none;
+                            margin-bottom: 14px;
                             padding: 10px 12px;
                             background: #f8fafc;
                             border: 1px solid #e2e8f0;
@@ -1913,7 +1928,7 @@ const App = (function () {
                             line-height: 1.8;
                         ">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                <span style="font-weight: 600; color: #0f172a;">代币信息</span>
+                                <span style="font-weight: 600; color: #0f172a;">代币详情</span>
                                 <button id="dialogAddToWallet" style="
                                     padding: 3px 10px;
                                     font-size: 11px;
@@ -1928,12 +1943,12 @@ const App = (function () {
                             <div>合约地址: <code id="dialogTokenAddress" style="font-size: 11px; color: #6366f1; cursor: pointer;" title="点击复制">${initialInfo.isNative ? '原生币 (零地址)' : initialInfo.address}</code></div>
                             <div>Decimals: ${initialInfo.decimals}</div>
                         </div>
-                        <div style="margin-bottom: 16px;">
-                            <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">下注金额</div>
-                            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
+                        <div style="margin-bottom: 6px;">
+                            <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">下注金额</div>
+                            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
                                 ${presetAmounts.map(a => `
                                     <button class="dialog-amount-btn" data-amount="${a}" style="
-                                        padding: 6px 14px;
+                                        padding: 5px 13px;
                                         border: 1px solid ${a === selectedAmount ? '#6366f1' : '#e2e8f0'};
                                         border-radius: 999px;
                                         background: ${a === selectedAmount ? '#6366f1' : '#fff'};
@@ -1946,7 +1961,7 @@ const App = (function () {
                             </div>
                             <input id="dialogAmountInput" type="number" value="${selectedAmount}" min="1" step="1" style="
                                 width: 100%;
-                                padding: 10px 12px;
+                                padding: 9px 12px;
                                 border: 1px solid #e2e8f0;
                                 border-radius: 10px;
                                 font-size: 14px;
@@ -1982,7 +1997,27 @@ const App = (function () {
                 `
             });
 
-            // 更新代币信息显示
+            // 代币下拉
+            const tokenSelect = modal.element.querySelector('#dialogTokenSelect');
+            if (tokenSelect) {
+                tokenSelect.addEventListener('change', (e) => {
+                    selectedToken = e.target.value;
+                    updateTokenInfo();
+                });
+            }
+
+            // 代币详情折叠
+            const infoToggle = modal.element.querySelector('#dialogTokenInfoToggle');
+            const tokenInfo = modal.element.querySelector('#dialogTokenInfo');
+            if (infoToggle && tokenInfo) {
+                infoToggle.addEventListener('click', () => {
+                    tokenInfoExpanded = !tokenInfoExpanded;
+                    tokenInfo.style.display = tokenInfoExpanded ? 'block' : 'none';
+                    infoToggle.textContent = tokenInfoExpanded ? '详情 ▴' : '详情 ▾';
+                });
+            }
+
+            // updateTokenInfo：更新代币详情区显示
             const updateTokenInfo = () => {
                 const info = getTokenAddressInfo(selectedToken);
                 const addrEl = modal.element.querySelector('#dialogTokenAddress');
@@ -2000,17 +2035,13 @@ const App = (function () {
                 }
             };
 
-            // 添加到钱包按钮
+            // 添加到钱包按钮（放在 tokenInfo 折叠区里）
             const addToWalletBtn = modal.element.querySelector('#dialogAddToWallet');
             if (addToWalletBtn) {
                 addToWalletBtn.addEventListener('click', async () => {
-                    if (!window.ethereum) {
-                        FWUI.Toast.warning('未检测到钱包插件');
-                        return;
-                    }
+                    if (!window.ethereum) { FWUI.Toast.warning('未检测到钱包插件'); return; }
                     const info = getTokenAddressInfo(selectedToken);
                     if (info.isNative) {
-                        // 原生币：只需切换网络
                         FWUI.Modal.confirm({
                             title: '添加原生币到钱包',
                             content: `<p><b>${selectedToken}</b> 是链的原生代币，只需添加/切换网络即可自动显示。</p>
@@ -2019,40 +2050,24 @@ const App = (function () {
                             onOk: async () => {
                                 try {
                                     const chainId = CONFIG.getChainId();
-                                    const hexChainId = '0x' + chainId.toString(16);
-                                    await window.ethereum.request({
-                                        method: 'wallet_switchEthereumChain',
-                                        params: [{chainId: hexChainId}],
-                                    });
+                                    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x' + chainId.toString(16) }] });
                                     FWUI.Toast.success('已切换网络');
-                                } catch (e) {
-                                    FWUI.Toast.warning('请在钱包中手动添加网络');
-                                }
+                                } catch (_) { FWUI.Toast.warning('请在钱包中手动添加网络'); }
                             }
                         });
                     } else {
-                        // ERC20 代币：使用 wallet_watchAsset
                         try {
                             await window.ethereum.request({
                                 method: 'wallet_watchAsset',
-                                params: [{
-                                    type: 'ERC20',
-                                    options: {
-                                        address: info.address,
-                                        symbol: selectedToken,
-                                        decimals: info.decimals,
-                                    },
-                                }]
+                                params: [{ type: 'ERC20', options: { address: info.address, symbol: selectedToken, decimals: info.decimals } }]
                             });
                             FWUI.Toast.success(`${selectedToken} 已添加到钱包`);
-                        } catch (e) {
+                        } catch (_) {
                             FWUI.Modal.alert({
                                 title: '手动添加代币',
                                 content: `<p>请在钱包中手动添加：</p>
                                     <div style="background:#f8fafc;padding:10px;border-radius:6px;font-family:monospace;font-size:12px;margin-top:8px;">
-                                        <div>Symbol: ${selectedToken}</div>
-                                        <div>Address: ${info.address}</div>
-                                        <div>Decimals: ${info.decimals}</div>
+                                        <div>Symbol: ${selectedToken}</div><div>Address: ${info.address}</div><div>Decimals: ${info.decimals}</div>
                                     </div>
                                     <p style="margin-top:8px;color:#64748b;font-size:11px;">路径：钱包 → 资产 → 添加自定义代币</p>`
                             });
@@ -2060,20 +2075,6 @@ const App = (function () {
                     }
                 });
             }
-
-            // 代币选择
-            modal.element.querySelectorAll('.dialog-token-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    selectedToken = btn.dataset.token;
-                    modal.element.querySelectorAll('.dialog-token-btn').forEach(b => {
-                        const isActive = b.dataset.token === selectedToken;
-                        b.style.borderColor = isActive ? '#6366f1' : '#e2e8f0';
-                        b.style.background = isActive ? '#6366f1' : '#fff';
-                        b.style.color = isActive ? '#fff' : '#0f172a';
-                    });
-                    updateTokenInfo();
-                });
-            });
 
             // 快捷金额
             modal.element.querySelectorAll('.dialog-amount-btn').forEach(btn => {
@@ -2104,6 +2105,8 @@ const App = (function () {
                     FWUI.Toast.warning('请输入有效的下注金额');
                     return;
                 }
+                // 保存用户选择到 localStorage，下次打开自动填充
+                try { localStorage.setItem('rps_bet_amount', String(selectedAmount)); localStorage.setItem('rps_token', selectedToken); } catch (_) {}
                 modal.close();
                 resolve({token: selectedToken, amount: selectedAmount});
             });
@@ -2138,6 +2141,12 @@ const App = (function () {
 
             const data = await response.json();
             if (data.success) {
+                // 同步当前代币/金额状态（下次开房间自动带入）
+                currentToken = result.token;
+                currentAmount = result.amount;
+                // 创建房间对话框已经保存了 localStorage，这里再兜底一次
+                try { localStorage.setItem('rps_bet_amount', String(result.amount)); localStorage.setItem('rps_token', result.token); } catch (_) {}
+
                 currentRoomId = data.room_id;
                 currentRoom = {
                     room_id: data.room_id,

@@ -232,11 +232,17 @@ const CONFIG = {
     },
 
     // ==================== 后端服务器地址配置 ====================
-    // 获取后端服务器 IP 地址
+    // 优先用用户自定义地址（非 localhost），否则自动跟随当前页面 host（同源零配置）
     getServerIp() {
         if (this._serverIp) return this._serverIp;
         const stored = localStorage.getItem('rps_server_ip');
-        this._serverIp = stored || '127.0.0.1';
+        // 跳过 localhost/127.0.0.1 旧缓存，自动跟随当前页面 host
+        if (stored && stored !== '127.0.0.1' && stored !== 'localhost') {
+            this._serverIp = stored;
+            return this._serverIp;
+        }
+        const host = typeof location !== 'undefined' && location.hostname ? location.hostname : '127.0.0.1';
+        this._serverIp = host;
         return this._serverIp;
     },
 
@@ -244,7 +250,16 @@ const CONFIG = {
     getServerPort() {
         if (this._serverPort) return this._serverPort;
         const stored = localStorage.getItem('rps_server_port');
-        this._serverPort = stored || '8000';
+        // 跳过 8000 旧缓存（默认值），自动跟随当前页面端口
+        if (stored && stored !== '8000') {
+            this._serverPort = stored;
+            return this._serverPort;
+        }
+        if (typeof location !== 'undefined' && location.port) {
+            this._serverPort = location.port;
+        } else {
+            this._serverPort = '8000';
+        }
         return this._serverPort;
     },
 
@@ -256,14 +271,33 @@ const CONFIG = {
         localStorage.setItem('rps_server_port', this._serverPort);
     },
 
-    // 后端服务 HTTP 基础 URL
+    // 后端服务 HTTP 基础 URL（同源用相对路径，跨域用完整 URL）
     get backendUrl() {
-        return `http://${this.getServerIp()}:${this.getServerPort()}`;
+        const ip = this.getServerIp();
+        const port = this.getServerPort();
+        const isSameOrigin = (typeof location !== 'undefined' &&
+            (ip === location.hostname || ip === '127.0.0.1' || ip === 'localhost') &&
+            (port === location.port || port === '8000'));
+        if (isSameOrigin) {
+            // 同源：返回相对路径前缀，自动适配 http/https、IP/域名、端口
+            return '';
+        }
+        return `${location.protocol || 'http:'}//${ip}:${port}`;
     },
 
-    // 后端服务 WebSocket 基础 URL
+    // 后端服务 WebSocket 基础 URL（自动跟随页面协议和 host）
     get wsUrl() {
-        return `ws://${this.getServerIp()}:${this.getServerPort()}`;
+        const ip = this.getServerIp();
+        const port = this.getServerPort();
+        const wsProto = (typeof location !== 'undefined' && location.protocol === 'https:') ? 'wss:' : 'ws:';
+        const isSameOrigin = (typeof location !== 'undefined' &&
+            (ip === location.hostname || ip === '127.0.0.1' || ip === 'localhost') &&
+            (port === location.port || port === '8000'));
+        if (isSameOrigin) {
+            // 同源：用当前页面的 host，自动适配 ws/wss
+            return `${wsProto}//${location.host}`;
+        }
+        return `${wsProto}//${ip}:${port}`;
     }
 };
 

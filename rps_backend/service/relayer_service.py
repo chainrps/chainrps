@@ -79,6 +79,37 @@ _ABI_PATH = os.path.join(
 _RELAYER_ABI_MINIMAL = [
     {
         "inputs": [
+            {"name": "player", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+            {"name": "token", "type": "address"},
+            {"name": "nonce", "type": "uint256"},
+            {"name": "deadline", "type": "uint256"},
+            {"name": "v", "type": "uint8"},
+            {"name": "r", "type": "bytes32"},
+            {"name": "s", "type": "bytes32"}
+        ],
+        "name": "createMatchWithSig",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"name": "gameId", "type": "uint256"},
+            {"name": "player", "type": "address"},
+            {"name": "nonce", "type": "uint256"},
+            {"name": "deadline", "type": "uint256"},
+            {"name": "v", "type": "uint8"},
+            {"name": "r", "type": "bytes32"},
+            {"name": "s", "type": "bytes32"}
+        ],
+        "name": "joinMatchWithSig",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
             {"name": "gameId", "type": "uint256"},
             {"name": "player", "type": "address"},
             {"name": "commit", "type": "bytes32"},
@@ -134,7 +165,8 @@ try:
     with open(_ABI_PATH, "r", encoding="utf-8") as f:
         full_abi = json.load(f)
         # 过滤出代提交相关的函数
-        _needed_names = {"submitCommitWithSig", "revealChoiceWithSig",
+        _needed_names = {"createMatchWithSig", "joinMatchWithSig",
+                         "submitCommitWithSig", "revealChoiceWithSig",
                          "getRelayerAuthorization", "nonces"}
         CONTRACT_ABI = [item for item in full_abi
                         if item.get("name") in _needed_names and item.get("type") == "function"]
@@ -608,6 +640,244 @@ class RelayerService:
                 self._pending_txs.pop(tx_hash_hex, None)
 
     # ==================== 代提交（方案A） ====================
+
+    # 代提交 createMatch（方案A）- relayer 调用合约 createMatchWithSig
+    async def submit_create_match_with_sig(
+        self,
+        player: str,
+        amount: int,
+        token: str,
+        nonce: int,
+        deadline: int,
+        v: int,
+        r: str,
+        s: str,
+    ) -> dict:
+        """
+        代提交 createMatch（方案A） - relayer 调用合约 createMatchWithSig。
+        玩家先 ERC20 approve 合约额度，再 authorizeRelayer 一次，
+        之后所有对局只需 EIP-712 签名消息（零 gas）。
+        """
+        async def _factory():
+            return await self._do_submit_create_match_with_sig(
+                player, amount, token, nonce, deadline, v, r, s
+            )
+        return await self._enqueue_and_wait(player, _factory)
+
+    async def _do_submit_create_match_with_sig(
+        self,
+        player: str,
+        amount: int,
+        token: str,
+        nonce: int,
+        deadline: int,
+        v: int,
+        r: str,
+        s: str,
+    ) -> dict:
+        if not self._available:
+            return {"success": False, "message": "Relayer 服务不可用"}
+
+        try:
+            async with self._nonce_lock:
+                if self._local_nonce is None:
+                    self._local_nonce = await _run_sync(
+                        lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
+                    )
+                tx_nonce = self._local_nonce
+                self._local_nonce = tx_nonce + 1
+
+            def _from_hex(x):
+                return bytes.fromhex(x[2:]) if isinstance(x, str) and x.startswith("0x") else bytes.fromhex(x)
+
+            gas_price = await _run_sync(lambda: self.w3.eth.gas_price)
+
+            tx = self.contract.functions.createMatchWithSig(
+                self.w3.to_checksum_address(player),
+                amount,
+                self.w3.to_checksum_address(token),
+                nonce,
+                deadline,
+                v,
+                _from_hex(r),
+                _from_hex(s),
+            ).build_transaction({
+                "from": self.relayer_account.address,
+                "nonce": tx_nonce,
+                "gas": 500000,
+                "gasPrice": gas_price,
+            })
+
+            signed = self.relayer_account.sign_transaction(tx)
+            tx_hash = await _run_sync(
+                lambda: self.w3.eth.send_raw_transaction(signed.raw_transaction)
+            )
+            tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+
+            self._track_pending_tx(tx_hash_hex, tx_nonce, gas_price, tx)
+
+            receipt = await _run_sync(
+                lambda: self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            )
+
+            async with self._pending_lock:
+                self._pending_txs.pop(tx_hash_hex, None)
+
+            if receipt.get("status") != 1:
+                return {"success": False, "message": "createMatchWithSig reverted", "tx_hash": tx_hash_hex}
+
+            # 从 receipt 日志提取 gameId
+            game_id = None
+            try:
+                for log in receipt.get("logs", []):
+                    try:
+                        topic = log.get("topics", [])
+                        # GameCreated / GameCreatedWithSig 事件
+                        if len(topic) >= 2:
+                            game_id = int.from_bytes(topic[1], "big") if topic[1] else None
+                            if game_id:
+                                break
+                    except Exception:
+                        continue
+                if not game_id:
+                    game_id = int(receipt.get("logs", [{}])[0].get("data", "0x0"), 16)
+            except Exception:
+                pass
+
+            return {
+                "success": True,
+                "tx_hash": tx_hash_hex,
+                "game_id": game_id,
+                "message": "代提交 createMatch 成功"
+            }
+
+        except Exception as e:
+            err_msg = str(e)
+            if "Nonce mismatch" in err_msg:
+                return {"success": False, "message": "Nonce 不匹配"}
+            if "Signature expired" in err_msg:
+                return {"success": False, "message": "签名已过期"}
+            if "Token not supported" in err_msg:
+                return {"success": False, "message": "代币未在合约注册"}
+            if "Bet below minimum" in err_msg:
+                return {"success": False, "message": "低于最小下注额"}
+            if "transferFrom" in err_msg or "insufficient allowance" in err_msg.lower() or "ERC20InsufficientAllowance" in err_msg:
+                return {"success": False, "message": "ERC20 授权额度不足，请先 approve 合约（建议无限额 MaxUint256）"}
+            if "not authorized" in err_msg.lower() or "no relayer authorization" in err_msg.lower():
+                return {"success": False, "message": "玩家未授权 relayer，请先 authorizeRelayer"}
+            if "nonce too low" in err_msg.lower() or "replacement transaction underpriced" in err_msg.lower():
+                async with self._nonce_lock:
+                    try:
+                        self._local_nonce = await _run_sync(
+                            lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
+                        )
+                    except Exception:
+                        pass
+                return {"success": False, "message": f"代提交 createMatch 失败（nonce 已重新同步）: {err_msg}"}
+            return {"success": False, "message": f"代提交 createMatch 失败: {err_msg}"}
+
+    # 代提交 joinMatch（方案A）- relayer 调用合约 joinMatchWithSig
+    async def submit_join_match_with_sig(
+        self,
+        game_id: int,
+        player: str,
+        nonce: int,
+        deadline: int,
+        v: int,
+        r: str,
+        s: str,
+    ) -> dict:
+        """
+        代提交 joinMatch（方案A） - relayer 调用合约 joinMatchWithSig。
+        玩家先 ERC20 approve 合约额度 + authorizeRelayer 一次，之后全程零 gas。
+        """
+        async def _factory():
+            return await self._do_submit_join_match_with_sig(
+                game_id, player, nonce, deadline, v, r, s
+            )
+        return await self._enqueue_and_wait(player, _factory)
+
+    async def _do_submit_join_match_with_sig(
+        self,
+        game_id: int,
+        player: str,
+        nonce: int,
+        deadline: int,
+        v: int,
+        r: str,
+        s: str,
+    ) -> dict:
+        if not self._available:
+            return {"success": False, "message": "Relayer 服务不可用"}
+
+        try:
+            async with self._nonce_lock:
+                if self._local_nonce is None:
+                    self._local_nonce = await _run_sync(
+                        lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
+                    )
+                tx_nonce = self._local_nonce
+                self._local_nonce = tx_nonce + 1
+
+            def _from_hex(x):
+                return bytes.fromhex(x[2:]) if isinstance(x, str) and x.startswith("0x") else bytes.fromhex(x)
+
+            gas_price = await _run_sync(lambda: self.w3.eth.gas_price)
+
+            tx = self.contract.functions.joinMatchWithSig(
+                game_id,
+                self.w3.to_checksum_address(player),
+                nonce,
+                deadline,
+                v,
+                _from_hex(r),
+                _from_hex(s),
+            ).build_transaction({
+                "from": self.relayer_account.address,
+                "nonce": tx_nonce,
+                "gas": 500000,
+                "gasPrice": gas_price,
+            })
+
+            signed = self.relayer_account.sign_transaction(tx)
+            tx_hash = await _run_sync(
+                lambda: self.w3.eth.send_raw_transaction(signed.raw_transaction)
+            )
+            tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+
+            self._track_pending_tx(tx_hash_hex, tx_nonce, gas_price, tx)
+            await self._wait_and_untrack(tx_hash_hex, timeout=120)
+
+            return {
+                "success": True,
+                "tx_hash": tx_hash_hex,
+                "message": "代提交 joinMatch 成功"
+            }
+
+        except Exception as e:
+            err_msg = str(e)
+            if "Nonce mismatch" in err_msg:
+                return {"success": False, "message": "Nonce 不匹配"}
+            if "Game not waiting" in err_msg:
+                return {"success": False, "message": "对局不在等待加入状态"}
+            if "Cannot join own game" in err_msg:
+                return {"success": False, "message": "不能加入自己创建的对局"}
+            if "Game already full" in err_msg:
+                return {"success": False, "message": "对局已满"}
+            if "transferFrom" in err_msg or "insufficient allowance" in err_msg.lower():
+                return {"success": False, "message": "ERC20 授权额度不足"}
+            if "not authorized" in err_msg.lower():
+                return {"success": False, "message": "玩家未授权 relayer"}
+            if "nonce too low" in err_msg.lower() or "replacement transaction underpriced" in err_msg.lower():
+                async with self._nonce_lock:
+                    try:
+                        self._local_nonce = await _run_sync(
+                            lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
+                        )
+                    except Exception:
+                        pass
+                return {"success": False, "message": f"代提交 joinMatch 失败（nonce 已重新同步）: {err_msg}"}
+            return {"success": False, "message": f"代提交 joinMatch 失败: {err_msg}"}
 
     # 代提交 commit（方案A）
     async def submit_commit_with_sig(

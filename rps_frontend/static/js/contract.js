@@ -548,25 +548,74 @@ const Contract = (function() {
         return null;
     }
 
-    // 创建对局
+    // 创建对局（自动优先 Relayer gasless，降级到直接交易）
     async function createMatch(amount, tokenAddress) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
 
-        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
-            FWUI.Toast.info('请在钱包中确认「创建对局」的签名请求');
-        }
+        const myAddress = await signer.getAddress();
+        const isNativeETH = !tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000';
 
         let amountWei;
-        let txOptions = {};
-        if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
+        if (isNativeETH) {
             amountWei = ethers.parseEther(amount.toString());
-            txOptions.value = amountWei;
         } else {
             const tokenContract = getTokenContract(tokenAddress);
             const decimals = await tokenContract.decimals();
             amountWei = ethers.parseUnits(amount.toString(), decimals);
+        }
+
+        // === Relayer gasless 路径 ===
+        // 条件：非 ETH + Relayer 健康 + 玩家已 authorizeRelayer + 已 approve 合约额度
+        if (!isNativeETH) {
+            try {
+                const healthy = await _checkRelayerHealth();
+                if (healthy) {
+                    const authorized = await _checkRelayerAuthorized(myAddress);
+                    if (authorized) {
+                        // ERC20 approve（无限额，一次签名永久用）
+                        try {
+                            await ensureAllowance(tokenAddress, amount, myAddress, { unlimited: true });
+                        } catch (e) {
+                            console.warn('[Relayer] approve 失败，降级到直接交易:', e.message);
+                            throw { _skipRelayer: true };
+                        }
+
+                        // EIP-712 签名 + Relayer 代提交
+                        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                            FWUI.Toast.info('请在钱包中确认「创建对局」签名（无 gas 费）');
+                        }
+                        const sig = await withWalletTimeout('签名创建对局', async () => {
+                            return await signCreateMatch(amountWei, tokenAddress, myAddress);
+                        });
+                        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                            FWUI.Toast.info('正在通过 Relayer 创建对局...');
+                        }
+                        const result = await submitCreateMatchRelayer(myAddress, amountWei, tokenAddress, sig);
+                        if (result && result.success) {
+                            const gameId = result.game_id;
+                            if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                                FWUI.Toast.success(`链上对局已创建 #${gameId}（Gasless ✅）`);
+                            }
+                            return { gameId, tx: null, _relayer: true, tx_hash: result.tx_hash };
+                        } else {
+                            console.warn('[Relayer] createMatchWithSig 失败:', result && result.message);
+                            if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                                FWUI.Toast.warning('Relayer 代提交失败，降级到直接交易');
+                            }
+                        }
+                    }
+                }
+            } catch (relayerErr) {
+                if (relayerErr && relayerErr._skipRelayer) throw relayerErr;
+                console.warn('[Relayer] gasless 路径异常，降级:', relayerErr && relayerErr.message);
+            }
+        }
+
+        // === 降级路径：直接 sign 交易 ===
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「创建对局」的签名请求');
         }
 
         let tx;
@@ -575,10 +624,9 @@ const Contract = (function() {
 
         try {
             ({ tx, receipt, gameId } = await withWalletTimeout('创建对局', async () => {
-                const _tx = await contract.createMatch(amountWei, tokenAddress, txOptions);
+                const _tx = await contract.createMatch(amountWei, tokenAddress, isNativeETH ? { value: amountWei } : {});
                 const _receipt = await _tx.wait();
                 let _gameId = null;
-                // 优先从 receipt 的日志解析（最准确）
                 if (_receipt && _receipt.logs) {
                     for (const log of _receipt.logs) {
                         try {
@@ -590,47 +638,91 @@ const Contract = (function() {
                         } catch (_) {}
                     }
                 }
-                // receipt 解析兜底：gameCount - 1（因为刚加 1）
                 if (_gameId == null || Number.isNaN(_gameId)) {
-                    try {
-                        const cnt = await contract.gameCount();
-                        _gameId = Math.max(1, Number(cnt));
-                    } catch (_) {}
+                    try { const cnt = await contract.gameCount(); _gameId = Math.max(1, Number(cnt)); } catch (_) {}
                 }
                 return { tx: _tx, receipt: _receipt, gameId: _gameId };
             }));
         } catch (e) {
-            // 若用户取消，直接抛出不额外处理
+            if (e && e._skipRelayer) { delete e._skipRelayer; throw e; }
             throw e;
         }
 
         if (!gameId || Number.isNaN(gameId)) {
             throw new Error('交易已上链，但未能从日志解析出 gameId，请重试或联系管理员');
         }
-
         return { tx, gameId };
     }
 
-    // 加入对局
+    // 加入对局（自动优先 Relayer gasless，降级到直接交易）
     async function joinMatch(gameId) {
         if (!contract || !signer) {
             throw new Error('合约未初始化或钱包未连接');
         }
+        const myAddress = await signer.getAddress();
 
+        // 先查链上 game 信息拿 token
+        let tokenAddress;
+        let amount;
+        try {
+            const game = await contract.games(gameId);
+            tokenAddress = game.token;
+            amount = game.amount;
+        } catch (e) {
+            throw new Error('无法查询链上对局信息：' + e.message);
+        }
+        const isNativeETH = !tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000';
+
+        // === Relayer gasless 路径 ===
+        if (!isNativeETH) {
+            try {
+                const healthy = await _checkRelayerHealth();
+                if (healthy) {
+                    const authorized = await _checkRelayerAuthorized(myAddress);
+                    if (authorized) {
+                        // ERC20 approve（无限额）
+                        try {
+                            const tokenContract = getTokenContract(tokenAddress);
+                            const decimals = await tokenContract.decimals();
+                            await ensureAllowance(tokenAddress, ethers.formatUnits(amount, decimals), myAddress, { unlimited: true });
+                        } catch (e) {
+                            console.warn('[Relayer] join approve 失败，降级:', e.message);
+                            throw { _skipRelayer: true };
+                        }
+
+                        const sig = await withWalletTimeout('签名加入对局', async () => {
+                            return await signJoinMatch(gameId, myAddress);
+                        });
+                        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                            FWUI.Toast.info('正在通过 Relayer 加入对局...');
+                        }
+                        const result = await submitJoinMatchRelayer(gameId, myAddress, sig);
+                        if (result && result.success) {
+                            if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                                FWUI.Toast.success('已加入链上对局（Gasless ✅）');
+                            }
+                            return { _relayer: true, tx_hash: result.tx_hash };
+                        } else {
+                            console.warn('[Relayer] joinMatchWithSig 失败:', result && result.message);
+                            if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+                                FWUI.Toast.warning('Relayer 代提交失败，降级到直接交易');
+                            }
+                        }
+                    }
+                }
+            } catch (relayerErr) {
+                if (relayerErr && relayerErr._skipRelayer) throw relayerErr;
+                console.warn('[Relayer] join gasless 路径异常，降级:', relayerErr && relayerErr.message);
+            }
+        }
+
+        // === 降级路径 ===
         if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
             FWUI.Toast.info('请在钱包中确认「加入对局」的签名请求');
         }
-
         return withWalletTimeout('加入对局', async () => {
-            const game = await contract.games(gameId);
-            const tokenAddress = game.token;
-            const amount = game.amount;
-
-            let txOptions = {};
-            if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
-                txOptions.value = amount;
-            }
-
+            const txOptions = {};
+            if (isNativeETH) txOptions.value = amount;
             const tx = await contract.joinMatch(gameId, txOptions);
             await tx.wait();
             return tx;
@@ -796,6 +888,143 @@ const Contract = (function() {
             s: sig.s,
             signature
         };
+    }
+
+    // 生成 joinMatch 的 EIP-712 链下签名（方案A）
+    /**
+     * @notice 生成 joinMatch 的 EIP-712 链下签名（方案A）
+     * @dev 签名内容：JoinMatch(gameId, player, nonce, deadline)
+     * @param gameId 对局ID
+     * @param player 玩家地址
+     * @return {nonce, deadline, v, r, s, signature}
+     */
+    async function signJoinMatch(gameId, player) {
+        if (!signer) throw new Error('钱包未连接');
+        const nonce = await getNonce(player);
+        const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 小时有效
+        const domain = _getEip712Domain();
+        const types = {
+            JoinMatch: [
+                { name: 'gameId', type: 'uint256' },
+                { name: 'player', type: 'address' },
+                { name: 'nonce', type: 'uint256' },
+                { name: 'deadline', type: 'uint256' }
+            ]
+        };
+        const value = { gameId, player, nonce, deadline };
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「加入对局」签名（无 gas 费）');
+        }
+        const signature = await withWalletTimeout('签名加入对局', async () => {
+            return await signer.signTypedData(domain, types, value);
+        });
+        const sig = ethers.Signature.from(signature);
+        return { nonce, deadline, v: sig.v, r: sig.r, s: sig.s, signature };
+    }
+
+    // 生成 createMatch 的 EIP-712 链下签名（方案A）
+    /**
+     * @notice 生成 createMatch 的 EIP-712 链下签名（方案A）
+     * @dev 签名内容：CreateMatch(player, amount, token, nonce, deadline)
+     * @param amount 下注额（最小单位，wei 级）
+     * @param token ERC20 合约地址
+     * @param player 玩家地址
+     * @return {nonce, deadline, v, r, s, signature}
+     */
+    async function signCreateMatch(amount, token, player) {
+        if (!signer) throw new Error('钱包未连接');
+        const nonce = await getNonce(player);
+        const deadline = Math.floor(Date.now() / 1000) + 3600;
+        const domain = _getEip712Domain();
+        const types = {
+            CreateMatch: [
+                { name: 'player', type: 'address' },
+                { name: 'amount', type: 'uint256' },
+                { name: 'token', type: 'address' },
+                { name: 'nonce', type: 'uint256' },
+                { name: 'deadline', type: 'uint256' }
+            ]
+        };
+        const value = { player, amount, token, nonce, deadline };
+        if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
+            FWUI.Toast.info('请在钱包中确认「创建对局」签名（无 gas 费）');
+        }
+        const signature = await withWalletTimeout('签名创建对局', async () => {
+            return await signer.signTypedData(domain, types, value);
+        });
+        const sig = ethers.Signature.from(signature);
+        return { nonce, deadline, v: sig.v, r: sig.r, s: sig.s, signature };
+    }
+
+    // 调后端 Relayer 代提交 createMatch
+    async function submitCreateMatchRelayer(playerAddress, amount, token, sigParts) {
+        const url = (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.backendUrl)
+            ? `${CONFIG.backendUrl}/api/game/create-match-sig`
+            : '/api/game/create-match-sig';
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                player_address: playerAddress,
+                amount: Number(amount),
+                token,
+                nonce: sigParts.nonce,
+                deadline: sigParts.deadline,
+                v: sigParts.v,
+                r: sigParts.r,
+                s: sigParts.s
+            })
+        });
+        return await resp.json();
+    }
+
+    // 调后端 Relayer 代提交 joinMatch
+    async function submitJoinMatchRelayer(gameId, playerAddress, sigParts) {
+        const url = (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.backendUrl)
+            ? `${CONFIG.backendUrl}/api/game/join-match-sig`
+            : '/api/game/join-match-sig';
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                game_id: gameId,
+                player_address: playerAddress,
+                nonce: sigParts.nonce,
+                deadline: sigParts.deadline,
+                v: sigParts.v,
+                r: sigParts.r,
+                s: sigParts.s
+            })
+        });
+        return await resp.json();
+    }
+
+    // 查询 Relayer 健康状态（静默，不弹窗）
+    async function _checkRelayerHealth() {
+        try {
+            const url = (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.backendUrl)
+                ? `${CONFIG.backendUrl}/api/game/relayer/status`
+                : '/api/game/relayer/status';
+            const resp = await fetch(url, { cache: 'no-store' });
+            const data = await resp.json();
+            return !!(data && data.healthy && data.gasless_available);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // 查询玩家是否已 authorizeRelayer（静默）
+    async function _checkRelayerAuthorized(playerAddress) {
+        try {
+            const url = (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.backendUrl)
+                ? `${CONFIG.backendUrl}/api/game/relayer/authorization/${playerAddress}`
+                : `/api/game/relayer/authorization/${playerAddress}`;
+            const resp = await fetch(url, { cache: 'no-store' });
+            const data = await resp.json();
+            return !!(data && data.active);
+        } catch (_) {
+            return false;
+        }
     }
 
     // ==================== 方案B：Relayer 长期授权 ====================
@@ -1051,6 +1280,10 @@ const Contract = (function() {
         // 方案A：EIP-712 链下签名
         signCommit,
         signReveal,
+        signCreateMatch,
+        signJoinMatch,
+        submitCreateMatchRelayer,
+        submitJoinMatchRelayer,
         getNonce,
         // 方案B：Relayer 长期授权
         authorizeRelayer,

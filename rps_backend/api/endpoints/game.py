@@ -34,6 +34,8 @@ from rps_backend.models import (
     # 方案A：EIP-712 签名代提交
     SubmitCommitSigRequest,
     RevealChoiceSigRequest,
+    CreateMatchSigRequest,
+    JoinMatchSigRequest,
     # 方案B：Relayer 长期授权
     AuthorizeRelayerRequest,
 )
@@ -711,7 +713,52 @@ async def reveal_choice_with_sig(request: RevealChoiceSigRequest):
     return result
 
 
-# ==================== 方案B：Relayer 长期授权 ====================
+# 代提交 createMatch（玩家签名授权 relayer 代为上链创建对局）
+@router.post("/create-match-sig")
+async def create_match_with_sig(request: CreateMatchSigRequest):
+    """代提交 createMatch（方案A）
+
+    玩家用 EIP-712 链下签名授权，relayer 调用合约 createMatchWithSig 代为上链。
+    前置条件：玩家先 ERC20 approve 合约额度 + authorizeRelayer 一次。
+    之后所有对局只需签名消息，零 gas。
+    """
+    if not relayer_service.is_available():
+        return {"success": False, "message": "代提交服务未启用（Relayer 不可用）"}
+
+    result = await relayer_service.submit_create_match_with_sig(
+        player=request.player_address,
+        amount=request.amount,
+        token=request.token,
+        nonce=request.nonce,
+        deadline=request.deadline,
+        v=request.v,
+        r=request.r,
+        s=request.s,
+    )
+    return result
+
+
+# 代提交 joinMatch（玩家签名授权 relayer 代为上链加入对局）
+@router.post("/join-match-sig")
+async def join_match_with_sig(request: JoinMatchSigRequest):
+    """代提交 joinMatch（方案A）
+
+    玩家用 EIP-712 链下签名授权，relayer 调用合约 joinMatchWithSig 代为上链。
+    前置条件同上（approve + authorizeRelayer）。
+    """
+    if not relayer_service.is_available():
+        return {"success": False, "message": "代提交服务未启用（Relayer 不可用）"}
+
+    result = await relayer_service.submit_join_match_with_sig(
+        game_id=request.game_id,
+        player=request.player_address,
+        nonce=request.nonce,
+        deadline=request.deadline,
+        v=request.v,
+        r=request.r,
+        s=request.s,
+    )
+    return result
 
 # 获取 relayer 地址（前端用此地址调用合约 authorizeRelayer）
 @router.get("/relayer/address")
