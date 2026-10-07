@@ -1865,7 +1865,6 @@ const App = (function () {
     // 显示创建房间对话框
     function showCreateRoomDialog() {
         return new Promise((resolve) => {
-            const presetAmounts = [1, 5, 10, 50, 100];
             let selectedToken = currentToken || 'USDC';
             let selectedAmount = currentAmount || 1;
             let tokenInfoExpanded = false;
@@ -1891,12 +1890,28 @@ const App = (function () {
                         `<option value="${t}" ${t === selectedToken ? 'selected' : ''}>${t}</option>`
                     ).join('');
                     return `
-                        <div style="margin-bottom: 14px;">
-                            <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">代币</div>
+                        <div style="margin-bottom: 16px;">
+                            <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                                代币
+                                <button id="dialogTokenInfoToggle" style="
+                                    display: inline-flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    width: 22px;
+                                    height: 22px;
+                                    border: none;
+                                    background: transparent;
+                                    cursor: pointer;
+                                    font-size: 14px;
+                                    color: #94a3b8;
+                                    border-radius: 50%;
+                                    transition: all 0.15s ease;
+                                " title="代币详情">ℹ️</button>
+                            </div>
                             <div style="display: flex; gap: 8px; align-items: center;">
                                 <select id="dialogTokenSelect" style="
                                     flex: 1;
-                                    padding: 9px 12px;
+                                    padding: 10px 12px;
                                     border: 1px solid #e2e8f0;
                                     border-radius: 10px;
                                     font-size: 14px;
@@ -1905,32 +1920,35 @@ const App = (function () {
                                     outline: none;
                                     cursor: pointer;
                                 ">${tokenSelectOptions}</select>
-                                <button id="dialogTokenInfoToggle" style="
-                                    padding: 9px 10px;
-                                    border: 1px solid #e2e8f0;
-                                    border-radius: 10px;
-                                    background: #fff;
-                                    cursor: pointer;
-                                    font-size: 12px;
-                                    color: #64748b;
-                                    white-space: nowrap;
-                                " title="查看代币详情">详情 ▾</button>
+                            </div>
+                            <!-- 余额显示行 -->
+                            <div id="dialogTokenBalance" style="
+                                margin-top: 8px;
+                                font-size: 12px;
+                                color: #64748b;
+                                display: flex;
+                                align-items: center;
+                                gap: 6px;
+                            ">
+                                <span style="color: #94a3b8;">余额:</span>
+                                <span id="dialogBalanceValue" style="font-weight: 600; color: #475569;">加载中...</span>
+                                <span style="color: #94a3b8;">${selectedToken}</span>
                             </div>
                         </div>
                         <div id="dialogTokenInfo" style="
                             display: none;
-                            margin-bottom: 14px;
-                            padding: 10px 12px;
+                            margin-bottom: 16px;
+                            padding: 12px;
                             background: #f8fafc;
                             border: 1px solid #e2e8f0;
                             border-radius: 10px;
                             font-size: 12px;
                             line-height: 1.8;
                         ">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                 <span style="font-weight: 600; color: #0f172a;">代币详情</span>
                                 <button id="dialogAddToWallet" style="
-                                    padding: 3px 10px;
+                                    padding: 4px 10px;
                                     font-size: 11px;
                                     background: #6366f1;
                                     color: #fff;
@@ -1940,42 +1958,42 @@ const App = (function () {
                                 ">+ 添加到钱包</button>
                             </div>
                             <div>符号: <b>${selectedToken}</b></div>
-                            <div>合约地址: <code id="dialogTokenAddress" style="font-size: 11px; color: #6366f1; cursor: pointer;" title="点击复制">${initialInfo.isNative ? '原生币 (零地址)' : initialInfo.address}</code></div>
+                            <div>合约地址: <code id="dialogTokenAddress" style="font-size: 11px; color: #6366f1; cursor: pointer; word-break: break-all;" title="点击复制">${initialInfo.isNative ? '原生币 (零地址)' : initialInfo.address}</code></div>
                             <div>Decimals: ${initialInfo.decimals}</div>
                         </div>
-                        <div style="margin-bottom: 6px;">
+                        <div>
                             <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">下注金额</div>
-                            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
-                                ${presetAmounts.map(a => `
-                                    <button class="dialog-amount-btn" data-amount="${a}" style="
-                                        padding: 5px 13px;
-                                        border: 1px solid ${a === selectedAmount ? '#6366f1' : '#e2e8f0'};
-                                        border-radius: 999px;
-                                        background: ${a === selectedAmount ? '#6366f1' : '#fff'};
-                                        color: ${a === selectedAmount ? '#fff' : '#0f172a'};
-                                        cursor: pointer;
-                                        font-size: 13px;
-                                        transition: all 0.15s ease;
-                                    ">${a}</button>
-                                `).join('')}
+                            <div style="position: relative;">
+                                <input id="dialogAmountInput" type="number" value="" min="0.01" step="0.01" placeholder="输入金额 (如 1, 5, 10, 50, 100)" style="
+                                    width: 100%;
+                                    padding: 11px 14px;
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 10px;
+                                    font-size: 15px;
+                                    font-weight: 500;
+                                    color: #0f172a;
+                                    background: #fff;
+                                    box-sizing: border-box;
+                                    outline: none;
+                                    transition: border-color 0.15s ease;
+                                    padding-right: 50px;
+                                " />
+                                <span id="dialogAmountUnit" style="
+                                    position: absolute;
+                                    right: 12px;
+                                    top: 50%;
+                                    transform: translateY(-50%);
+                                    font-size: 13px;
+                                    color: #94a3b8;
+                                    pointer-events: none;
+                                ">${selectedToken}</span>
                             </div>
-                            <input id="dialogAmountInput" type="number" value="${selectedAmount}" min="1" step="1" style="
-                                width: 100%;
-                                padding: 9px 12px;
-                                border: 1px solid #e2e8f0;
-                                border-radius: 10px;
-                                font-size: 14px;
-                                color: #0f172a;
-                                background: #fff;
-                                box-sizing: border-box;
-                                outline: none;
-                            " />
                         </div>
                     `;
                 },
                 footer: `
                     <button class="fwui-btn fwui-btn-default" data-action="cancel" style="
-                        padding: 8px 20px;
+                        padding: 9px 20px;
                         border-radius: 10px;
                         font-size: 14px;
                         font-weight: 500;
@@ -1985,7 +2003,7 @@ const App = (function () {
                         color: #0f172a;
                     ">取消</button>
                     <button class="fwui-btn fwui-btn-primary" data-action="confirm" style="
-                        padding: 8px 20px;
+                        padding: 9px 20px;
                         border-radius: 10px;
                         font-size: 14px;
                         font-weight: 500;
@@ -1997,12 +2015,42 @@ const App = (function () {
                 `
             });
 
+            // 异步获取并显示代币余额
+            const updateBalance = async () => {
+                const balanceEl = modal.element.querySelector('#dialogBalanceValue');
+                if (!balanceEl) return;
+                balanceEl.textContent = '加载中...';
+                try {
+                    const info = getTokenAddressInfo(selectedToken);
+                    let bal;
+                    if (info.isNative) {
+                        bal = await Wallet.getBalance(null);
+                    } else {
+                        bal = await Wallet.getBalance(info.address);
+                    }
+                    // 格式化显示
+                    const decimals = info.decimals;
+                    const balNum = bal / Math.pow(10, decimals);
+                    const displayDecimals = decimals === 18 ? 4 : 2;
+                    balanceEl.textContent = balNum.toLocaleString('en-US', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: displayDecimals
+                    });
+                } catch (e) {
+                    balanceEl.textContent = '--';
+                }
+            };
+
             // 代币下拉
             const tokenSelect = modal.element.querySelector('#dialogTokenSelect');
             if (tokenSelect) {
                 tokenSelect.addEventListener('change', (e) => {
                     selectedToken = e.target.value;
                     updateTokenInfo();
+                    updateBalance();
+                    // 更新右侧单位显示
+                    const unitSpan = modal.element.querySelector('#dialogAmountUnit');
+                    if (unitSpan) unitSpan.textContent = selectedToken;
                 });
             }
 
@@ -2013,7 +2061,7 @@ const App = (function () {
                 infoToggle.addEventListener('click', () => {
                     tokenInfoExpanded = !tokenInfoExpanded;
                     tokenInfo.style.display = tokenInfoExpanded ? 'block' : 'none';
-                    infoToggle.textContent = tokenInfoExpanded ? '详情 ▴' : '详情 ▾';
+                    infoToggle.style.color = tokenInfoExpanded ? '#6366f1' : '#94a3b8';
                 });
             }
 
@@ -2035,7 +2083,7 @@ const App = (function () {
                 }
             };
 
-            // 添加到钱包按钮（放在 tokenInfo 折叠区里）
+            // 添加到钱包按钮
             const addToWalletBtn = modal.element.querySelector('#dialogAddToWallet');
             if (addToWalletBtn) {
                 addToWalletBtn.addEventListener('click', async () => {
@@ -2076,28 +2124,22 @@ const App = (function () {
                 });
             }
 
-            // 快捷金额
-            modal.element.querySelectorAll('.dialog-amount-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    selectedAmount = parseFloat(btn.dataset.amount);
-                    modal.element.querySelectorAll('.dialog-amount-btn').forEach(b => {
-                        const isActive = parseFloat(b.dataset.amount) === selectedAmount;
-                        b.style.borderColor = isActive ? '#6366f1' : '#e2e8f0';
-                        b.style.background = isActive ? '#6366f1' : '#fff';
-                        b.style.color = isActive ? '#fff' : '#0f172a';
-                    });
-                    const input = modal.element.querySelector('#dialogAmountInput');
-                    if (input) input.value = selectedAmount;
-                });
-            });
-
-            // 手动输入金额
+            // 手动输入金额 + 聚焦高亮边框
             const amountInput = modal.element.querySelector('#dialogAmountInput');
             if (amountInput) {
                 amountInput.addEventListener('input', () => {
                     selectedAmount = parseFloat(amountInput.value) || 0;
                 });
+                amountInput.addEventListener('focus', () => {
+                    amountInput.style.borderColor = '#6366f1';
+                });
+                amountInput.addEventListener('blur', () => {
+                    amountInput.style.borderColor = '#e2e8f0';
+                });
             }
+
+            // 异步加载余额
+            updateBalance();
 
             // 确认/取消
             modal.element.querySelector('[data-action="confirm"]').addEventListener('click', () => {

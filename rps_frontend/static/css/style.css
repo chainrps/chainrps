@@ -1932,27 +1932,104 @@ input:checked + .slider:before {
 
 /* 手机默认卡片视图 */
 @media (max-width: 768px) {
+    .stage-lobby {
+        padding: 20px 12px;
+    }
+
+    /* 融合大厅为一个整体卡片 */
+    .lobby-content {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-xl);
+        padding: 20px 16px;
+        box-shadow: var(--shadow-md);
+        text-align: left;
+    }
+
+    /* 标题样式 */
+    .lobby-header {
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .lobby-title {
+        font-size: 22px;
+        margin-bottom: 4px;
+    }
+
+    .lobby-subtitle {
+        font-size: 13px;
+        color: var(--text-tertiary);
+        margin-bottom: 0;
+    }
+
     .lobby-title-row {
-        flex-direction: column;
-        align-items: flex-start;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    .lobby-title-row .lobby-title {
+        flex: 1;
+        margin-bottom: 0;
     }
 
     .lobby-toolbar {
-        width: 100%;
-        justify-content: space-between;
+        flex-shrink: 0;
+        gap: 6px;
     }
 
+    /* 统计栏融入卡片 */
     .lobby-stats {
-        gap: 10px;
+        gap: 8px;
         flex-wrap: wrap;
+        margin-bottom: 14px;
+        padding: 10px 12px;
+        background: var(--bg-secondary, #f8fafc);
+        border-radius: var(--radius-md);
+        font-size: 12px;
     }
 
     .stat-item + .stat-item {
         padding-left: 10px;
     }
 
+    /* 房间列表卡片在移动端去掉边框阴影（父卡片已经包含了） */
+    .room-list.view-card {
+        gap: 10px;
+    }
+
+    .room-list.view-list {
+        gap: 6px;
+    }
+
+    /* 移动端房间卡片去掉独立卡片样式，变成内嵌条目 */
+    .room-list.view-card .room-card,
+    .room-list.view-list .room-card {
+        background: var(--bg-secondary, #f8fafc);
+        border: 1px solid var(--border-color);
+        box-shadow: none;
+        border-radius: var(--radius-md);
+        padding: 14px;
+    }
+
+    .room-list.view-card .room-card:hover,
+    .room-list.view-list .room-card:hover {
+        border-color: var(--primary-color);
+        box-shadow: none;
+        transform: none;
+    }
+
+    /* 底部按钮组融入卡片 */
     .lobby-actions {
         flex-direction: column;
+        gap: 10px;
+        margin-top: 16px;
+        margin-bottom: 0;
+        padding-top: 14px;
+        border-top: 1px solid var(--border-color);
     }
 
     .lobby-actions .btn {

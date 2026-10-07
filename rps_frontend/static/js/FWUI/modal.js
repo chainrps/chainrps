@@ -26,6 +26,9 @@
             z-index: 9999;
             opacity: 0;
             transition: opacity 0.2s ease;
+            padding: 16px;
+            box-sizing: border-box;
+            -webkit-overflow-scrolling: touch;
         `;
 
         const modal = document.createElement('div');
@@ -34,14 +37,16 @@
             background: #fff;
             border-radius: 16px;
             width: ${width};
-            max-width: 90vw;
-            max-height: 85vh;
+            max-width: 95vw;
+            max-height: 90vh;
             display: flex;
             flex-direction: column;
             box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
             transform: scale(0.9);
             transition: transform 0.2s ease;
             overflow: hidden;
+            box-sizing: border-box;
+            margin: auto;
         `;
 
         let headerHtml = '';
