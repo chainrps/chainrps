@@ -226,8 +226,33 @@ const Wallet = (function() {
         isConnecting = true;
 
         try {
-            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-            if (accounts.length === 0) {
+            // 第一步：静默查询已有账户（用户之前授权过的情况）
+            let accounts = await window.ethereum.request({ method: 'eth_accounts' });
+
+            // 第二步：静默查询为空 → 主动尝试请求授权一次（仅限首次自动连接）
+            if (!accounts || accounts.length === 0) {
+                // 使用 sessionStorage 确保每个标签页会话只主动请求一次
+                // 避免用户多次导航到大厅时反复弹窗打扰
+                const tried = sessionStorage.getItem('rps_auto_connect_tried');
+                if (!tried) {
+                    sessionStorage.setItem('rps_auto_connect_tried', '1');
+                    try {
+                        accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    } catch (reqErr) {
+                        // 用户拒绝（4001）或钱包/浏览器拦截非 user gesture 请求 → 静默放弃
+                        if (reqErr && (reqErr.code === 4001 || reqErr.code === -32002)) {
+                            console.log('[Wallet] 自动连接被用户拒绝或钱包拦截:', reqErr.message);
+                        } else {
+                            console.log('[Wallet] 自动连接请求异常:', reqErr && reqErr.message);
+                        }
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            if (!accounts || accounts.length === 0) {
                 return null;
             }
 
