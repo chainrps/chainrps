@@ -3717,8 +3717,441 @@ input:checked + .slider:before {
 .stage-demo-arrow {
     font-size: 18px;
     color: var(--text-tertiary);
-    flex-shrink: 0;
-    transition: color var(--transition-fast);
+}
+
+/* ==================== 移动端全面响应式适配 ==================== */
+
+/* 游戏容器整体移动端优化 */
+@media (max-width: 768px) {
+    .game-stage {
+        padding: 16px 12px;
+        min-height: auto;
+        border-radius: 12px;
+    }
+
+    /* 首页/游戏大厅 */
+    .home-content {
+        max-width: 100%;
+    }
+
+    .home-title {
+        font-size: 22px;
+    }
+
+    .home-subtitle {
+        font-size: 14px;
+        margin-bottom: 20px;
+    }
+
+    .game-setup-card {
+        padding: 16px;
+        border-radius: 12px;
+    }
+
+    /* 代币选择 */
+    .token-selector {
+        flex-wrap: wrap;
+    }
+
+    .token-btn {
+        padding: 12px 8px;
+        gap: 4px;
+    }
+
+    .token-icon {
+        font-size: 20px;
+    }
+
+    .token-name {
+        font-size: 12px;
+    }
+
+    /* 金额输入 */
+    .amount-quick {
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .amount-btn {
+        padding: 8px 6px;
+        font-size: 13px;
+    }
+
+    .amount-input {
+        font-size: 16px; /* 防止iOS自动放大 */
+        padding: 10px 50px 10px 14px;
+    }
+
+    /* 大厅房间列表 */
+    .lobby-header {
+        padding: 12px 0;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .lobby-title {
+        font-size: 18px;
+    }
+
+    .room-list.view-card {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .room-card {
+        padding: 12px;
+        border-radius: 10px;
+    }
+
+    .room-card-header {
+        gap: 8px;
+    }
+
+    .room-id {
+        font-size: 13px;
+    }
+
+    .room-card-body {
+        padding-top: 10px;
+    }
+
+    /* 等待房间 - 移动端一屏显示 */
+    .stage-room-wait {
+        padding: 12px 8px;
+        max-width: 100%;
+    }
+
+    .room-wait-content {
+        padding: 20px 14px 16px;
+        border-radius: 14px;
+    }
+
+    .room-header {
+        margin-bottom: 16px;
+        gap: 8px;
+    }
+
+    .room-id-badge {
+        font-size: 15px;
+        padding: 4px 10px;
+    }
+
+    .room-status-badge {
+        font-size: 12px;
+        padding: 4px 12px;
+    }
+
+    .room-players {
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+
+    .room-player {
+        padding: 10px 6px;
+        gap: 6px;
+        border-radius: 10px;
+    }
+
+    .room-player .player-avatar {
+        font-size: 32px;
+    }
+
+    .room-player .player-name {
+        font-size: 12px;
+    }
+
+    .room-player .player-status {
+        font-size: 11px;
+    }
+
+    .player-ready-badge {
+        font-size: 12px;
+        padding: 6px 12px;
+    }
+
+    .room-vs {
+        font-size: 18px;
+    }
+
+    .room-vs .vs-stake {
+        font-size: 13px;
+    }
+
+    /* 准备按钮区域 */
+    .room-actions {
+        margin-top: 16px;
+    }
+
+    .btn-ready,
+    .btn-cancel-match {
+        min-width: auto;
+        width: 100%;
+        padding: 12px 20px;
+        font-size: 15px;
+    }
+
+    /* 游戏进行中 - 简化标题栏 */
+    .stage-game {
+        padding: 12px;
+    }
+
+    .game-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 16px;
+        padding-bottom: 10px;
+    }
+
+    .game-status-badge {
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+
+    .game-fund-stage {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+
+    .game-timer {
+        font-size: 18px;
+    }
+
+    .game-id {
+        font-size: 11px;
+        max-width: 100px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* 游戏棋盘 - 移动端垂直布局 */
+    .game-board {
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .player-side {
+        flex-direction: row;
+        width: 100%;
+        padding: 12px;
+        gap: 12px;
+    }
+
+    .player-avatar {
+        width: 44px;
+        height: 44px;
+        font-size: 22px;
+        flex-shrink: 0;
+    }
+
+    .player-info {
+        text-align: left;
+        flex: 1;
+    }
+
+    .player-name {
+        font-size: 13px;
+        max-width: none;
+    }
+
+    .player-choice {
+        width: 50px;
+        height: 50px;
+        font-size: 24px;
+    }
+
+    .game-vs {
+        font-size: 16px;
+        padding: 4px 12px;
+        background: var(--bg-secondary);
+        border-radius: 20px;
+    }
+
+    /* 选择按钮 */
+    .game-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .choice-buttons {
+        gap: 10px;
+        justify-content: center;
+    }
+
+    .choice-btn {
+        padding: 12px 16px;
+        min-width: 70px;
+        flex: 1;
+        max-width: 100px;
+    }
+
+    .choice-emoji {
+        font-size: 32px;
+    }
+
+    .choice-name {
+        font-size: 12px;
+    }
+
+    /* 提交/揭示按钮 */
+    .game-submit-btn {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+    }
+
+    /* 匹配中/倒计时 */
+    .stage-matching {
+        padding: 20px 12px;
+    }
+
+    .matching-info {
+        gap: 16px;
+    }
+
+    .matching-spinner {
+        width: 60px;
+        height: 60px;
+        border-width: 4px;
+    }
+
+    /* 游戏结果页 */
+    .stage-result {
+        padding: 20px 12px;
+    }
+
+    .result-content {
+        padding: 20px 16px;
+    }
+
+    .result-title {
+        font-size: 22px;
+    }
+
+    .result-stake {
+        font-size: 18px;
+    }
+
+    .result-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .result-actions .btn {
+        width: 100%;
+        padding: 12px 20px;
+    }
+
+    /* 历史记录 */
+    .history-section {
+        padding: 16px 0;
+    }
+
+    .history-title {
+        font-size: 16px;
+    }
+
+    .history-list {
+        gap: 8px;
+    }
+
+    .history-item {
+        padding: 12px;
+        font-size: 13px;
+    }
+
+    /* 头部钱包区域 */
+    .wallet-info {
+        max-width: 180px;
+        padding: 4px 8px;
+    }
+
+    .wallet-balance {
+        font-size: 12px;
+    }
+
+    .wallet-address-short {
+        font-size: 11px;
+    }
+}
+
+/* 超小屏幕（<400px）进一步紧凑 */
+@media (max-width: 400px) {
+    .game-stage {
+        padding: 12px 10px;
+    }
+
+    .home-title {
+        font-size: 20px;
+    }
+
+    .choice-btn {
+        padding: 10px 12px;
+        min-width: 60px;
+    }
+
+    .choice-emoji {
+        font-size: 26px;
+    }
+
+    .choice-name {
+        font-size: 11px;
+    }
+
+    .room-players {
+        flex-direction: column;
+    }
+
+    .room-player {
+        width: 100%;
+        flex-direction: row;
+        gap: 10px;
+    }
+
+    .player-ready-badge {
+        font-size: 11px;
+        padding: 4px 10px;
+    }
+
+    .game-board {
+        gap: 8px;
+    }
+
+    .player-side {
+        padding: 10px 8px;
+    }
+
+    .player-avatar {
+        width: 38px;
+        height: 38px;
+        font-size: 18px;
+    }
+
+    .player-choice {
+        width: 42px;
+        height: 42px;
+        font-size: 20px;
+    }
+}
+
+/* 横屏适配 */
+@media (max-height: 500px) and (orientation: landscape) {
+    .game-stage {
+        min-height: auto;
+        padding: 12px;
+    }
+
+    .room-player .player-avatar {
+        font-size: 28px;
+    }
+
+    .stage-game {
+        padding: 8px;
+    }
+
+    .game-board {
+        margin-bottom: 12px;
+    }
 }
 
 .stage-demo-card:hover .stage-demo-arrow {

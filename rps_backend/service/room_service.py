@@ -14,6 +14,7 @@ CREATED (等待加入) -> JOINED (已加入，等待准备) -> COUNTDOWN (15秒�
 -> GAME_STARTED (游戏中) -> FINISHED (已完成) / CLOSED (超时关闭)
 """
 import asyncio
+import logging
 import uuid
 from datetime import datetime
 from typing import Dict, Optional, List
@@ -23,6 +24,11 @@ from rps_backend.repository import create_game_record, update_game_record, get_s
 from rps_backend.utils.helpers import now_timestamp, calculate_deadline, deadline_to_iso
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
+
+logger = logging.getLogger(__name__)
+
+# 审计日志表名（如果不存在会在 database 模块初始化时自动创建）
+ROOM_AUDIT_TABLE = "room_audit_log"
 
 ROOM_STATUS = {
     "CREATED": "created",
@@ -55,6 +61,54 @@ def _get_room_max_lifetime() -> int:
     except Exception:
         pass
     return DEFAULT_ROOM_MAX_LIFETIME
+
+
+# ==================== 审计日志辅助函数 ====================
+
+def _audit_room_log(room_id: str, action: str, player_address: str = None,
+                    reason: str = None, extra: str = None) -> None:
+    """
+    记录房间操作审计日志（同时写入 DB 和 logger）
+
+    Args:
+        room_id: 房间 ID
+        action: 操作类型（leave/force_close/timeout/auto_commit/auto_reveal 等）
+        player_address: 相关玩家地址
+        reason: 原因代码
+        extra: 额外信息（JSON 字符串或说明）
+    """
+    ts = now_timestamp()
+    try:
+        from rps_backend.repository.database import get_connection
+        conn = get_connection()
+        cur = conn.cursor()
+        # 确保审计表存在
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {ROOM_AUDIT_TABLE} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                player_address TEXT,
+                reason TEXT,
+                extra TEXT,
+                created_at INTEGER NOT NULL
+            )
+        """)
+        cur.execute(
+            f"INSERT INTO {ROOM_AUDIT_TABLE} (room_id, action, player_address, reason, extra, created_at) "
+            f"VALUES (?, ?, ?, ?, ?, ?)",
+            (room_id, action, player_address, reason, extra, ts)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"[RoomAudit] DB 写入失败 (room={room_id}, action={action}): {e}")
+
+    # 同时输出到应用日志
+    logger.warning(
+        f"[RoomAudit] room={room_id} action={action} player={player_address} "
+        f"reason={reason} extra={extra}"
+    )
 
 
 # 房间管理器
@@ -1115,16 +1169,16 @@ class RoomManager:
         if not (is_creator or is_player2):
             return {"success": False, "message": "你不在此房间中"}
 
-        # 退出规则（与用户期望一致：除"游戏中（资金已上链）"外，所有阶段均可退出）：
-        # - GAME_STARTED 且资金已上链（chain_frozen/revealing）→ 不允许退出（对局进行中）
+        # 退出规则（核心改动：即使 chain_frozen/revealing 也允许退出，解决卡死问题）：
+        # - GAME_STARTED 且资金已上链（chain_frozen/revealing）→ 允许退出，标记 exited_with_funds_on_chain
+        #   链上资金由玩家自行在合约中申请超时退款；后端记录审计日志
         # - GAME_STARTED 但 player2 自己尚未 join 链上对局（其资金还没锁）→ 允许退出
         # - GAME_STARTED 但资金仍为 local_frozen（链上对局创建失败/取消）→ 允许退出
         # - GAME_STARTED 且 fund_stage=settled（已结算）→ 允许退出
         # - COUNTDOWN/JOINED/CREATED/FINISHED → 均允许退出
-        #   * COUNTDOWN 退出时自动取消倒计时，重置准备状态
         if room["status"] == ROOM_STATUS["GAME_STARTED"]:
             fund_stage = room.get("fund_stage", "local_frozen")
-            # 资金未上链（createMatch 失败/取消）→ 允许安全退出
+            # 资金未上链（createMatch 失败/取消）→ 关闭房间
             if fund_stage == "local_frozen":
                 self._close_room(room_id, "creator_chain_game_failed", "链上对局未创建，房间已关闭")
                 return {"success": True, "action": "dissolved", "message": "链上对局未创建成功，房间已关闭"}
@@ -1133,13 +1187,29 @@ class RoomManager:
                 self._close_room(room_id, "game_finished", "对局已结束，房间已关闭")
                 return {"success": True, "action": "dissolved", "message": "对局已结束，房间已关闭"}
             # player2 自己还没 join 链上对局（资金尚未上链）→ 允许离开
-            # 创建者已创建的链上对局由创建者自行 cancelMatch 回收资金
             if not is_creator and not player2_chain_joined:
                 room["chain_game_id"] = None
                 room["game_id"] = None
                 room["fund_stage"] = "local_frozen"
+            # 资金已上链（chain_frozen/revealing）→ 也允许退出（解决卡死）
+            # 标记为 exited_with_funds_on_chain，提醒玩家自行链上退款
+            elif fund_stage in ("chain_frozen", "revealing"):
+                _audit_room_log(
+                    room_id, "force_exit", player_address,
+                    reason=f"fund_stage={fund_stage}",
+                    extra=f"chain_game_id={room.get('chain_game_id')}"
+                )
+                room["fund_stage"] = f"exited_with_{fund_stage}"
+                # 记录退出时间，供后续审计追溯
+                room["exited_at"] = now_timestamp()
+                # 给前端特殊返回值，提示用户自行链上处理
+                room["force_exited"] = True
             else:
-                return {"success": False, "message": "游戏进行中（资金已上链），无法退出房间"}
+                # 其它未知状态也一律允许退出（安全兜底）
+                _audit_room_log(room_id, "force_exit_fallback", player_address, reason=fund_stage)
+                room["fund_stage"] = "exited_unknown"
+
+        # 所有清理流程之后，都应该继续执行 → 清理玩家映射 + 关闭房间
 
         # COUNTDOWN 阶段退出：取消倒计时，重置准备状态
         if room["status"] == ROOM_STATUS["COUNTDOWN"]:
@@ -1192,9 +1262,35 @@ class RoomManager:
             # 通知 Bot：房间已解散，释放其本地房间槽位
             self._notify_bot_room_closed(room_id)
 
+            # 审计日志
+            force_exited = room.get("force_exited", False)
+            if force_exited:
+                return {
+                    "success": True, "action": "dissolved",
+                    "message": "房间已解散。注意：链上资金可能仍被锁定，可通过合约 cancelMatch 或超时机制申请退回。",
+                    "force_exited": True,
+                    "fund_stage": room.get("fund_stage"),
+                }
+
             return {"success": True, "action": "dissolved", "message": "房间已解散"}
 
-        # player2 退出 → 重置房间为 CREATED 状态，保留在游戏大厅
+        # ============ player2 退出 ============
+        # 如果是 chain_frozen 强制退出场景 → 直接关闭房间（链上资金需自行处理）
+        if room.get("force_exited") or "exited_with_" in (room.get("fund_stage") or ""):
+            reason = room.get("fund_stage", "force_exit")
+            self._close_room(room_id, f"player_force_exit_{reason}",
+                             "玩家强制退出，房间已关闭。链上资金需在合约中申请超时退款。")
+            # 清理 player2 映射（_close_room 不做 player2 清理）
+            player_lower = player_address.lower()
+            if self._player_rooms.get(player_lower) == room_id:
+                self._player_rooms.pop(player_lower, None)
+            self._stop_unready_timer(player_address)
+            return {
+                "success": True, "action": "dissolved",
+                "message": "已强制退出房间。注意：链上资金可能仍被锁定，可通过合约超时机制申请退回。",
+                "force_exited": True,
+            }
+
         room["player2"] = None
         room["status"] = ROOM_STATUS["CREATED"]
         room["creator_ready"] = False
@@ -1235,6 +1331,109 @@ class RoomManager:
         self._broadcast_room_list_changed("room_reopened", room_id)
 
         return {"success": True, "action": "left", "message": "已离开房间"}
+
+    # 强制关闭房间（管理级，供卡死恢复用）
+    def force_close_room(self, room_id: str, request_player: str = None,
+                         reason: str = "force_close", note: str = None) -> dict:
+        """
+        强制关闭房间（无论处于什么状态都能关闭）
+
+        用途：当玩家卡在 chain_frozen / revealing 状态无法通过正常 leave_room 退出时，
+        或管理后台需要关闭异常房间时调用。
+
+        与 _close_room 的区别：
+        - _close_room 是内部方法，不做权限检查，不写审计日志
+        - force_close_room 是对外公开方法，会写审计日志，清理所有玩家映射
+
+        Args:
+            room_id: 房间 ID
+            request_player: 请求者地址（可为 None，表示系统/管理员触发）
+            reason: 关闭原因代码
+            note: 备注信息
+
+        Returns:
+            {"success": True, "message": "..."} 或 {"success": False, "message": "..."}
+        """
+        room = self._rooms.get(room_id)
+        if not room:
+            return {"success": False, "message": "房间不存在"}
+
+        _audit_room_log(room_id, "force_close", request_player, reason, note)
+
+        # 记录关闭前的状态（供后续追溯）
+        old_status = room.get("status")
+        old_fund_stage = room.get("fund_stage")
+        chain_game_id = room.get("chain_game_id")
+        room["status"] = ROOM_STATUS["CLOSED"]
+        room["close_reason"] = reason
+        room["closed_at"] = now_timestamp()
+        room["old_status_before_close"] = old_status
+        room["old_fund_stage_before_close"] = old_fund_stage
+
+        # 标记资金状态（保留原状态供审计，不自动修改）
+        if old_fund_stage == "local_frozen":
+            room["fund_stage"] = "cancelled"
+        elif old_fund_stage in ("chain_frozen", "revealing"):
+            # 资金可能还在链上，保留状态 + 加关闭标记
+            pass  # 不动 fund_stage，让后续 refund 逻辑自行处理
+        # settled 保持不变
+
+        self._rooms[room_id] = room
+        redis_client.cache_room_state(room_id, room)
+
+        # 清理所有计时器
+        self._stop_game_timer(room_id)
+        self._stop_lifetime_timer(room_id)
+        self._stop_empty_room_timer(room_id)
+
+        # 清理所有玩家映射
+        creator = room.get("creator")
+        if creator:
+            creator_lower = creator.lower()
+            if self._player_rooms.get(creator_lower) == room_id:
+                self._player_rooms.pop(creator_lower, None)
+            self._stop_unready_timer(creator)
+
+        player2 = room.get("player2")
+        if player2:
+            player2_lower = player2.lower()
+            if self._player_rooms.get(player2_lower) == room_id:
+                self._player_rooms.pop(player2_lower, None)
+            self._stop_unready_timer(player2)
+
+        # 通知双方
+        close_msg = (
+            f"房间已强制关闭（原因: {reason}）。"
+            f"{'链上资金可能仍被锁定，请在合约中申请超时退款。' if old_fund_stage in ('chain_frozen', 'revealing') else ''}"
+        )
+        for addr in (creator, player2):
+            if addr:
+                asyncio.create_task(ws_manager.send_to_player(addr, WSMessage(
+                    type="room_force_closed",
+                    data={
+                        "room_id": room_id,
+                        "reason": reason,
+                        "old_status": old_status,
+                        "old_fund_stage": old_fund_stage,
+                        "message": close_msg,
+                        "chain_game_id": chain_game_id,
+                    }
+                )))
+
+        # 广播大厅
+        self._broadcast_room_list_changed("room_closed", room_id)
+
+        # 通知 Bot
+        self._notify_bot_room_closed(room_id)
+
+        # 日志输出
+        logger.warning(
+            f"[RoomForceClose] room={room_id} reason={reason} "
+            f"old_status={old_status} old_fund={old_fund_stage} "
+            f"chain_game_id={chain_game_id} by={request_player}"
+        )
+
+        return {"success": True, "message": close_msg, "chain_game_id": chain_game_id}
 
     # 玩家 WebSocket 断开后的延迟房间清理
     async def handle_player_disconnect(self, player_address: str):

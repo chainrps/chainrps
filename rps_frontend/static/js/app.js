@@ -920,45 +920,119 @@ const App = (function () {
         });
 
         // === 安全退出房间（local_frozen 或链上已处理完毕后调用） ===
-        async function safeExitRoom(roomId, myAddress) {
-            FWUI.Modal.confirm({
-                title: '退出房间',
-                content: '确定要退出当前房间吗？退出后将返回游戏大厅。',
-                okText: '确认退出',
-                cancelText: '取消',
-                onOk: async () => {
-                    try {
-                        const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({
-                                room_id: roomId,
-                                player_address: myAddress,
-                            }),
-                        });
-                        const data = await res.json();
-                        if (res.ok && data.success) {
-                            FWUI.Toast.info(data.message || '已退出房间');
-                            stopRoomPolling();
-                            disconnectP2PChannel();
-                            stopAllFallbackPolling();
-                            stopAutoReveal();
-                            currentRoomId = null;
-                            currentRoom = null;
-                            currentGameId = null;
-                            chainGameIdResolved = false;
-                            myChainJoined = false;
-                            navigateTo('/');
-                            loadRoomList();
+        async function safeExitRoom(roomId, myAddress, options = {}) {
+            // options.silent = true 时跳过确认对话框（强制退出兜底）
+            const doExit = async () => {
+                try {
+                    const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            room_id: roomId,
+                            player_address: myAddress,
+                        }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        let msg = data.message || '已退出房间';
+                        // 后端返回 force_exited=true → 链上资金可能仍被锁定
+                        if (data.force_exited) {
+                            FWUI.Modal.alert({
+                                title: '已强制退出',
+                                content: `${msg}<br><br>
+                                    <b>重要：</b>你的资金可能仍被锁定在链上对局中。<br>
+                                    你可以在链上通过 cancelMatch（等待阶段）或等待超时自动退回来取回资金。<br>
+                                    <br>房间号：<code>${roomId}</code>`,
+                                okText: '我知道了',
+                            });
                         } else {
-                            FWUI.Toast.warning(data.message || data.detail || '退出房间失败');
+                            FWUI.Toast.info(msg);
                         }
-                    } catch (e) {
-                        console.error('退出房间请求失败:', e);
-                        FWUI.Toast.error('退出房间失败: ' + (e.message || e));
+                        cleanupRoomState();
+                        navigateTo('/');
+                        loadRoomList();
+                    } else {
+                        // leave 返回失败 → 尝试 force-close 兜底
+                        const errMsg = data.message || data.detail || '退出房间失败';
+                        FWUI.Modal.confirm({
+                            title: '退出失败，尝试强制关闭？',
+                            content: `正常退出失败：${errMsg}<br><br>是否尝试<b>强制关闭</b>房间？（链上资金可能仍被锁定，需自行处理）`,
+                            okText: '强制关闭',
+                            cancelText: '取消',
+                            onOk: () => forceCloseRoom(roomId, myAddress),
+                        });
                     }
-                },
-            });
+                } catch (e) {
+                    console.error('退出房间请求失败:', e);
+                    // 网络错误也兜底 force-close
+                    FWUI.Modal.confirm({
+                        title: '网络错误，尝试强制关闭？',
+                        content: `退出请求失败：${e.message || e}<br><br>是否尝试强制关闭房间？`,
+                        okText: '强制关闭',
+                        cancelText: '取消',
+                        onOk: () => forceCloseRoom(roomId, myAddress),
+                    });
+                }
+            };
+
+            if (options.silent) {
+                await doExit();
+            } else {
+                FWUI.Modal.confirm({
+                    title: '退出房间',
+                    content: '确定要退出当前房间吗？退出后将返回游戏大厅。',
+                    okText: '确认退出',
+                    cancelText: '取消',
+                    onOk: doExit,
+                });
+            }
+        }
+
+        // === 强制关闭房间（终极兜底） ===
+        async function forceCloseRoom(roomId, myAddress) {
+            try {
+                FWUI.Toast.info('正在强制关闭房间...');
+                const res = await fetch(`${CONFIG.backendUrl}/api/game/room/force-close`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        room_id: roomId,
+                        player_address: myAddress,
+                        reason: 'user_force_exit',
+                    }),
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    FWUI.Modal.alert({
+                        title: '房间已关闭',
+                        content: `${data.message}<br><br>
+                            ${data.chain_game_id ? `链上对局 ID：<code>${data.chain_game_id}</code><br>` : ''}
+                            <b>请在浏览器控制台或区块链浏览器中查看后续操作指引。</b>`,
+                        okText: '我知道了',
+                    });
+                    cleanupRoomState();
+                    navigateTo('/');
+                    loadRoomList();
+                } else {
+                    FWUI.Toast.error(data.message || '强制关闭失败');
+                }
+            } catch (e) {
+                console.error('force-close 请求失败:', e);
+                FWUI.Toast.error('强制关闭失败: ' + (e.message || e));
+            }
+        }
+
+        // === 清理房间状态（通用） ===
+        function cleanupRoomState() {
+            stopRoomPolling();
+            disconnectP2PChannel();
+            stopAllFallbackPolling();
+            stopAutoReveal();
+            currentRoomId = null;
+            currentRoom = null;
+            currentGameId = null;
+            chainGameIdResolved = false;
+            myChainJoined = false;
         }
 
         // 游戏界面中的退出房间按钮（创建/加入链上对局失败时可用）
@@ -1967,7 +2041,7 @@ const App = (function () {
                         <div>
                             <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">下注金额</div>
                             <div style="position: relative;">
-                                <input id="dialogAmountInput" type="number" value="${currentAmount || ''}" min="0.01" step="0.01" placeholder="输入金额 (如 1, 5, 10, 50, 100)" style="
+                                <input id="dialogAmountInput" type="number" value="${currentAmount || ''}" min="0.01" step="0.01" placeholder="输入金额" style="
                                     width: 100%;
                                     padding: 11px 14px;
                                     border: 1px solid #e2e8f0;
@@ -1979,33 +2053,43 @@ const App = (function () {
                                     box-sizing: border-box;
                                     outline: none;
                                     transition: border-color 0.15s ease;
-                                    padding-right: 50px;
+                                    padding-right: 70px;
                                 " />
+                                <!-- 内部快捷金额按钮：输入为空时显示 -->
+                                <div id="dialogQuickAmountWrap" style="
+                                    position: absolute;
+                                    right: 44px;
+                                    top: 50%;
+                                    transform: translateY(-50%);
+                                    display: flex;
+                                    gap: 3px;
+                                    pointer-events: none;
+                                ">
+                                    ${[1, 5, 10, 50, 100].map(amt => `
+                                        <button class="dialogQuickAmount" data-amount="${amt}" style="
+                                            pointer-events: auto;
+                                            padding: 2px 8px;
+                                            border: 1px solid #e2e8f0;
+                                            border-radius: 5px;
+                                            background: #f1f5f9;
+                                            font-size: 11px;
+                                            font-weight: 500;
+                                            color: #64748b;
+                                            cursor: pointer;
+                                            white-space: nowrap;
+                                            transition: all 0.15s ease;
+                                        ">${amt}</button>
+                                    `).join('')}
+                                </div>
                                 <span id="dialogAmountUnit" style="
                                     position: absolute;
-                                    right: 12px;
+                                    right: 10px;
                                     top: 50%;
                                     transform: translateY(-50%);
                                     font-size: 13px;
                                     color: #94a3b8;
                                     pointer-events: none;
                                 ">${selectedToken}</span>
-                            </div>
-                            <!-- 快捷金额按钮行 -->
-                            <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
-                                ${[1, 5, 10, 50, 100].map(amt => `
-                                    <button class="dialogQuickAmount" data-amount="${amt}" style="
-                                        padding: 5px 12px;
-                                        border: 1px solid #e2e8f0;
-                                        border-radius: 8px;
-                                        background: #f8fafc;
-                                        font-size: 12px;
-                                        font-weight: 500;
-                                        color: #475569;
-                                        cursor: pointer;
-                                        transition: all 0.15s ease;
-                                    ">${amt}</button>
-                                `).join('')}
                             </div>
                         </div>
                     `;
@@ -2047,10 +2131,9 @@ const App = (function () {
                     } else {
                         bal = await Wallet.getBalance(info.address);
                     }
-                    // 格式化显示
-                    const decimals = info.decimals;
-                    const balNum = bal / Math.pow(10, decimals);
-                    const displayDecimals = decimals === 18 ? 4 : 2;
+                    // 格式化显示 —— Wallet.getBalance 已用 ethers.formatUnits 格式化，直接转为数字即可
+                    const balNum = parseFloat(bal) || 0;
+                    const displayDecimals = info.decimals === 18 ? 4 : 2;
                     balanceEl.textContent = balNum.toLocaleString('en-US', {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: displayDecimals
@@ -2143,11 +2226,20 @@ const App = (function () {
                 });
             }
 
-            // 手动输入金额 + 聚焦高亮边框
+            // 手动输入金额 + 聚焦高亮边框 + 控制快捷按钮显隐
             const amountInput = modal.element.querySelector('#dialogAmountInput');
+            const quickWrap = modal.element.querySelector('#dialogQuickAmountWrap');
+            const updateQuickVisibility = () => {
+                if (!quickWrap) return;
+                const hasValue = amountInput.value && parseFloat(amountInput.value) > 0;
+                quickWrap.style.display = hasValue ? 'none' : 'flex';
+            };
             if (amountInput) {
+                // 初始状态：有值则隐藏快捷按钮
+                updateQuickVisibility();
                 amountInput.addEventListener('input', () => {
                     selectedAmount = parseFloat(amountInput.value) || 0;
+                    updateQuickVisibility();
                 });
                 amountInput.addEventListener('focus', () => {
                     amountInput.style.borderColor = '#6366f1';
@@ -2157,20 +2249,14 @@ const App = (function () {
                 });
             }
 
-            // 快捷金额按钮 —— 只有输入框为空时才自动填入
+            // 快捷金额按钮 —— 点击直接填入值并隐藏按钮组
             modal.element.querySelectorAll('.dialogQuickAmount').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const quickAmt = parseFloat(btn.dataset.amount);
-                    if (!amountInput.value || parseFloat(amountInput.value) === 0) {
-                        // 输入为空或 0，自动填入快捷金额
-                        amountInput.value = quickAmt;
-                        selectedAmount = quickAmt;
-                        amountInput.style.borderColor = '#6366f1';
-                    } else {
-                        // 输入已有值，不覆盖，提示用户
-                        amountInput.style.borderColor = '#f59e0b';
-                        setTimeout(() => { amountInput.style.borderColor = '#e2e8f0'; }, 800);
-                    }
+                    amountInput.value = quickAmt;
+                    selectedAmount = quickAmt;
+                    amountInput.style.borderColor = '#6366f1';
+                    updateQuickVisibility();
                 });
                 // hover 效果
                 btn.addEventListener('mouseenter', () => {

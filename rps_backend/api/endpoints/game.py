@@ -260,6 +260,44 @@ async def leave_room(request: LeaveRoomRequest):
     }
 
 
+# 强制关闭房间（卡死恢复/管理级）
+@router.post("/room/force-close")
+async def force_close_room(request: dict):
+    """
+    强制关闭房间（无论当前状态，用于卡死恢复）
+
+    与 /room/leave 的区别：
+    - leave_room 走正常玩家退出路径，会校验房间状态和资金状态
+    - force_close 是强制关闭，用于玩家卡在 chain_frozen/revealing 无法正常退出时
+
+    前端可在用户点击"强制退出"按钮时调用此端点。
+    关闭后链上资金可能仍被锁定，需提醒用户自行处理。
+    """
+    room_id = request.get("room_id")
+    player_address = request.get("player_address")
+    reason = request.get("reason", "user_force_exit")
+    note = request.get("note")
+
+    if not room_id:
+        raise HTTPException(status_code=400, detail="缺少 room_id 参数")
+
+    result = room_manager.force_close_room(
+        room_id,
+        request_player=player_address,
+        reason=reason,
+        note=note,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "强制关闭失败"))
+
+    return {
+        "success": True,
+        "message": result.get("message"),
+        "chain_game_id": result.get("chain_game_id"),
+    }
+
+
 # 结算后重置房间（再来一局）
 @router.post("/room/reset-rematch")
 async def reset_room_for_rematch(request: ResetRoomRequest):

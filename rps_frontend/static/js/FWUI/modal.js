@@ -36,8 +36,8 @@
         modal.style.cssText = `
             background: #fff;
             border-radius: 16px;
-            width: min(${width}, 92vw);
-            max-width: 95vw;
+            width: min(${width}, calc(100vw - 32px));
+            max-width: calc(100vw - 32px);
             max-height: 90vh;
             display: flex;
             flex-direction: column;
@@ -47,6 +47,7 @@
             overflow: hidden;
             box-sizing: border-box;
             margin: auto;
+            position: relative;
         `;
 
         let headerHtml = '';
