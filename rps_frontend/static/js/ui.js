@@ -709,6 +709,11 @@ const UI = (function() {
             const inProgress = room.status === 'game_started' || room.status === 'countdown';
             const creatorBadge = room.creator_is_bot ? '<span class="ai-badge" title="AI 机器人">🤖 AI</span>' : '';
             const player2Badge = room.player2_is_bot ? '<span class="ai-badge" title="AI 机器人">🤖 AI</span>' : '';
+            // 格式化金额：整数不带 .0，最多保留 4 位小数
+            const betAmountNum = Number(room.bet_amount) || 0;
+            const betAmountStr = betAmountNum === Math.floor(betAmountNum)
+                ? betAmountNum.toFixed(0)
+                : betAmountNum.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
             return `
                 <div class="room-card">
                     <div class="room-card-header">
@@ -730,7 +735,7 @@ const UI = (function() {
                         ` : ''}
                         <div class="room-bet-info">
                             <span class="bet-token">${room.token}</span>
-                            <span class="bet-amount">${room.bet_amount}</span>
+                            <span class="bet-amount">${betAmountStr}</span>
                         </div>
                     </div>
                     ${isAvailable ? `
@@ -766,7 +771,10 @@ const UI = (function() {
 
         // 赌注精简显示在 VS 下方（金额 + 代币，详细信息后续单独设计）
         if (elements.roomVsStake) {
-            elements.roomVsStake.textContent = `${room.bet_amount} ${room.token}`;
+            // 格式化金额：整数不带 .0
+            const amt = Number(room.bet_amount) || 0;
+            const amtStr = amt === Math.floor(amt) ? amt.toFixed(0) : amt.toString();
+            elements.roomVsStake.textContent = `${amtStr} ${room.token}`;
         }
 
         // 状态徽标保持简洁

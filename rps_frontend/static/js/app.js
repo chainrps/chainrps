@@ -1871,9 +1871,12 @@ const App = (function () {
 
             // 获取代币地址信息
             const tokenAddresses = CONFIG.getTokenAddresses();
+            const _supportedTokens = CONFIG.getSupportedTokens();
             const getTokenAddressInfo = (symbol) => {
                 const addr = tokenAddresses[symbol] || '';
-                const decimals = symbol === CONFIG.getNativeSymbol() ? 18 : 6;
+                // 从 CONFIG 动态查找 decimals，避免硬编码错误
+                const tokenConfig = _supportedTokens.find(t => t.symbol === symbol);
+                const decimals = tokenConfig ? tokenConfig.decimals : (CONFIG.isNativeToken(addr) ? 18 : 6);
                 const isNative = CONFIG.isNativeToken(addr);
                 return { address: addr, decimals, isNative };
             };
@@ -1964,7 +1967,7 @@ const App = (function () {
                         <div>
                             <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">下注金额</div>
                             <div style="position: relative;">
-                                <input id="dialogAmountInput" type="number" value="" min="0.01" step="0.01" placeholder="输入金额 (如 1, 5, 10, 50, 100)" style="
+                                <input id="dialogAmountInput" type="number" value="${currentAmount || ''}" min="0.01" step="0.01" placeholder="输入金额 (如 1, 5, 10, 50, 100)" style="
                                     width: 100%;
                                     padding: 11px 14px;
                                     border: 1px solid #e2e8f0;
@@ -1987,6 +1990,22 @@ const App = (function () {
                                     color: #94a3b8;
                                     pointer-events: none;
                                 ">${selectedToken}</span>
+                            </div>
+                            <!-- 快捷金额按钮行 -->
+                            <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
+                                ${[1, 5, 10, 50, 100].map(amt => `
+                                    <button class="dialogQuickAmount" data-amount="${amt}" style="
+                                        padding: 5px 12px;
+                                        border: 1px solid #e2e8f0;
+                                        border-radius: 8px;
+                                        background: #f8fafc;
+                                        font-size: 12px;
+                                        font-weight: 500;
+                                        color: #475569;
+                                        cursor: pointer;
+                                        transition: all 0.15s ease;
+                                    ">${amt}</button>
+                                `).join('')}
                             </div>
                         </div>
                     `;
@@ -2137,6 +2156,34 @@ const App = (function () {
                     amountInput.style.borderColor = '#e2e8f0';
                 });
             }
+
+            // 快捷金额按钮 —— 只有输入框为空时才自动填入
+            modal.element.querySelectorAll('.dialogQuickAmount').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const quickAmt = parseFloat(btn.dataset.amount);
+                    if (!amountInput.value || parseFloat(amountInput.value) === 0) {
+                        // 输入为空或 0，自动填入快捷金额
+                        amountInput.value = quickAmt;
+                        selectedAmount = quickAmt;
+                        amountInput.style.borderColor = '#6366f1';
+                    } else {
+                        // 输入已有值，不覆盖，提示用户
+                        amountInput.style.borderColor = '#f59e0b';
+                        setTimeout(() => { amountInput.style.borderColor = '#e2e8f0'; }, 800);
+                    }
+                });
+                // hover 效果
+                btn.addEventListener('mouseenter', () => {
+                    btn.style.background = '#eef2ff';
+                    btn.style.borderColor = '#6366f1';
+                    btn.style.color = '#6366f1';
+                });
+                btn.addEventListener('mouseleave', () => {
+                    btn.style.background = '#f8fafc';
+                    btn.style.borderColor = '#e2e8f0';
+                    btn.style.color = '#475569';
+                });
+            });
 
             // 异步加载余额
             updateBalance();

@@ -36,7 +36,7 @@
         modal.style.cssText = `
             background: #fff;
             border-radius: 16px;
-            width: ${width};
+            width: min(${width}, 92vw);
             max-width: 95vw;
             max-height: 90vh;
             display: flex;
@@ -104,8 +104,11 @@
             <div class="fwui-modal-body" style="
                 padding: 24px;
                 overflow-y: auto;
+                overflow-x: hidden;
                 flex: 1;
                 color: #475569;
+                box-sizing: border-box;
+                max-width: 100%;
             ">${typeof content === 'function' ? content() : content}</div>
             ${footerHtml}
         `;
