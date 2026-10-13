@@ -334,19 +334,13 @@ class RelayerService:
                 lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
             )
             new_status["chain_nonce"] = chain_nonce
-            # 本地 nonce 未初始化时，以链上为准
-            if self._local_nonce is None:
+            # 🆕 无论何时发现本地 nonce 落后，强制同步到链上（避免 pending tx 被挤掉后本地缓存漂移）
+            if self._local_nonce is None or self._local_nonce < chain_nonce:
+                if self._local_nonce is not None and self._local_nonce < chain_nonce:
+                    _safe_log(f"[Relayer] 本地 nonce 落后链上，强制同步: local={self._local_nonce} → chain={chain_nonce}")
                 self._local_nonce = chain_nonce
-                new_status["local_nonce"] = chain_nonce
-                new_status["nonce_synced"] = True
-            else:
-                new_status["local_nonce"] = self._local_nonce
-                # 本地 nonce 不应落后于链上 pending nonce
-                new_status["nonce_synced"] = self._local_nonce >= chain_nonce
-                if not new_status["nonce_synced"]:
-                    new_status["error"] = (
-                        f"Nonce 不同步：local={self._local_nonce} chain={chain_nonce}"
-                    )
+            new_status["local_nonce"] = self._local_nonce
+            new_status["nonce_synced"] = True
         except Exception as e:
             new_status["error"] = f"nonce 查询失败: {e}"
             self._health_status = new_status
