@@ -1157,7 +1157,8 @@ class BotInstance:
                 return False
             v, r, s = signature
             result = await relayer_service.submit_commit_with_sig(
-                game_id, self._wallet_address, commit_hash, contract_nonce, v, r, s
+                game_id, self._wallet_address, commit_hash, contract_nonce, v, r, s,
+                deadline=deadline,  # 🆕 与签名用的 deadline 一致
             )
             if result.get("success"):
                 self._log("INFO", f"commit 代提交成功: game_id={game_id}")
@@ -1234,7 +1235,8 @@ class BotInstance:
                 return False
             v, r, s = signature
             result = await relayer_service.reveal_choice_with_sig(
-                game_id, self._wallet_address, choice, salt, contract_nonce, v, r, s
+                game_id, self._wallet_address, choice, salt, contract_nonce, v, r, s,
+                deadline=deadline,  # 🆕 与签名用的 deadline 一致
             )
             if result.get("success"):
                 self._log("INFO", f"reveal 代提交成功: game_id={game_id}")

@@ -708,6 +708,7 @@ async def submit_commit_with_sig(request: SubmitCommitSigRequest):
         player=request.player_address,
         commit_hash=request.commit_hash,
         nonce=request.nonce,
+        deadline=request.deadline,  # 🆕 可选，玩家签名时的 deadline
         v=request.v,
         r=request.r,
         s=request.s,
@@ -736,6 +737,7 @@ async def reveal_choice_with_sig(request: RevealChoiceSigRequest):
         choice=request.choice,
         salt=request.salt,
         nonce=request.nonce,
+        deadline=request.deadline,  # 🆕 可选，玩家签名时的 deadline
         v=request.v,
         r=request.r,
         s=request.s,
