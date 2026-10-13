@@ -251,6 +251,19 @@ class BotInstance:
             self._log("ERROR", "私钥派生失败")
             return False
 
+        # 🆕 钱包就绪后自动 approve USDC（∞ 额度），确保后续链上 createMatch/joinMatch 不会因额度不足而失败
+        if self._contract and self._wallet_account:
+            try:
+                usdc_addr = self._get_token_address("USDC")
+                if usdc_addr and usdc_addr != "0x0000000000000000000000000000000000000000":
+                    ok = await self._ensure_token_approved(usdc_addr, 2**256 - 1)
+                    if ok:
+                        self._log("INFO", "启动时 USDC 自动 approve 完成 ✅")
+                    else:
+                        self._log("WARN", "启动时 USDC approve 失败（不阻塞启动，链上阶段会重试）")
+            except Exception as e:
+                self._log(f"WARN", f"启动时 USDC approve 异常: {e}")
+
         return True
 
     def _load_contract_abi(self) -> list:
@@ -706,7 +719,17 @@ class BotInstance:
         rooms = room_manager.get_room_list()
 
         if self._config.auto_join_room:
-            for room in rooms:
+            # 🆕 第一轮：优先响应玩家邀请（seat_mode='ai'）
+            invite_rooms = [r for r in rooms if r.get("seat_mode") == "ai"]
+            invite_rooms.sort(key=lambda r: r.get("created_at", 0))  # 最早邀请的先处理
+
+            # 🆕 第二轮：普通空位房间（seat_mode='open' 或空）
+            open_rooms = [r for r in rooms if r.get("seat_mode") != "ai"]
+
+            # 合并：邀请优先，然后普通
+            sorted_rooms = invite_rooms + open_rooms
+
+            for room in sorted_rooms:
                 if len(self._active_rooms) >= self._config.max_concurrent_rooms:
                     break
                 room_id = room["room_id"]
@@ -722,6 +745,8 @@ class BotInstance:
                         ROOM_STATUS.get("JOINED", "joined"),
                     ]:
                         continue
+                    if room.get("seat_mode") == "ai":
+                        self._log("INFO", f"响应玩家 AI 邀请，加入房间 #{room_id}")
                     await self._join_room(room_id)
                     break
                 except Exception as e:
@@ -1163,7 +1188,7 @@ class BotInstance:
             chain_id = self._w3.eth.chain_id
 
             def _build():
-                return self._contract.functions.commitChoice(
+                return self._contract.functions.submitCommit(
                     int(game_id), commit_hash_bytes
                 ).build_transaction({
                     "from": self._wallet_address,
@@ -1460,19 +1485,26 @@ class BotInstance:
                     self._log("WARN", "链上对局阶段失败，继续本地游戏")
                 else:
                     self._log("INFO", "链上对局阶段成功")
-                    # 创建者：必须等对手真正 join 链上对局后才能提交 commit
-                    # - Waiting 阶段对手随时可以离开，离开/超时未加入则 cancelMatch 回收资金
-                    # - 避免"对手还没 join，自己先 commit 导致 cancelMatch 窗口关闭、资金卡死"
                     if role == "creator":
                         gd_now = self._active_games.get(game_id)
                         chain_gid = gd_now.get("chain_game_id") if gd_now else None
                         if chain_gid:
-                            # 等玩家 approve + joinMatch（最多 5 分钟，前端会显示倒计时）
-                            joined = await self._wait_for_opponent_chain_joined(chain_gid, timeout=300)
+                            # 🆕 timeout=90s（合约 commitTimeout=66s，玩家需要 approve+join）
+                            # join 后 creator 必须立刻 commit——commitDeadline 从 createMatch 算，窗口极短！
+                            joined = await self._wait_for_opponent_chain_joined(chain_gid, timeout=90)
                             if not joined:
-                                self._log("INFO", f"对手未加入链上对局，cancelMatch 撤销对局: chain_game_id={chain_gid}")
+                                self._log("INFO", f"对手未加入链上对局，cancelMatch 撤销: chain_game_id={chain_gid}")
                                 await self._cancel_chain_match(chain_gid)
                                 return
+                            # 🆕 creator: join 后立刻 commit，不等 commit_delay（避免 commitDeadline 过期！）
+                            await self._do_commit(game_id)
+                            await self._wait_for_opponent_commit(game_id)
+
+                            await self._wait_for_reveal_start(game_id)
+                            await asyncio.sleep(self._config.reveal_delay)
+                            await self._do_reveal(game_id)
+                            await self._wait_for_game_result(game_id)
+                            return
             else:
                 reasons = []
                 if not self._config.auto_chain_match:
@@ -1483,6 +1515,7 @@ class BotInstance:
                     reasons.append("_wallet_account=None")
                 self._log("WARN", f"_game_loop_full: 跳过链上对局创建，原因: {', '.join(reasons)}")
 
+            # player2 路径 + 非链上匹配：正常 commit_delay
             await asyncio.sleep(self._config.commit_delay)
             await self._do_commit(game_id)
             await self._wait_for_opponent_commit(game_id)

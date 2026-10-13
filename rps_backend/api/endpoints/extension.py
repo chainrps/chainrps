@@ -49,11 +49,14 @@ async def get_chain_config():
     db_contract = contracts[0]["address"] if contracts else ""
 
     # 优先从系统配置读取，其次从环境变量/默认配置读取
+    # 🆕 config.CONTRACT_ADDRESS（环境变量/最新部署）优先级最高，
+    #   因为 DB contracts 表可能残留多个历史 active 合约（部署重启遗留）
     chain_id = int(config_dict.get("chain_id") or RPC_CHAIN_ID)
     network_name = config_dict.get("network_name") or _get_default_network_name(chain_id)
     raw_rpc_url = config_dict.get("rpc_url") or RPC_URL
     rpc_url = _validate_rpc_url(raw_rpc_url, chain_id)
-    contract_address = config_dict.get("contract_address") or db_contract or CONTRACT_ADDRESS
+    # 优先级：config.CONTRACT_ADDRESS（最新部署）> system_config > DB active 合约
+    contract_address = CONTRACT_ADDRESS or config_dict.get("contract_address") or db_contract
     native_symbol = config_dict.get("native_symbol") or _get_default_native_symbol(chain_id)
     native_name = config_dict.get("native_name") or native_symbol
     native_decimals = int(config_dict.get("native_decimals") or 18)
@@ -118,7 +121,7 @@ async def get_chain_status():
     chain_id_cfg = int(config_dict.get("chain_id") or RPC_CHAIN_ID)
     raw_rpc_url = config_dict.get("rpc_url") or RPC_URL
     rpc_url = _validate_rpc_url(raw_rpc_url, chain_id_cfg)
-    contract_address = config_dict.get("contract_address") or db_contract or CONTRACT_ADDRESS
+    contract_address = CONTRACT_ADDRESS or config_dict.get("contract_address") or db_contract
 
     result = {
         "success": True,

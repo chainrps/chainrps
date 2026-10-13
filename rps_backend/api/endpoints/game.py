@@ -180,6 +180,27 @@ async def set_seat_mode(request: SetSeatModeRequest):
             "message": result.get("message", "设置空位模式失败"),
         }
 
+    # 🆕 如果设为 ai 模式，主动触发 Bot 即时加入（不等扫描轮询）
+    if request.seat_mode == "ai":
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running and bot_service._config.auto_join_room:
+                # 检查 Bot 并发槽位
+                if len(bot_service._active_rooms) < bot_service._config.max_concurrent_rooms:
+                    # 异步触发，不阻塞响应
+                    room_id = request.room_id
+                    import asyncio
+                    asyncio.create_task(bot_service._join_room(room_id))
+                else:
+                    bot_service._log("INFO", f"响应玩家邀请但并发槽已满，等下轮扫描自动加入 #{request.room_id}")
+        except Exception as e:
+            # Bot 加入失败不影响 seat_mode 设置成功
+            try:
+                from rps_backend.service.bot_service import bot_service
+                bot_service._log("WARN", f"主动触发 Bot 加入失败（将由扫描兜底）: {e}")
+            except Exception:
+                pass
+
     return {
         "success": True,
         "seat_mode": result["seat_mode"],
