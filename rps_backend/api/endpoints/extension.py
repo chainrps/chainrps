@@ -237,6 +237,66 @@ def _get_default_network_name(chain_id: int) -> str:
     return names.get(chain_id, f"Chain #{chain_id}")
 
 
+# ==================== 水龙头 ====================
+
+@router.post("/faucet")
+async def faucet(address: str, eth_amount: float = 1.0, usdc_amount: float = 100.0):
+    """
+    给指定地址发 ETH（gas 费）+ USDC（测试代币）。
+
+    用途：前端预检发现用户余额不足时，自动调此端点给用户充值。
+    仅适用于 ChainRPS 本地链（chain_id = RPC_CHAIN_ID）。
+    """
+    result = {
+        "success": False,
+        "address": address,
+        "eth_sent": False,
+        "usdc_sent": False,
+        "eth_tx": None,
+        "usdc_tx": None,
+        "error": None,
+    }
+    try:
+        from web3 import Web3
+        if not address or not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
+            result["error"] = "地址格式无效（应为 0x + 40 hex 字符）"
+            return result
+
+        from rps_backend.service.local_chain_service import get_local_chain_service
+        chain_svc = get_local_chain_service()
+        if not chain_svc.is_running():
+            result["error"] = "本地链未运行"
+            return result
+
+        # 1. 发 ETH（from Ganache account 0）
+        if eth_amount > 0:
+            eth_res = chain_svc.send_eth(0, address, eth_amount)
+            if eth_res.get("success"):
+                result["eth_sent"] = True
+                result["eth_tx"] = eth_res.get("tx_hash")
+            else:
+                result["error"] = f"ETH 发送失败: {eth_res.get('message')}"
+
+        # 2. 发 USDC
+        if usdc_amount > 0 and not result.get("error"):
+            usdc_res = chain_svc.mint_tokens("USDC", address, usdc_amount, from_index=0)
+            if usdc_res.get("success"):
+                result["usdc_sent"] = True
+                result["usdc_tx"] = usdc_res.get("tx_hash")
+            else:
+                # USDC 铸造失败不阻塞，ETH 已发
+                if not result.get("error"):
+                    result["error"] = f"USDC 铸造失败: {usdc_res.get('message')}"
+
+        result["success"] = result["eth_sent"] or result["usdc_sent"]
+        print(f"🔑 Faucet: {address}  ETH={result['eth_sent']}({eth_amount})  USDC={result['usdc_sent']}({usdc_amount})")
+        return result
+
+    except Exception as e:
+        result["error"] = f"faucet 异常: {e}"
+        return result
+
+
 # 获取默认原生代币符号
 def _get_default_native_symbol(chain_id: int) -> str:
     """根据 chain_id 获取默认原生代币符号"""

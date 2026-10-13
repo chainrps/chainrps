@@ -729,22 +729,77 @@ class BotInstance:
                     continue
 
         if self._config.auto_create_room:
-            available = self._config.max_concurrent_rooms - len(self._active_rooms)
-            if available > 0:
-                try:
-                    has_joinable = any(
-                        r.get("player2") is None
-                        and r.get("status") in [
-                            ROOM_STATUS.get("CREATED", "created"),
-                            ROOM_STATUS.get("JOINED", "joined"),
-                        ]
-                        and r.get("creator", "").lower() != self._wallet_address.lower()
-                        for r in rooms
-                    )
-                    if not has_joinable:
-                        await self._create_room()
-                except Exception as e:
-                    self._log("ERROR", f"创建房间异常: {e}")
+            await self._ensure_lobby_rooms(rooms)
+
+    # ==================== 大厅保活 ====================
+
+    # 大厅保活：确保大厅始终有至少 MIN 个 Bot 创建的、空位可加入的房间
+    # 如果被玩家加入了，立刻补开新的（由 max_concurrent_rooms 兜底上限）
+    BOT_MIN_WAITING_ROOMS = 1  # 大厅至少保持 1 个可加入的 Bot 房间
+    BOT_MAX_WAITING_ROOMS = 3  # 最多开 3 个，防止无限开
+
+    async def _ensure_lobby_rooms(self, rooms) -> None:
+        """
+        大厅保活逻辑：
+        1. 扫描大厅，统计 Bot 自己创建的、处于等待状态（CREATED + player2=None）的房间数
+        2. 如果不足 BOT_MIN_WAITING_ROOMS → 立即补开
+        3. 补开数量 = min(缺失数, 剩余并发槽, BOT_MAX_WAITING_ROOMS)
+        4. create_interval 不会阻止"补开"（保活优先），只防止瞬间打爆
+        """
+        addr_lower = self._wallet_address.lower()
+
+        # 统计：Bot 创建的、空位（player2=None）、CREATED 状态的房间
+        bot_waiting_count = 0
+        bot_waiting_ids = []
+        for r in rooms:
+            if (
+                r.get("creator", "").lower() == addr_lower
+                and r.get("player2") is None
+                and r.get("status") == ROOM_STATUS["CREATED"]
+            ):
+                bot_waiting_count += 1
+                bot_waiting_ids.append(r.get("room_id"))
+
+        # 计算要补开几个
+        deficit = max(0, self.BOT_MIN_WAITING_ROOMS - bot_waiting_count)
+        # 额外限制：总等待房间不超过 MAX
+        headroom = max(0, self.BOT_MAX_WAITING_ROOMS - bot_waiting_count)
+        slots_left = max(0, self._config.max_concurrent_rooms - len(self._active_rooms))
+        to_create = min(deficit, headroom, slots_left)
+
+        if to_create <= 0:
+            if bot_waiting_count >= self.BOT_MIN_WAITING_ROOMS:
+                # 已有足够的空位房间，不需要创建
+                pass
+            else:
+                self._log("WARN", f"大厅保活：Bot 等待房间={bot_waiting_count}，缺 {deficit} 个，但并发槽={slots_left}/等待上限={headroom}")
+            return
+
+        # 如果 bot_waiting_ids 里有正在倒计时/对局的，说明房间被占用了
+        # 额外清理 Bot 已经不在等待的房间（room_manager 自动关，但我们主动通知）
+        for rid in bot_waiting_ids:
+            room = room_manager._rooms.get(rid)
+            if room and room.get("player2"):
+                # 玩家刚加入了 Bot 的房间，这个从"等待空位"变为"对局中"
+                self._log("INFO", f"大厅保活：房间 #{rid} 被玩家加入，正在补开")
+
+        self._log("INFO", f"大厅保活：Bot 等待房间={bot_waiting_count}，补开 {to_create} 个新房间")
+
+        # 临时绕过 create_interval 限制：保活优先，只等 1 秒
+        original_interval = self._config.create_interval
+        self._config.create_interval = 1
+
+        created = 0
+        for _ in range(to_create):
+            result = await self._create_room()
+            if result:
+                created += 1
+                await asyncio.sleep(1)  # 每个间隔 1 秒，防止 RPC 并发
+            else:
+                break
+
+        self._config.create_interval = original_interval
+        self._log("INFO", f"大厅保活：补开 {created} 个新房间，Bot 等待房间={bot_waiting_count + created}")
 
     # ==================== 链上交互 ====================
 
@@ -1083,10 +1138,57 @@ class BotInstance:
                 self._log("INFO", f"commit 代提交成功: game_id={game_id}")
                 return True
             else:
-                self._log("ERROR", f"commit 代提交失败: {result.get('message')}")
+                self._log("WARN", f"commit 代提交失败，改用 Bot 直接提交: {result.get('message')}")
+                # 🆕 Fallback：relayer 不可用时，Bot 用自己的钱包直接调合约
+                return await self._submit_commit_direct(game_id, commit_hash)
+        except Exception as e:
+            self._log("WARN", f"commit 代提交异常，改用 Bot 直接提交: {e}")
+            return await self._submit_commit_direct(game_id, commit_hash)
+
+    # 🆕 Bot 直接提交 commit（绕过 relayer，用自己的钱包签名发链上交易）
+    async def _submit_commit_direct(self, game_id: int, commit_hash: str) -> bool:
+        if not self._contract or not self._wallet_account:
+            return False
+        try:
+            commit_hash_bytes = bytes.fromhex(commit_hash.replace('0x', ''))
+            async with self._nonce_lock:
+                if self._wallet_nonce is None:
+                    self._wallet_nonce = await _run_sync(
+                        lambda: self._w3.eth.get_transaction_count(self._wallet_address)
+                    )
+                tx_nonce = self._wallet_nonce
+                self._wallet_nonce = tx_nonce + 1
+
+            gas_price = await _run_sync(lambda: self._w3.eth.gas_price)
+            chain_id = self._w3.eth.chain_id
+
+            def _build():
+                return self._contract.functions.commitChoice(
+                    int(game_id), commit_hash_bytes
+                ).build_transaction({
+                    "from": self._wallet_address,
+                    "nonce": tx_nonce,
+                    "gas": 200000,
+                    "gasPrice": gas_price,
+                    "chainId": chain_id,
+                })
+
+            tx = await _run_sync(_build)
+            signed = self._wallet_account.sign_transaction(tx)
+            tx_hash = await _run_sync(lambda: self._w3.eth.send_raw_transaction(signed.raw_transaction))
+            tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+            self._log("INFO", f"commit 直接提交已发送: {tx_hash_hex}")
+            receipt = await _run_sync(lambda: self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60))
+            if receipt.get("status") == 1:
+                self._log("INFO", "commit 直接提交成功 ✅")
+                return True
+            else:
+                self._log("ERROR", "commit 直接提交交易失败 (status=0)")
+                self._wallet_nonce = None  # 重置 nonce 让下次重新同步
                 return False
         except Exception as e:
-            self._log("ERROR", f"commit 代提交异常: {e}")
+            self._log("ERROR", f"commit 直接提交异常: {e}")
+            self._wallet_nonce = None
             return False
 
     async def _submit_reveal_via_relayer(self, game_id: int, choice: int,
@@ -1112,9 +1214,56 @@ class BotInstance:
             if result.get("success"):
                 self._log("INFO", f"reveal 代提交成功: game_id={game_id}")
                 return True
-            return False
+            self._log("WARN", f"reveal 代提交失败，改用 Bot 直接提交")
+            return await self._submit_reveal_direct(game_id, choice, salt)
         except Exception as e:
-            self._log("ERROR", f"reveal 代提交异常: {e}")
+            self._log("WARN", f"reveal 代提交异常，改用 Bot 直接提交: {e}")
+            return await self._submit_reveal_direct(game_id, choice, salt)
+
+    # 🆕 Bot 直接提交 reveal（绕过 relayer）
+    async def _submit_reveal_direct(self, game_id: int, choice: int, salt: str) -> bool:
+        if not self._contract or not self._wallet_account:
+            return False
+        try:
+            salt_bytes = bytes.fromhex(salt.replace('0x', ''))
+            async with self._nonce_lock:
+                if self._wallet_nonce is None:
+                    self._wallet_nonce = await _run_sync(
+                        lambda: self._w3.eth.get_transaction_count(self._wallet_address)
+                    )
+                tx_nonce = self._wallet_nonce
+                self._wallet_nonce = tx_nonce + 1
+
+            gas_price = await _run_sync(lambda: self._w3.eth.gas_price)
+            chain_id = self._w3.eth.chain_id
+
+            def _build():
+                return self._contract.functions.revealChoice(
+                    int(game_id), int(choice), salt_bytes
+                ).build_transaction({
+                    "from": self._wallet_address,
+                    "nonce": tx_nonce,
+                    "gas": 200000,
+                    "gasPrice": gas_price,
+                    "chainId": chain_id,
+                })
+
+            tx = await _run_sync(_build)
+            signed = self._wallet_account.sign_transaction(tx)
+            tx_hash = await _run_sync(lambda: self._w3.eth.send_raw_transaction(signed.raw_transaction))
+            tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+            self._log("INFO", f"reveal 直接提交已发送: {tx_hash_hex}")
+            receipt = await _run_sync(lambda: self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60))
+            if receipt.get("status") == 1:
+                self._log("INFO", "reveal 直接提交成功 ✅")
+                return True
+            else:
+                self._log("ERROR", "reveal 直接提交失败 (status=0)")
+                self._wallet_nonce = None
+                return False
+        except Exception as e:
+            self._log("ERROR", f"reveal 直接提交异常: {e}")
+            self._wallet_nonce = None
             return False
 
     # ==================== 签名生成 ====================
@@ -1318,7 +1467,8 @@ class BotInstance:
                         gd_now = self._active_games.get(game_id)
                         chain_gid = gd_now.get("chain_game_id") if gd_now else None
                         if chain_gid:
-                            joined = await self._wait_for_opponent_chain_joined(chain_gid, timeout=90)
+                            # 等玩家 approve + joinMatch（最多 5 分钟，前端会显示倒计时）
+                            joined = await self._wait_for_opponent_chain_joined(chain_gid, timeout=300)
                             if not joined:
                                 self._log("INFO", f"对手未加入链上对局，cancelMatch 撤销对局: chain_game_id={chain_gid}")
                                 await self._cancel_chain_match(chain_gid)

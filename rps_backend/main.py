@@ -167,7 +167,7 @@ async def cleanup_loop():
 app = FastAPI(
     title="ChainRPS Backend",
     description="链上公平猜拳后端服务",
-    version="1.0.24",
+    version="1.0.25",
     lifespan=lifespan
 )
 
@@ -302,8 +302,8 @@ async def demo_page():
 
 
 # 调试 / 版本信息页面
-@app.get("/debug")
-async def debug_page():
+@app.get("/version")
+async def version_page():
     """
     调试与版本确认页面
 

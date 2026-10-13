@@ -2077,6 +2077,40 @@ input:checked + .slider:before {
     color: var(--primary-color);
 }
 
+.room-lifecycle-timer {
+    font-size: 13px;
+    font-weight: 500;
+    font-family: monospace;
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    background: #f1f5f9;
+    color: #64748b;
+    white-space: nowrap;
+    transition: all 0.3s ease;
+}
+
+.room-lifecycle-timer.warning {
+    background: #fef3c7;
+    color: #92400e;
+    animation: pulse-warning 1.5s ease-in-out infinite;
+}
+
+.room-lifecycle-timer.danger {
+    background: #fee2e2;
+    color: #991b1b;
+    animation: pulse-danger 0.8s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+@keyframes pulse-danger {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.03); }
+}
+
 .room-players {
     display: flex;
     justify-content: center;

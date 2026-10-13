@@ -196,6 +196,7 @@ class RoomResponse(BaseModel):
     seat_mode: Optional[str] = None
     creator_is_bot: bool = False
     player2_is_bot: bool = False
+    deadlines: Optional[dict] = None  # 各阶段超时 deadline 时间戳 + 超时常量
 
 
 class SetSeatModeRequest(BaseModel):

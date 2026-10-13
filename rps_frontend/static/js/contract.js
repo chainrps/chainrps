@@ -318,6 +318,37 @@ const Contract = (function() {
         if (!provider || !signer) throw new Error('钱包未连接');
         const account = await signer.getAddress();
 
+        // 0) 余额预检查：ETH 不够 gas → 自动调后端 faucet（ChainRPS 本地链专属）
+        try {
+            const balWei = await provider.getBalance(account);
+            const balEth = parseFloat(ethers.formatEther(balWei));
+            const MIN_GAS_ETH = 0.01; // approve 大约需要 ~0.0005 ETH，留够余量
+            if (balEth < MIN_GAS_ETH) {
+                console.warn(`[Preflight] 用户 ETH 余额 ${balEth} < ${MIN_GAS_ETH}，自动请求 faucet 充值`);
+                try {
+                    const base = (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.backendUrl) ? CONFIG.backendUrl : '';
+                    const qs = encodeURIComponent(account);
+                    const ctrl = new AbortController();
+                    const to = setTimeout(() => ctrl.abort(), 8000);
+                    const resp = await fetch(`${base}/api/ext/faucet?address=${qs}&eth_amount=1.0&usdc_amount=50`, {
+                        method: 'POST', signal: ctrl.signal
+                    });
+                    clearTimeout(to);
+                    const data = await resp.json();
+                    if (data && data.success) {
+                        try { FWUI && FWUI.Toast && FWUI.Toast.success && FWUI.Toast.success(`⛽ 自动充值成功！ETH=${data.eth_sent ? '1.0' : '0'}  USDC=${data.usdc_sent ? '50' : '0'}`); } catch (_) {}
+                        await new Promise(r => setTimeout(r, 1500)); // 等链上打包
+                    } else {
+                        console.warn('[Preflight] faucet 返回失败:', data && data.error);
+                    }
+                } catch (fe) {
+                    console.warn('[Preflight] faucet 调用异常（不阻塞）:', fe && fe.message);
+                }
+            }
+        } catch (be) {
+            console.warn('[Preflight] 余额检查失败（不阻塞）:', be && be.message);
+        }
+
         // 1) 钱包当前网络上代币合约必须存在（钱包 RPC 配错 / 本地链已重置时这里直接暴露）
         let code = '0x';
         try {
@@ -398,6 +429,88 @@ const Contract = (function() {
         return { account, forceNonce: null, walletBacklog: 0, nodeBacklog: 0, nodeHealthy: false };
     }
 
+    // ========== 钱包残留队列修复指引 ==========
+
+    // 核心思路：不走自转账（OKX 会认成"未知交易类型"拦截），
+    // 直接用 approve(MaxUint256) + forceNonce 一步到位：
+    //   1. approve 是标准 ERC20 交易，所有钱包 100% 识别
+    //   2. forceNonce 强制使用链上最新 nonce，绕过钱包本地残留队列
+    //   3. approve 成功 → 链上 nonce 推进 → 钱包同步刷新 → 71 笔残留自动作废
+    //   4. 用户只签这一次，之后 7 天内所有操作零钱包弹窗
+
+    // 弹出 Modal：告知用户残留队列情况 + 让用户选择
+    // 返回值：'proceed' | 'manual'
+    function _askBacklogFix(backlog, forceNonce, tokenSymbol) {
+        return new Promise((resolve) => {
+            const modal = (typeof FWUI !== 'undefined' && FWUI && FWUI.Modal) ? FWUI.Modal.create({
+                title: '📦 检测到钱包有残留交易',
+                closable: false,
+                maskClosable: false,
+                content: `
+                    <div style="line-height:1.7;font-size:14px;">
+                        <p>您的钱包里有 <b style="color:#ef4444;">${backlog}</b> 笔卡住的未确认交易记录。</p>
+                        <p style="color:#64748b;font-size:13px;margin-top:4px;">
+                            当前链上最新 Nonce 是 <code style="background:#f1f5f9;padding:1px 6px;border-radius:4px;">${forceNonce}</code>。
+                        </p>
+
+                        <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;margin:12px 0;font-size:13px;color:#065f46;">
+                            <b>🚀 一键授权（推荐）</b><br>
+                            确认一次标准代币授权 → ${backlog} 笔残留自动失效 → 后续零弹窗 ✨
+                        </div>
+
+                        <details style="margin-top:8px;">
+                            <summary style="cursor:pointer;color:#6366f1;font-size:12px;font-weight:500;user-select:none;">
+                                📖 点击查看详细处理步骤（如果一键授权不行）
+                            </summary>
+                            <div style="background:#f1f5f9;border-radius:8px;padding:12px;margin-top:8px;font-size:12px;color:#475569;line-height:1.8;">
+                                <b>为什么会这样？</b><br>
+                                本地链重启后 Nonce 从 0 开始，但钱包还记着旧队列（认为 Nonce 应该更高）。<br><br>
+
+                                <b>方式 1：OKX 钱包清除缓存（推荐）</b><br>
+                                1. 打开 OKX 钱包插件 → <b>⚙️ 设置</b><br>
+                                2. 找到 <b>"清除缓存" / "重置账户"</b><br>
+                                3. 完全关闭游戏标签页 → 重新打开（Ctrl+F5）<br><br>
+
+                                <b>方式 2：切换网络强制同步</b><br>
+                                1. OKX 钱包 → 网络设置 → 切到 Polygon<br>
+                                2. 等 3 秒 → 切回 ChainRPS Local（ID: 5208888）<br><br>
+
+                                <b>方式 3：MetaMask 用户</b><br>
+                                设置 → 高级 → <b>清除活动和 nonce 数据</b><br><br>
+
+                                <b>提示</b>：钱包弹 "Nonce 高于建议值" → <b>那正是残留队列的表现</b>，点"确认"即可继续。
+                            </div>
+                        </details>
+                    </div>
+                `,
+                footer: `
+                    <button class="fwui-btn fwui-btn-default" data-action="manual" style="
+                        padding:8px 16px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer;
+                        border:1px solid #e2e8f0;background:#fff;color:#475569;transition:all 0.15s ease;
+                    ">📖 我手动清钱包</button>
+                    <button class="fwui-btn fwui-btn-primary" data-action="proceed" style="
+                        padding:8px 20px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;
+                        border:none;background:#6366f1;color:#fff;transition:all 0.15s ease;
+                    ">🚀 一键授权（推荐）</button>
+                `,
+            }) : null;
+
+            if (!modal) {
+                resolve('proceed');
+                return;
+            }
+
+            const handlers = {
+                proceed: () => { modal.close(); resolve('proceed'); },
+                manual: () => { modal.close(); resolve('manual'); },
+            };
+            Object.entries(handlers).forEach(([action, fn]) => {
+                const btn = modal.element.querySelector(`[data-action="${action}"]`);
+                if (btn) btn.addEventListener('click', fn);
+            });
+        });
+    }
+
     // 授权代币（含前置预检、并发去重、自动重试、友好错误提示）
     // opts.unlimited=true：授权 MaxUint256 无限额，一次签名后后续对局无需再确认授权
     async function approveToken(tokenAddress, amount, opts = {}) {
@@ -419,7 +532,32 @@ const Contract = (function() {
         const task = (async () => {
             try {
                 const preflight = await _preflightApprove(tokenAddress);
-                const forceNonce = preflight && preflight.forceNonce != null ? preflight.forceNonce : null;
+                let forceNonce = preflight && preflight.forceNonce != null ? preflight.forceNonce : null;
+                const walletBacklog = (preflight && preflight.walletBacklog) || 0;
+                const nodeBacklog = (preflight && preflight.nodeBacklog) || 0;
+
+                // 检测到钱包残留队列 + forceNonce 可用 → 弹出 Modal 让用户确认
+                // approve(MaxUint256) + forceNonce 本身就能同时解决授权 + 刷新钱包状态两个问题
+                if (walletBacklog > 0 && forceNonce != null && nodeBacklog === 0) {
+                    // 查一下代币 symbol 给 Modal 显示用
+                    let tokenSymbol = '';
+                    try {
+                        const tc = getTokenContract(tokenAddress);
+                        tokenSymbol = await tc.symbol();
+                    } catch (e) {}
+                    const choice = await _askBacklogFix(walletBacklog, forceNonce, tokenSymbol);
+                    console.log(`[Approve] backlog=${walletBacklog} 选择: ${choice}`);
+
+                    if (choice === 'manual') {
+                        // 用户选择手动处理
+                        const err = new Error('钱包有 ' + walletBacklog + ' 笔残留交易，请先手动清除');
+                        err.suggestion = '清除方法：MetaMask → 设置 → 高级 → 清除活动和 nonce 数据；'
+                            + 'OKX 钱包 → 设置 → 清除缓存 / 重置账户。'
+                            + '清除后完全关闭游戏标签页，重新打开（Ctrl+F5），再创建/加入房间。';
+                        throw err;
+                    }
+                    // choice === 'proceed' → 直接走 forceNonce 的 approve（后面会处理）
+                }
 
                 if (typeof FWUI !== 'undefined' && FWUI && FWUI.Toast) {
                     FWUI.Toast.info(unlimited
@@ -427,11 +565,11 @@ const Contract = (function() {
                         : '请在钱包中确认「代币授权」交易（自动管理 Nonce，无需手动设置）');
                 }
 
-                // forceNonce 模式下，钱包内部残留队列不会因 dApp 重试而清除，
-                // 一次 15s 短超时后直接给出手动清理指引（不再循环重试）
-                const forceNonceShort = forceNonce != null;
-                const txTimeout = forceNonceShort ? 15000 : undefined;
-                const MAX_RETRIES = forceNonceShort ? 0 : 2;
+                // forceNonce 模式下，钱包内部残留队列不会因 dApp 重试而清除
+                // 超时缩短为 30s（钱包卡了的话 120s 也是白等），不重试
+                const forceNonceMode = forceNonce != null;
+                const txTimeout = forceNonceMode ? 30 * 1000 : undefined;
+                const MAX_RETRIES = forceNonceMode ? 0 : 2;
 
                 for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
                     try {
@@ -467,21 +605,63 @@ const Contract = (function() {
                         // forceNonce 模式下任何失败都指向钱包内部队列——dApp 已用正确 nonce 尝试
                         // 可能的底层错误：could not coalesce error（钱包扩展挂起拒绝）、
                         // -32000/-32603、nonce too high 等
-                        if (forceNonce != null && attempt === MAX_RETRIES) {
+                        if (forceNonceMode && attempt === MAX_RETRIES) {
                             const raw = (e && e.message) ? e.message : String(e);
                             const timedOut = /超时/.test(raw) || (e && e.code === 'TIMEOUT');
                             const walletBlocked = /could not coalesce|execution reverted|nonce too high|account nonce/i.test(raw);
-                            const userMsg = timedOut
-                                ? `「${actionDesc}」超时（${txTimeout/1000}s），钱包未响应`
-                                : `「${actionDesc}」失败：${walletBlocked ? '钱包内部残留队列拒绝发送' : raw}`;
-                            const err = new Error(userMsg);
-                            err.suggestion = '已使用链上正确 Nonce（' + forceNonce + '）尝试发送，但钱包内部有 71 笔残留交易队列未清，'
-                                + (timedOut ? '导致 eth_sendTransaction 等待超时。' : '导致 eth_sendTransaction 被钱包扩展挂起拒绝。')
-                                + '请立即清除钱包活动数据：'
-                                + 'MetaMask → 设置 → 高级 → 清除活动和 nonce 数据；'
-                                + 'OKX 钱包 → 设置 → 清除缓存 / 重置账户。'
-                                + '清除后完全关闭游戏标签页，重新打开（Ctrl+F5），再创建/加入房间。';
-                            console.error('[Approve] forceNonce=' + forceNonce + ' 最终失败 raw=', raw, 'err=', e);
+                            const backlog = (preflight && preflight.walletBacklog) || 0;
+                            console.error('[Approve] forceNonce=' + forceNonce + ' backlog=' + backlog + ' 最终失败 raw=', raw, 'err=', e);
+
+                            // 直接弹 Modal 让用户选择（而不是 throw Error 让上层卡住）
+                            if (typeof FWUI !== 'undefined' && FWUI && FWUI.Modal) {
+                                const reasonDetail = timedOut
+                                    ? `<b>原因：</b>钱包 30 秒内没有响应签名请求。`
+                                    : walletBlocked
+                                        ? `<b>原因：</b>钱包内部有 ${backlog} 笔残留交易队列，拒绝发送新交易。`
+                                        : `<b>原因：</b>${raw}`;
+                                const modal = FWUI.Modal.alert({
+                                    title: timedOut ? '⏰ 钱包未响应' : '🔒 钱包被残留队列阻塞',
+                                    closable: false,
+                                    content: `
+                                        <div style="line-height:1.7;font-size:14px;">
+                                            <p>代币授权（approve）未成功，<b>无法继续</b>。</p>
+                                            <p style="color:#64748b;font-size:13px;">${reasonDetail}</p>
+                                            ${!timedOut ? `
+                                            <details style="margin-top:12px;">
+                                                <summary style="cursor:pointer;color:#6366f1;font-size:12px;font-weight:500;user-select:none;">
+                                                    📖 点击查看详细处理步骤
+                                                </summary>
+                                                <div style="background:#f1f5f9;border-radius:8px;padding:12px;margin-top:8px;font-size:12px;color:#475569;line-height:1.8;">
+                                                    <b>方式 1：OKX 钱包清除缓存（推荐）</b><br>
+                                                    1. OKX 钱包插件 → <b>⚙️ 设置</b><br>
+                                                    2. 找到 <b>"清除缓存" / "重置账户"</b><br>
+                                                    3. 完全关闭游戏标签页 → 重新打开（Ctrl+F5）<br><br>
+                                                    <b>方式 2：切换网络强制同步</b><br>
+                                                    1. OKX → 网络设置 → 切到 Polygon<br>
+                                                    2. 等 3 秒 → 切回 ChainRPS Local（ID: 5208888）<br><br>
+                                                    <b>MetaMask 用户</b><br>
+                                                    设置 → 高级 → <b>清除活动和 nonce 数据</b><br><br>
+                                                    <b>通用</b>：清除后完全关闭游戏标签页，重新打开（Ctrl+F5），再次创建/加入房间。
+                                                </div>
+                                            </details>
+                                            ` : `
+                                            <p style="color:#94a3b8;font-size:12px;margin-top:8px;">
+                                                钱包弹窗确认请求超时。请在钱包插件中检查是否有待确认的交易请求。
+                                            </p>
+                                            `}
+                                            <p style="color:#94a3b8;font-size:12px;margin-top:10px;">
+                                                已使用链上正确 Nonce（${forceNonce}）尝试发送，链本身正常。
+                                            </p>
+                                        </div>
+                                    `,
+                                    okText: '我去处理',
+                                });
+                            }
+                            const err = new Error(timedOut
+                                ? `「${actionDesc}」超时，钱包未响应。`
+                                : `「${actionDesc}」失败：钱包内部残留队列阻塞（${backlog} 笔）。`);
+                            err.suggestion = '清除钱包活动数据后重试。';
+                            err._modalShown = true; // 已弹 Modal 指引，上层不要重复弹 Toast
                             throw err;
                         }
 
@@ -520,8 +700,43 @@ const Contract = (function() {
         return task;
     }
 
+    // 无限授权 localStorage 缓存 key 前缀
+    const UNLIMITED_APPROVE_CACHE_KEY = 'rps_unlimited_approve_v1';
+    // 缓存有效期（毫秒）：7 天（接近无限授权的实际有效期）
+    const CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
+
+    // 读取缓存：key = tokenAddress_spenderAddress_account_chainId
+    function _readUnlimitedCache(tokenAddress, spenderAddress, account, chainId) {
+        try {
+            const raw = localStorage.getItem(UNLIMITED_APPROVE_CACHE_KEY);
+            if (!raw) return null;
+            const all = JSON.parse(raw);
+            const key = tokenAddress.toLowerCase() + '_' + spenderAddress.toLowerCase() + '_' + account.toLowerCase() + '_' + String(chainId);
+            const entry = all[key];
+            if (!entry) return null;
+            if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+                delete all[key];
+                localStorage.setItem(UNLIMITED_APPROVE_CACHE_KEY, JSON.stringify(all));
+                return null;
+            }
+            return entry;
+        } catch (e) { return null; }
+    }
+
+    // 写入缓存
+    function _writeUnlimitedCache(tokenAddress, spenderAddress, account, chainId, extra = {}) {
+        try {
+            const raw = localStorage.getItem(UNLIMITED_APPROVE_CACHE_KEY);
+            const all = raw ? JSON.parse(raw) : {};
+            const key = tokenAddress.toLowerCase() + '_' + spenderAddress.toLowerCase() + '_' + account.toLowerCase() + '_' + String(chainId);
+            all[key] = { timestamp: Date.now(), ...extra };
+            localStorage.setItem(UNLIMITED_APPROVE_CACHE_KEY, JSON.stringify(all));
+        } catch (e) {}
+    }
+
     // 确保代币授权额度充足（不足则发起授权）
     // opts.unlimited=true 时一次性无限额授权（用户设置中的"自动授权"）
+    // 无限授权成功后写入 localStorage 缓存，后续直接跳过链上查询和授权
     async function ensureAllowance(tokenAddress, amount, account, opts = {}) {
         if (!isValidAddress(contractAddress)) {
             throw new Error('合约未部署，请先在管理面板部署合约');
@@ -534,17 +749,52 @@ const Contract = (function() {
             throw new Error('代币合约地址无效，请检查配置');
         }
 
+        const unlimited = !!opts.unlimited;
+
+        // 无限授权模式：先查 localStorage 缓存，命中则完全跳过（零钱包交互）
+        if (unlimited && _chainId) {
+            const cached = _readUnlimitedCache(tokenAddress, contractAddress, account, _chainId);
+            if (cached) {
+                console.log(`[ensureAllowance] 命中无限授权缓存，跳过。token=${tokenAddress.slice(0,8)}... account=${account.slice(0,8)}...`);
+                return null;
+            }
+        }
+
         let allowance;
         try {
             allowance = await getAllowance(tokenAddress, account, contractAddress);
         } catch (e) {
-            const translated = _translateWalletError(e, '查询授权');
-            throw new Error(`无法查询代币授权额度：${translated.message}`);
+            // 链上查询失败时，若开启无限授权缓存：不阻塞，继续尝试
+            console.warn('[ensureAllowance] allowance 查询失败，继续尝试 approve:', e.message);
+            allowance = '0';
+        }
+
+        // 无限授权模式且链上额度已足够（>= 2^255 即半最大 uint256 视为无限）：写入缓存跳过后续
+        if (unlimited) {
+            try {
+                const allowanceBigInt = BigInt(ethers.parseUnits(allowance || '0', 0));
+                const halfMax = BigInt('5789604461865809771178549250434395392641878213953745219130256131827927536896'); // 2^255
+                if (allowanceBigInt >= halfMax) {
+                    _writeUnlimitedCache(tokenAddress, contractAddress, account, _chainId || 0, { from: 'chain' });
+                    console.log(`[ensureAllowance] 链上额度已 >= 2^255，写入缓存跳过后续。`);
+                    return null;
+                }
+            } catch (e) {
+                // allowance parse 失败没关系，继续走 approve 流程
+            }
         }
 
         if (parseFloat(allowance) < parseFloat(amount)) {
-            return await approveToken(tokenAddress, amount, opts);
+            const result = await approveToken(tokenAddress, amount, opts);
+            // approve 成功：无限模式写缓存
+            if (unlimited && result) {
+                _writeUnlimitedCache(tokenAddress, contractAddress, account, _chainId || 0, { from: 'approve' });
+                console.log(`[ensureAllowance] approve 成功，写入无限授权缓存。`);
+            }
+            return result;
         }
+
+        // 额度足够（但不是无限授权模式）：不写缓存，依赖下次链上查询
         return null;
     }
 

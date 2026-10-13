@@ -507,8 +507,7 @@ const App = (function () {
             if (!room || !room.room_id || room.success === false) {
                 const msg = room && room.message ? room.message : '房间不存在或已关闭';
                 console.warn('[Route] 房间不可用:', roomId, msg);
-                FWUI.Toast.error(msg);
-                navigateTo('/');
+                _showRoomGoneModal('not_found', msg);
                 return;
             }
 
@@ -913,9 +912,60 @@ const App = (function () {
 
             } catch (e) {
                 console.error('[Exit] 读取链上状态失败:', e);
-                FWUI.Toast.error('读取链上状态失败：' + (e.message || e));
+                FWUI.Modal.confirm({
+                    title: '⚠️ 链上状态不可读',
+                    content: `无法连接区块链节点来检查对局状态（链可能已断开）。<br><br>` +
+                             `资金安全提示：<br>` +
+                             `• 如果资金<b>尚未上链</b>（本地冻结），强制退出不会有任何损失。<br>` +
+                             `• 如果资金<b>已在链上锁定</b>，强制退出只能清本地 UI 状态，资金不受影响——<br>` +
+                             `　重连链后可以再回来处理（取消/超时退款）。<br><br>` +
+                             `要<b>强制退出并清本地状态</b>返回大厅吗？`,
+                    okText: '强制退出',
+                    cancelText: '再等等',
+                    onOk: () => _forceCleanLocalState(),
+                });
             }
         });
+
+        // 清理本地游戏状态（不调后端 room/leave，不碰链上资金，纯前端兜底）
+        function _forceCleanLocalState() {
+            stopRoomPolling();
+            disconnectP2PChannel();
+            stopAllFallbackPolling();
+            stopAutoReveal();
+            currentRoomId = null;
+            currentRoom = null;
+            currentGameId = null;
+            chainGameIdResolved = false;
+            myChainJoined = false;
+            try { GameSocket && GameSocket.disconnect && GameSocket.disconnect(); } catch (_) {}
+            UI.showStage('stageLobby');
+            loadRoomList();
+        }
+
+        // 共享：房间不存在/已解散 Modal（带返回大厅按钮）
+        // reason: 'not_found' | 'dissolved' | 'closed' | 'kicked' 等
+        function _showRoomGoneModal(reason, details) {
+            const titleMap = {
+                'not_found': '房间不存在',
+                'dissolved': '房间已解散',
+                'closed': '房间已关闭',
+                'kicked': '被移出房间',
+            };
+            const title = titleMap[reason] || '房间不可用';
+            const detailHtml = details
+                ? `<div style="color:#64748b;font-size:13px;margin-top:6px;">${details}</div>`
+                : '';
+            FWUI.Modal.alert({
+                title: title,
+                content: `<div style="font-size:14px;line-height:1.7;">该房间已不存在或无法访问。${detailHtml}</div>`,
+                okText: '返回游戏大厅',
+                onOk: () => {
+                    _forceCleanLocalState();
+                    navigateTo('/');
+                },
+            });
+        }
 
         // === 安全退出房间（local_frozen 或链上已处理完毕后调用） ===
         async function safeExitRoom(roomId, myAddress) {
@@ -949,11 +999,29 @@ const App = (function () {
                             navigateTo('/');
                             loadRoomList();
                         } else {
-                            FWUI.Toast.warning(data.message || data.detail || '退出房间失败');
+                            // 后端拒绝（如资金已上链不允许退出）→ 给强制清理选项
+                            const msg = data.message || data.detail || '退出房间失败';
+                            FWUI.Modal.confirm({
+                                title: '无法安全退出',
+                                content: `后端拒绝退出：<br><b>${msg}</b><br><br>` +
+                                         `通常意味着链上资金已锁定，需先走链上取消/超时退款。<br>` +
+                                         `若链不可用，可以<b>强制清理本地 UI 状态</b>返回大厅——资金安全不受影响。`,
+                                okText: '强制清理本地状态',
+                                cancelText: '知道了',
+                                onOk: () => _forceCleanLocalState(),
+                            });
                         }
                     } catch (e) {
                         console.error('退出房间请求失败:', e);
-                        FWUI.Toast.error('退出房间失败: ' + (e.message || e));
+                        // Failed to fetch → 后端/网络不可达
+                        FWUI.Modal.confirm({
+                            title: '网络请求失败',
+                            content: `无法连接后端服务（${e.message || ''}）。<br><br>` +
+                                     `可以<b>强制清理本地 UI 状态</b>返回大厅——资金安全取决于链上状态，不受影响。`,
+                            okText: '强制清理本地状态',
+                            cancelText: '再试一次',
+                            onOk: () => _forceCleanLocalState(),
+                        });
                     }
                 },
             });
@@ -994,11 +1062,26 @@ const App = (function () {
                             UI.showStage('stageLobby');
                             loadRoomList();
                         } else {
-                            FWUI.Toast.warning(data.message || data.detail || '退出房间失败');
+                            const msg = data.message || data.detail || '退出房间失败';
+                            FWUI.Modal.confirm({
+                                title: '无法安全退出',
+                                content: `后端拒绝退出：<br><b>${msg}</b><br><br>` +
+                                         `可以<b>强制清理本地 UI 状态</b>返回大厅。`,
+                                okText: '强制清理本地状态',
+                                cancelText: '知道了',
+                                onOk: () => _forceCleanLocalState(),
+                            });
                         }
                     } catch (e) {
                         console.error('退出房间请求失败:', e);
-                        FWUI.Toast.error('退出房间失败: ' + (e.message || e));
+                        FWUI.Modal.confirm({
+                            title: '网络请求失败',
+                            content: `无法连接后端服务（${e.message || ''}）。<br><br>` +
+                                     `可以<b>强制清理本地 UI 状态</b>返回大厅。`,
+                            okText: '强制清理本地状态',
+                            cancelText: '再试一次',
+                            onOk: () => _forceCleanLocalState(),
+                        });
                     }
                 }
             });
@@ -2462,13 +2545,18 @@ const App = (function () {
                     }
 
                     if (errorMsg.includes('房间不存在')) {
-                        FWUI.Toast.warning(errorMsg);
+                        // 房间不存在 → Modal 提示 + 返回大厅
+                        _showRoomGoneModal('not_found', errorMsg);
+                        // 同时重置加入框
+                        okBtn.disabled = false;
+                        okBtn.textContent = '加入';
+                        input.focus();
                     } else {
                         FWUI.Toast.error(errorMsg);
+                        okBtn.disabled = false;
+                        okBtn.textContent = '加入';
+                        input.focus();
                     }
-                    okBtn.disabled = false;
-                    okBtn.textContent = '加入';
-                    input.focus();
                 }
             } catch (e) {
                 FWUI.Toast.error(e.message || '加入房间失败');
@@ -2542,7 +2630,7 @@ const App = (function () {
                 currentRoom = data;
                 navigateTo(`/room/${currentRoomId}`);
             } else {
-                FWUI.Toast.error(data.message || '房间不存在');
+                _showRoomGoneModal('not_found', data.message || '房间不存在');
             }
         } catch (e) {
             FWUI.Toast.error(e.message || '获取房间信息失败');
@@ -2843,12 +2931,53 @@ const App = (function () {
                     player: Wallet.getAddress(),
                     ready: myReady,
                 });
+
+                // 🆕 提前批准代币授权（ready 后立刻后台执行，不等 Bot createMatch）
+                // 这样 Bot createMatch 时玩家已 approve 好，只需要 joinMatch 一次签名
+                // 如果玩家还没解决钱包残留队列，approve 会弹 Modal 指引，不阻塞 UI
+                if (myReady) {
+                    _preApproveAfterReady();
+                }
             } else {
                 FWUI.Toast.error(data.detail || data.message || '操作失败');
             }
         } catch (e) {
             FWUI.Toast.error(e.message || '操作失败');
         }
+    }
+
+    // 🆕 ready 后后台提前 approve（不阻塞 UI，让 Bot createMatch 时玩家已 approve）
+    let _preApprovePromise = null; // 防止重复调用
+    async function _preApproveAfterReady() {
+        if (_preApprovePromise) return _preApprovePromise;
+        if (!currentRoom || !Wallet.isConnected()) return;
+
+        const tokenAddress = CONFIG.getTokenAddresses()[currentRoom.token];
+        const isNativeETH = !tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000';
+        if (isNativeETH) return; // ETH 原生代币不需要 approve
+
+        const betAmount = Number(currentRoom.bet_amount || 0);
+        const myAddress = Wallet.getAddress();
+
+        _preApprovePromise = (async () => {
+            try {
+                console.log('[Pre-Approve] ready 后后台提前授权，token=', currentRoom.token, 'amount=', betAmount);
+                await Contract.ensureAllowance(tokenAddress, betAmount, myAddress, approveOpts());
+                console.log('[Pre-Approve] 提前授权完成 ✅');
+                FWUI.Toast.success('✅ 代币已授权，后续对局无需再次确认');
+            } catch (e) {
+                // approve 失败（比如钱包残留队列）不阻塞游戏
+                // 后续 Bot createMatch 时 handleChainGameCreated 会再触发 approve
+                console.warn('[Pre-Approve] 提前授权失败（后续 joinMatch 时会再尝试）:', e.message);
+                if (!(e && e._modalShown)) {
+                    FWUI.Toast.info('代币授权待处理，后续加入时会提示您');
+                }
+            } finally {
+                // 等 2 秒后重置，允许下次 ready 再调用（但有缓存，不会真的重复 approve）
+                setTimeout(() => { _preApprovePromise = null; }, 2000);
+            }
+        })();
+        return _preApprovePromise;
     }
 
     // 进入房间等待界面
@@ -3273,19 +3402,20 @@ const App = (function () {
                     currentRoom = data;
                     updateRoomUI();
                     updateExitGameBtnState();
+                    // 启动/刷新房间生命周期倒计时（deadlines 从后端下发）
+                    if (data.deadlines) {
+                        startLifecycleCountdown();
+                    } else {
+                        stopLifecycleCountdown();
+                    }
                 } else {
-                    // 房间不存在或已关闭 → 回到大厅
+                    // 房间不存在或已关闭 → Modal 提示后回大厅
                     const msg = (data && data.message) || '房间已解散';
                     console.warn('[Room] 房间不可用:', msg);
-                    stopRoomPolling();
-                    disconnectP2PChannel();
-                    FWUI.Toast.warning(msg);
-                    currentRoomId = null;
-                    currentRoom = null;
-                    currentGameId = null;
-                    UI.showStage('stageLobby');
-                    navigateTo('/');
-                    loadRoomList();
+                    const reason = msg.includes('解散') ? 'dissolved'
+                                  : msg.includes('关闭') ? 'closed'
+                                  : 'not_found';
+                    _showRoomGoneModal(reason, msg);
                 }
             })
             .catch(e => {
@@ -3783,6 +3913,16 @@ const App = (function () {
             console.error('创建链上对局失败:', e);
             const msg = e && e.message ? e.message : String(e);
             const suggestion = e && e.suggestion ? e.suggestion : null;
+            // 下层已弹过 Modal 指引（如钱包残留队列），跳过重复 Toast
+            if (e && e._modalShown) {
+                UI.setGameStatus('代币授权失败，请按弹窗指引处理后重试');
+                UI.showStage('stageGame');
+                UI.setGameId('创建中...');
+                UI.setMyStatus('创建对局');
+                UI.setOpponentStatus('等待加入');
+                UI.showRetrySection('create');
+                return;
+            }
             if (e && e.userCancelled) {
                 FWUI.Toast.info(msg || '您已取消创建对局');
                 UI.setGameStatus('创建已取消，点击"重试创建对局"可继续');
@@ -3913,6 +4053,16 @@ const App = (function () {
             console.error('加入链上对局失败:', e);
             const msg = e && e.message ? e.message : String(e);
             const suggestion = e && e.suggestion ? e.suggestion : null;
+            // 下层已弹过 Modal 指引（如钱包残留队列），跳过重复 Toast
+            if (e && e._modalShown) {
+                UI.setGameStatus('代币授权失败，请按弹窗指引处理后重试');
+                UI.showStage('stageGame');
+                UI.setGameId(currentGameId);
+                UI.setMyStatus('加入中');
+                UI.setOpponentStatus('已就绪');
+                UI.showRetrySection('join');
+                return;
+            }
             if (e && e.userCancelled) {
                 FWUI.Toast.info(msg || '您已取消加入对局');
                 UI.setGameStatus('加入已取消，点击"重试加入对局"可继续');
@@ -4073,6 +4223,162 @@ const App = (function () {
             gameFallbackTimer = null;
         }
         stopGamePhaseFallbackPolling();
+        // 同时停止生命周期倒计时
+        stopLifecycleCountdown();
+    }
+
+    // ==================== 房间生命周期倒计时管理器 ====================
+    // 每秒 tick：根据 currentRoom.deadlines 更新 UI 显示
+    // 支持所有阶段的倒计时，自动切换显示内容
+    let lifecycleCountdownTimer = null;
+    let lifecycleLastPhase = null;  // 上次显示的阶段（避免重复弹警告）
+
+    function startLifecycleCountdown() {
+        stopLifecycleCountdown();
+        lifecycleLastPhase = null;
+
+        const tick = () => {
+            if (!currentRoom || !currentRoom.deadlines) {
+                _renderLifecycleTimer(null);
+                return;
+            }
+            const dl = currentRoom.deadlines;
+            const status = currentRoom.status;
+            const now = Math.floor(Date.now() / 1000);
+
+            // 根据房间当前阶段选择显示哪个倒计时
+            let display = null;
+            let phase = null;
+            let secondary = null;
+
+            if (status === 'created' && dl.empty_room) {
+                // CREATED：空房间倒计时（5分钟内没人加入自动关闭）
+                display = dl.empty_room - now;
+                phase = 'empty_room';
+                secondary = dl.lifetime ? { label: '房间生命周期', remaining: dl.lifetime - now } : null;
+            } else if (status === 'joined' && dl.unready_player) {
+                // JOINED：未准备倒计时（谁没准备谁 60 秒被踢）
+                display = dl.unready_player - now;
+                phase = 'unready';
+                secondary = dl.lifetime ? { label: '房间生命周期', remaining: dl.lifetime - now } : null;
+            } else if (status === 'countdown' && dl.countdown) {
+                // COUNTDOWN：游戏开始倒计时（15秒）
+                display = dl.countdown - now;
+                phase = 'game_countdown';
+            } else if (status === 'game_started' && dl.game_timeout) {
+                // GAME_STARTED：游戏超时倒计时（10分钟）
+                display = dl.game_timeout - now;
+                phase = 'game_timeout';
+            }
+
+            // 生命周期兜底（所有阶段都显示，作为底部提醒）
+            const lifetimeRemain = dl.lifetime ? dl.lifetime - now : null;
+
+            _renderLifecycleTimer({ primary: display, phase, secondary, lifetime: lifetimeRemain });
+
+            // 超时临近警告（首次进入 danger 区间时弹 Modal）
+            _checkPhaseWarnings(phase, display);
+        };
+
+        lifecycleCountdownTimer = setInterval(tick, 1000);
+        tick(); // 立刻 tick 一次
+    }
+
+    function stopLifecycleCountdown() {
+        if (lifecycleCountdownTimer) {
+            clearInterval(lifecycleCountdownTimer);
+            lifecycleCountdownTimer = null;
+        }
+        lifecycleLastPhase = null;
+        _renderLifecycleTimer(null); // 清空
+    }
+
+    function _checkPhaseWarnings(phase, remaining) {
+        if (!phase || remaining == null) return;
+        // 只在"首次进入警告/危险区间"时弹一次
+        // 用 lifecycleLastPhase 记录上一次状态
+        const bucket = remaining > 30 ? 'safe' : remaining > 10 ? 'warn' : 'danger';
+        const key = phase + ':' + bucket;
+        if (lifecycleLastPhase === key) return;
+        lifecycleLastPhase = key;
+
+        if (remaining <= 10 && remaining > 0) {
+            // 即将超时（最后 10 秒），Toast 提醒
+            const hintMap = {
+                'empty_room': `⏰ 房间 ${remaining} 秒后将因无人加入自动关闭`,
+                'unready': `⏰ ${remaining} 秒内未准备将被自动移出房间`,
+                'game_timeout': `⏰ 对局 ${remaining} 秒后超时自动关闭`,
+            };
+            const hint = hintMap[phase];
+            if (hint) {
+                try { FWUI && FWUI.Toast && FWUI.Toast.warning && FWUI.Toast.warning(hint, { duration: 3000 }); } catch (_) {}
+            }
+        }
+    }
+
+    function _renderLifecycleTimer(info) {
+        // 同时更新两个位置：stageRoomWait 的小计时器 + stageGame 的大计时器
+        const stageRoomTimer = document.getElementById('roomLifecycleTimer');
+        const stageGameTimer = document.getElementById('gameTimer');
+
+        if (!info || info.primary == null || info.primary <= 0) {
+            // 隐藏
+            if (stageRoomTimer) { stageRoomTimer.textContent = ''; stageRoomTimer.className = 'room-lifecycle-timer'; stageRoomTimer.style.display = 'none'; }
+            if (stageGameTimer) { stageGameTimer.textContent = '--:--'; stageGameTimer.className = 'game-timer'; }
+            return;
+        }
+
+        const secs = Math.max(0, Math.floor(info.primary));
+        const mmss = _fmtMMSS(secs);
+        const hhmmss = _fmtHHMMSS(secs);
+
+        // 阶段文案
+        const phaseLabels = {
+            'empty_room': '⏳ 无人加入，自动关闭',
+            'unready': '⏳ 未准备，将被移出',
+            'game_countdown': '🎮 即将开始',
+            'game_timeout': '⏰ 对局超时',
+        };
+        const label = phaseLabels[info.phase] || '';
+
+        // 警告/危险状态
+        const isWarn = secs <= 30 && secs > 10;
+        const isDanger = secs <= 10;
+
+        // --- stageRoomWait 小计时器 ---
+        if (stageRoomTimer) {
+            stageRoomTimer.style.display = '';
+            const timeStr = info.phase === 'empty_room' || info.phase === 'game_timeout'
+                ? hhmmss  // 长阶段用 hh:mm:ss
+                : mmss;   // 短阶段用 mm:ss
+            stageRoomTimer.textContent = `${label} ${timeStr}`;
+            stageRoomTimer.className = 'room-lifecycle-timer' + (isDanger ? ' danger' : isWarn ? ' warning' : '');
+        }
+
+        // --- stageGame 大计时器 ---
+        if (stageGameTimer) {
+            const timeStr = info.phase === 'game_timeout' || info.phase === 'game_countdown'
+                ? mmss
+                : hhmmss;
+            stageGameTimer.textContent = timeStr;
+            stageGameTimer.className = 'game-timer' + (isDanger ? ' danger' : isWarn ? ' warning' : '');
+            // 如果有阶段名，用 Tooltip
+            stageGameTimer.title = label;
+        }
+    }
+
+    function _fmtMMSS(totalSec) {
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    function _fmtHHMMSS(totalSec) {
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        return h > 0
+            ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+            : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
 
     // 游戏阶段兜底轮询定时器（检测链上对局状态：commit/reveal）
@@ -4396,6 +4702,11 @@ const App = (function () {
         opponentCommitSubmitted = false;
         myRevealed = false;
         opponentRevealed = false;
+
+        // 🆕 关键修复：停止房间生命周期倒计时器
+        // 生命周期计时器显示的是房间整体超时（game_timeout=600s），会覆盖游戏阶段计时器
+        // 游戏阶段计时器（commit=66s / reveal=88s）才是真正影响玩家操作的倒计时
+        stopLifecycleCountdown();
 
         // 订阅对局（后端可批量通知对局双方）
         if (currentGameId && GameSocket.isConnected()) {

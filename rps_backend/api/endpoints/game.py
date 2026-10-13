@@ -54,6 +54,16 @@ def _room_to_response(room: dict) -> RoomResponse:
             player2_is_bot = room_manager._is_bot_address(room["player2"])
     except Exception:
         pass
+
+    # deadlines：要么 dict 里已经有（get_room 返回的），要么动态算
+    deadlines = room.get("deadlines")
+    if deadlines is None:
+        try:
+            from rps_backend.service.room_service import _compute_deadlines
+            deadlines = _compute_deadlines(room)
+        except Exception:
+            deadlines = None
+
     return RoomResponse(
         room_id=room["room_id"],
         creator=room["creator"],
@@ -74,6 +84,7 @@ def _room_to_response(room: dict) -> RoomResponse:
         seat_mode=room.get("seat_mode"),
         creator_is_bot=bool(creator_is_bot),
         player2_is_bot=bool(player2_is_bot),
+        deadlines=deadlines,
     )
 
 
