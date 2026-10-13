@@ -4,7 +4,19 @@ ChainRPS 后端服务入口
 负责创建 FastAPI 应用、注册路由、管理生命周期。
 """
 import asyncio
+import logging
 import os
+
+# 🆕 配置日志级别：让 Bot 的 logger.info 等能正常输出到 stdout
+# 注意：basicConfig 必须在所有 import 之前，否则被 uvicorn 覆盖
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+    force=True,  # 🆕 强制覆盖已有配置
+)
+# 同时强制设置 bot_service 模块 logger 级别
+logging.getLogger("rps_backend.service.bot_service").setLevel(logging.INFO)
 
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -167,7 +179,7 @@ async def cleanup_loop():
 app = FastAPI(
     title="ChainRPS Backend",
     description="链上公平猜拳后端服务",
-    version="1.0.31",
+    version="1.0.32",
     lifespan=lifespan
 )
 
