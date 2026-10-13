@@ -1691,7 +1691,8 @@ class BotInstance:
             game_data["committed"] = True
             self._log("INFO", f"commit 本地记录成功: choice={choice}")
             if game_data.get("chain_game_id"):
-                chain_ok = await self._submit_commit_via_relayer(game_id, commit_hash)
+                chain_gid = game_data["chain_game_id"]  # 🆕 用链上 gameId！
+                chain_ok = await self._submit_commit_via_relayer(chain_gid, commit_hash)
                 if chain_ok:
                     self._log("INFO", "commit 链上代提交成功")
         else:
@@ -1713,7 +1714,8 @@ class BotInstance:
             game_data["revealed"] = True
             self._log("INFO", f"reveal 本地记录成功: choice={choice}")
             if game_data.get("chain_game_id"):
-                chain_ok = await self._submit_reveal_via_relayer(game_id, choice, salt)
+                chain_gid = game_data["chain_game_id"]  # 🆕 用链上 gameId！
+                chain_ok = await self._submit_reveal_via_relayer(chain_gid, choice, salt)
                 if chain_ok:
                     self._log("INFO", "reveal 链上代提交成功")
         else:
