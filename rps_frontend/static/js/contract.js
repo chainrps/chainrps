@@ -59,8 +59,8 @@ const Contract = (function() {
         'function submitCommit(uint256 gameId, bytes32 commit) external',
         'function revealChoice(uint256 gameId, uint8 choice, bytes32 salt) external',
         // 方案A：带 EIP-712 签名的代提交版本
-        'function submitCommitWithSig(uint256 gameId, address player, bytes32 commit, uint256 nonce, uint8 v, bytes32 r, bytes32 s) external',
-        'function revealChoiceWithSig(uint256 gameId, address player, uint8 choice, bytes32 salt, uint256 nonce, uint8 v, bytes32 r, bytes32 s) external',
+        'function submitCommitWithSig(uint256 gameId, address player, bytes32 commit, uint256 nonce, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external',
+        'function revealChoiceWithSig(uint256 gameId, address player, uint8 choice, bytes32 salt, uint256 nonce, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external',
         // 方案B：relayer 长期授权
         'function authorizeRelayer(address relayer, uint256 duration) external',
         'function revokeRelayer() external',
