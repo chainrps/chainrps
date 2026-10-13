@@ -1498,10 +1498,10 @@ class BotInstance:
                                 return
                             # 🆕 creator: join 后立刻 commit，不等 commit_delay（避免 commitDeadline 过期！）
                             await self._do_commit(game_id)
-                            await self._wait_for_opponent_commit(game_id)
+                            # 🆕 creator: 等链上双方 commit（不等本地 state='reveal_phase'！链上才是真相）
+                            await self._wait_for_opponent_commit_on_chain(chain_gid, timeout=30)
 
-                            await self._wait_for_reveal_start(game_id)
-                            await asyncio.sleep(self._config.reveal_delay)
+                            # 🆕 creator: 不等 reveal_delay（合约 revealTimeout 很紧！）
                             await self._do_reveal(game_id)
                             await self._wait_for_game_result(game_id)
                             return
@@ -1602,6 +1602,26 @@ class BotInstance:
             await asyncio.sleep(1)
             elapsed += 1
         return False
+
+    # 🆕 等链上对手 commit（查 games(chain_gid).commit2 非全零）
+    async def _wait_for_opponent_commit_on_chain(self, chain_gid: int, timeout: int = 30) -> None:
+        elapsed = 0
+        while elapsed < timeout and self._is_running and self._contract:
+            try:
+                def _read():
+                    return self._contract.functions.games(int(chain_gid)).call()
+                data = await _run_sync(_read)
+                if data:
+                    # games struct: [4]=commit1(creator), [5]=commit2(player2)
+                    commit2 = data[5]
+                    if any(b != 0 for b in commit2):
+                        self._log("INFO", f"对手链上 commit 检测到: chain_game_id={chain_gid}")
+                        return
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+            elapsed += 1
+        self._log("WARN", f"等对手链上 commit 超时: chain_game_id={chain_gid}")
 
     # 撤销 Waiting 阶段的链上对局，回收资金（cancelMatch）
     async def _cancel_chain_match(self, chain_game_id: int) -> bool:
