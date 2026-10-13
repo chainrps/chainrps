@@ -395,42 +395,55 @@
 
                 <div class="stage-result hidden" id="stageResult">
                     <div class="result-content">
-                        <div class="result-icon" id="resultIcon">🏆</div>
-                        <h2 class="result-title" id="resultTitle">你赢了！</h2>
-                        <p class="result-desc" id="resultDesc">恭喜获得胜利</p>
-
-                        <div class="result-detail">
-                            <div class="result-row">
-                                <span class="result-label">你的出拳</span>
-                                <span class="result-value" id="resultMyChoice">✊ 石头</span>
+                        <!-- 🆕 PK 对决区 -->
+                        <div class="pk-arena" id="pkArena">
+                            <div class="pk-side pk-left" id="pkLeft">
+                                <div class="pk-fighter-label">你的出拳</div>
+                                <div class="pk-fist" id="pkMyFist">✊</div>
+                                <div class="pk-fighter-name">你</div>
                             </div>
-                            <div class="result-row">
-                                <span class="result-label">对手出拳</span>
-                                <span class="result-value" id="resultOpponentChoice">✌️ 剪刀</span>
+                            <div class="pk-vs" id="pkVs">
+                                <span class="vs-text">VS</span>
+                                <div class="pk-spark" id="pkSpark"></div>
                             </div>
-                            <div class="result-row">
-                                <span class="result-label">下注金额</span>
-                                <span class="result-value" id="resultAmount">100 USDC</span>
-                            </div>
-                            <div class="result-row result-win">
-                                <span class="result-label">获得奖金</span>
-                                <span class="result-value" id="resultPrize">+98 USDC</span>
-                            </div>
-                            <div class="result-row">
-                                <span class="result-label">手续费 (2%)</span>
-                                <span class="result-value" id="resultFee">-2 USDC</span>
+                            <div class="pk-side pk-right" id="pkRight">
+                                <div class="pk-fighter-label">AI 出拳</div>
+                                <div class="pk-fist" id="pkOppFist">✊</div>
+                                <div class="pk-fighter-name">🤖 AI</div>
                             </div>
                         </div>
 
-                        <div class="result-actions">
-                            <button class="btn btn-primary btn-large btn-block btn-play-again" id="playAgainBtn">
-                                再来一局
-                            </button>
-                            <button class="btn btn-default btn-block btn-back-home" id="backHomeBtn">
-                                退出房间
-                            </button>
+                        <!-- 结果区（PK 动画后渐入） -->
+                        <div class="result-reveal hidden" id="resultReveal">
+                            <div class="result-icon" id="resultIcon">🏆</div>
+                            <h2 class="result-title" id="resultTitle">你赢了！</h2>
+                            <p class="result-desc" id="resultDesc">恭喜获得胜利</p>
+
+                            <div class="result-detail">
+                                <div class="result-row">
+                                    <span class="result-label">下注金额</span>
+                                    <span class="result-value" id="resultAmount">100 USDC</span>
+                                </div>
+                                <div class="result-row result-win">
+                                    <span class="result-label">获得奖金</span>
+                                    <span class="result-value" id="resultPrize">+98 USDC</span>
+                                </div>
+                                <div class="result-row">
+                                    <span class="result-label">手续费 (2%)</span>
+                                    <span class="result-value" id="resultFee">-2 USDC</span>
+                                </div>
+                            </div>
+
+                            <div class="result-actions">
+                                <button class="btn btn-primary btn-large btn-block btn-play-again" id="playAgainBtn">
+                                    再来一局
+                                </button>
+                                <button class="btn btn-default btn-block btn-back-home" id="backHomeBtn">
+                                    退出房间
+                                </button>
+                            </div>
+                            <p class="result-countdown" id="resultCountdown"></p>
                         </div>
-                        <p class="result-countdown" id="resultCountdown"></p>
                     </div>
                 </div>
             </div>
@@ -617,7 +630,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.28 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.29 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
