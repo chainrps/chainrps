@@ -7,12 +7,17 @@ ChainRPS 本地服务启动管理模块
 
 启动顺序：Redis(检查) → Ganache(本地链) → 后端(uvicorn)
 
+可选 --scheduler 标志：通过 Windows Task Scheduler 启动，
+进程完全脱离 TRAE/PowerShell job object，跨 session 存活。
+适用于 TRAE Agent 会话或需要后台长期运行的场景。
+
 用法:
-    python scripts/service_manager.py start      # 启动所有服务（已运行的跳过）
-    python scripts/service_manager.py restart    # 重启所有服务
-    python scripts/service_manager.py stop       # 停止所有服务
-    python scripts/service_manager.py status     # 查看所有服务状态
-    python scripts/service_manager.py test       # 完整测试闭环: 停→启→验证→停
+    python scripts/service_manager.py start              # 直接启动（detached）
+    python scripts/service_manager.py --scheduler start  # 通过调度器启动（推荐）
+    python scripts/service_manager.py restart
+    python scripts/service_manager.py stop
+    python scripts/service_manager.py status
+    python scripts/service_manager.py test               # 完整闭环测试: 停→启→验证→停
 """
 
 from __future__ import annotations
@@ -182,16 +187,49 @@ def wait_port_listen(port: int, timeout: float = 30) -> bool:
     return port_in_use(port) is not None
 
 
-# ───────────────────────── 服务基类 ─────────────────────────
+# ───────────────────────── Service 基类 ─────────────────────────
 
 class Service:
     """服务抽象基类"""
     name: str = "unknown"
 
     def is_running(self) -> bool: ...
-    def start(self, cfg: Dict[str, Any]) -> Tuple[bool, str]: ...
+    def start(self, cfg: Dict[str, Any], use_scheduler: bool = False) -> Tuple[bool, str]: ...
     def stop(self) -> Tuple[bool, str]: ...
     def health_check(self, cfg: Dict[str, Any]) -> bool: ...
+
+
+def _run_powershell(script: str) -> subprocess.CompletedProcess:
+    """执行 PowerShell 脚本"""
+    return subprocess.run(
+        ["powershell", "-NoProfile", "-Command", script],
+        capture_output=True, text=True, timeout=30,
+    )
+
+
+def _register_scheduled_task(task_name: str, exe: str, args: str, cwd: str) -> bool:
+    """注册并立即执行一个 Windows 计划任务（进程完全脱离 TRAE job object）"""
+    script = f"""
+$action = New-ScheduledTaskAction -Execute '{exe}' -Argument '{args}' -WorkingDirectory '{cwd}'
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null
+Start-ScheduledTask -TaskName '{task_name}'
+"""
+    try:
+        result = _run_powershell(script)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _unregister_scheduled_task(task_name: str) -> None:
+    """注销计划任务"""
+    script = f"Unregister-ScheduledTask -TaskName '{task_name}' -Confirm:$false -ErrorAction SilentlyContinue"
+    try:
+        _run_powershell(script)
+    except Exception:
+        pass
 
 
 # ───────────────────────── Redis ─────────────────────────
@@ -203,7 +241,7 @@ class RedisService(Service):
         # 简单：检查 6379 端口
         return port_in_use(6379) is not None
 
-    def start(self, cfg: Dict[str, Any]) -> Tuple[bool, str]:
+    def start(self, cfg: Dict[str, Any], use_scheduler: bool = False) -> Tuple[bool, str]:
         # Redis 在 Windows 上通常是 Memurai 服务，这里只做检查
         if self.is_running():
             return True, "已运行"
@@ -248,7 +286,9 @@ class GanacheService(Service):
             except OSError:
                 log("WARN", f"LOCK 文件被占用（可能有残留进程），强制清理进程后再试")
 
-    def start(self, cfg: Dict[str, Any]) -> Tuple[bool, str]:
+    TASK_NAME = "ChainRPS_Ganache"
+
+    def start(self, cfg: Dict[str, Any], use_scheduler: bool = False) -> Tuple[bool, str]:
         if self.is_running():
             return True, f"已在运行 (端口 {GANACHE_PORT})"
 
@@ -272,20 +312,40 @@ class GanacheService(Service):
         if not ganache_exe:
             return False, "未找到 ganache，请先执行: npm install -g ganache"
 
-        # 5. 构建启动命令（与 LocalChainService 参数一致）
-        cmd = [ganache_exe]
-        cmd.extend(["--server.host", GANACHE_HOST])
-        cmd.extend(["--server.port", str(GANACHE_PORT)])
-        cmd.extend(["--chain.chainId", str(cfg["RPC_CHAIN_ID"])])
-        cmd.append("--wallet.deterministic")
-        cmd.extend(["--wallet.totalAccounts", str(cfg["RPC_LOCAL_ACCOUNT_COUNT"])])
-        cmd.extend(["--wallet.defaultBalance", str(cfg["RPC_LOCAL_BALANCE"])])
-        cmd.extend(["--wallet.accountKeysPath", str(ACCOUNT_KEYS_FILE)])
-        cmd.extend(["--database.dbPath", str(CHAIN_DATA_DIR)])
+        # 5. 构建启动命令参数
+        cmd_args_list = [
+            "--server.host", GANACHE_HOST,
+            "--server.port", str(GANACHE_PORT),
+            "--chain.chainId", str(cfg["RPC_CHAIN_ID"]),
+            "--wallet.deterministic",
+            "--wallet.totalAccounts", str(cfg["RPC_LOCAL_ACCOUNT_COUNT"]),
+            "--wallet.defaultBalance", str(cfg["RPC_LOCAL_BALANCE"]),
+            "--wallet.accountKeysPath", str(ACCOUNT_KEYS_FILE),
+            "--database.dbPath", str(CHAIN_DATA_DIR),
+        ]
+        cmd_args = " ".join(cmd_args_list)
 
+        if use_scheduler:
+            return self._start_via_scheduler(ganache_exe, cmd_args)
+        else:
+            return self._start_direct(ganache_exe, cmd_args_list)
+
+    def _start_via_scheduler(self, ganache_exe: str, cmd_args: str) -> Tuple[bool, str]:
+        """通过 Windows Task Scheduler 启动（进程跨 session 存活）"""
+        log("INFO", f"[scheduler] 注册计划任务 {self.TASK_NAME} ...")
+        ok = _register_scheduled_task(self.TASK_NAME, ganache_exe, cmd_args, str(PROJECT_ROOT))
+        if not ok:
+            return False, "计划任务注册失败"
+        log("INFO", f"等待 Ganache 就绪 (最多 20s)...")
+        if self._wait_ready(timeout=20):
+            chain_id_hex = self._query_chain_id()
+            return True, f"就绪 chainId={chain_id_hex} port={GANACHE_PORT} (scheduler)"
+        return False, "启动超时"
+
+    def _start_direct(self, ganache_exe: str, cmd_args_list: List[str]) -> Tuple[bool, str]:
+        """直接用 subprocess.Popen 启动"""
+        cmd = [ganache_exe] + cmd_args_list
         log("INFO", f"启动 Ganache: {' '.join(cmd[:4])} ...")
-
-        # 6. 启动进程
         try:
             DETACHED = 0x00000008
             NEW_GROUP = 0x00000200
@@ -296,25 +356,20 @@ class GanacheService(Service):
                 r"C:\Program Files\Git\cmd",
             ]
             env["PATH"] = ";".join(node_paths) + ";" + env.get("PATH", "")
-
             subprocess.Popen(
-                cmd,
-                cwd=str(PROJECT_ROOT),
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                cmd, cwd=str(PROJECT_ROOT), env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=(DETACHED | NEW_GROUP) if os.name == "nt" else 0,
                 close_fds=True,
             )
         except Exception as e:
             return False, f"启动进程失败: {e}"
 
-        # 7. 等待就绪
         log("INFO", f"等待 Ganache 就绪 (最多 20s)...")
         if self._wait_ready(timeout=20):
             chain_id_hex = self._query_chain_id()
             return True, f"就绪 chainId={chain_id_hex} port={GANACHE_PORT}"
-        return False, "启动超时，请检查 ganache.log 或手动启动"
+        return False, "启动超时"
 
     def _wait_ready(self, timeout: float = 20) -> bool:
         deadline = time.time() + timeout
@@ -429,7 +484,9 @@ class BackendService(Service):
         except Exception:
             return False
 
-    def start(self, cfg: Dict[str, Any]) -> Tuple[bool, str]:
+    TASK_NAME = "ChainRPS_Backend"
+
+    def start(self, cfg: Dict[str, Any], use_scheduler: bool = False) -> Tuple[bool, str]:
         if self.is_running():
             return True, f"已在运行 (端口 {BACKEND_PORT})"
 
@@ -445,10 +502,36 @@ class BackendService(Service):
         if not venv_py:
             return False, "未找到项目虚拟环境 .venv"
 
-        # 3. 确保 Ganache 端口和 .env 配置一致（防止端口不匹配）
+        # 3. 确保 Ganache 端口和 .env 配置一致
         self._ensure_ganache_port_consistent(cfg)
 
-        # 4. 启动（detached）
+        # 4. 构建启动参数
+        cmd_args_list = [
+            "-m", "uvicorn",
+            "rps_backend.main:app",
+            "--host", cfg["HOST"],
+            "--port", str(cfg["PORT"]),
+        ]
+        cmd_args = " ".join(cmd_args_list)
+
+        if use_scheduler:
+            return self._start_via_scheduler(str(venv_py), cmd_args)
+        else:
+            return self._start_direct(str(venv_py), cmd_args_list)
+
+    def _start_via_scheduler(self, py_exe: str, cmd_args: str) -> Tuple[bool, str]:
+        """通过 Windows Task Scheduler 启动（进程跨 session 存活）"""
+        log("INFO", f"[scheduler] 注册计划任务 {self.TASK_NAME} ...")
+        ok = _register_scheduled_task(self.TASK_NAME, py_exe, cmd_args, str(PROJECT_ROOT))
+        if not ok:
+            return False, "计划任务注册失败"
+        log("INFO", "等待后端就绪 (最多 30s)...")
+        if self._wait_ready(timeout=30):
+            return True, f"就绪 port={BACKEND_PORT} (scheduler)"
+        return False, "启动超时"
+
+    def _start_direct(self, py_exe: str, cmd_args_list: List[str]) -> Tuple[bool, str]:
+        """直接用 subprocess.Popen 启动"""
         BACKEND_LOG_OUT.parent.mkdir(parents=True, exist_ok=True)
         DETACHED = 0x00000008
         NEW_GROUP = 0x00000200
@@ -460,13 +543,7 @@ class BackendService(Service):
         ]
         env["PATH"] = ";".join(node_paths) + ";" + env.get("PATH", "")
 
-        cmd = [
-            str(venv_py), "-m", "uvicorn",
-            "rps_backend.main:app",
-            "--host", cfg["HOST"],
-            "--port", str(cfg["PORT"]),
-        ]
-
+        cmd = [py_exe] + cmd_args_list
         log("INFO", f"启动后端: {' '.join(cmd[:5])} ...")
         try:
             subprocess.Popen(
@@ -481,7 +558,6 @@ class BackendService(Service):
         except Exception as e:
             return False, f"启动失败: {e}"
 
-        # 5. 等待就绪
         log("INFO", "等待后端就绪 (最多 30s)...")
         if self._wait_ready(timeout=30):
             return True, f"就绪 port={BACKEND_PORT}"
@@ -577,11 +653,12 @@ class ServiceManager:
         ]
 
     # ── start ──
-    def start(self) -> None:
-        log("INFO", "=== 启动所有服务 ===")
+    def start(self, use_scheduler: bool = False) -> None:
+        mode = "[scheduler] " if use_scheduler else ""
+        log("INFO", f"=== {mode}启动所有服务 ===")
         results = []
         for svc in self.services:
-            ok, msg = svc.start(self.cfg)
+            ok, msg = svc.start(self.cfg, use_scheduler=use_scheduler)
             tag = "OK" if ok else "ERR"
             log(tag, f"{svc.name}: {msg}")
             results.append((svc, ok, msg))
@@ -600,12 +677,10 @@ class ServiceManager:
         self._print_summary(results)
 
     # ── restart ──
-    def restart(self) -> None:
-        log("INFO", "=== 重启所有服务 ===")
+    def restart(self, use_scheduler: bool = False) -> None:
         self.stop()
-        log("INFO", "等待 2s ...")
         time.sleep(2)
-        self.start()
+        self.start(use_scheduler=use_scheduler)
 
     # ── status ──
     def status(self) -> None:
@@ -715,13 +790,24 @@ def main() -> int:
         print(__doc__)
         return 0
 
-    cmd = sys.argv[1].lower()
+    # 解析 --scheduler 全局选项
+    args = sys.argv[1:]
+    use_scheduler = False
+    if "--scheduler" in args:
+        use_scheduler = True
+        args = [a for a in args if a != "--scheduler"]
+
+    if not args:
+        print(__doc__)
+        return 0
+
+    cmd = args[0].lower()
     mgr = ServiceManager()
 
     actions = {
-        "start": mgr.start,
+        "start": lambda: mgr.start(use_scheduler=use_scheduler),
         "stop": mgr.stop,
-        "restart": mgr.restart,
+        "restart": lambda: mgr.restart(use_scheduler=use_scheduler),
         "status": mgr.status,
         "test": lambda: sys.exit(mgr.test()),
     }
