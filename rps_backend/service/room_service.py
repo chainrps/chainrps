@@ -111,6 +111,58 @@ def _audit_room_log(room_id: str, action: str, player_address: str = None,
     )
 
 
+def _compute_deadlines(room: dict) -> dict:
+    """
+    计算房间当前所有阶段的超时 deadline（unix 秒时间戳）。
+    前端可以直接用这些值渲染倒计时 UI。
+    """
+    now = now_timestamp()
+    status = room.get("status")
+    created_at = room.get("created_at", now)
+    has_player2 = bool(room.get("player2"))
+    creator_ready = bool(room.get("creator_ready"))
+    player2_ready = bool(room.get("player2_ready"))
+    countdown_start = room.get("countdown_start")
+
+    lifetime = _get_room_max_lifetime()
+    deadlines = {
+        "empty_room": None,            # CREATED 阶段：无玩家加入自动关闭
+        "unready_player": None,        # JOINED 阶段：未准备方被踢出
+        "countdown": None,             # COUNTDOWN 阶段：进入游戏
+        "game_timeout": None,          # GAME_STARTED 阶段：游戏总超时
+        "lifetime": created_at + lifetime,  # 房间绝对生命周期截止（创建时就定好）
+        # 附带超时常量（前端用来显示提示）
+        "constants": {
+            "empty_room_timeout": EMPTY_ROOM_TIMEOUT,
+            "unready_timeout": UNREADY_TIMEOUT,
+            "countdown_duration": 15,
+            "game_timeout": ROOM_GAME_TIMEOUT,
+            "lifetime": lifetime,
+        }
+    }
+
+    if status == ROOM_STATUS["CREATED"]:
+        # 空房间倒计时：从创建起 EMPTY_ROOM_TIMEOUT 秒
+        deadlines["empty_room"] = created_at + EMPTY_ROOM_TIMEOUT
+
+    if status == ROOM_STATUS["JOINED"] and has_player2:
+        # 等待准备：谁没准备谁有 UNREADY_TIMEOUT 秒倒计时
+        # 用 room 里记录的 started_at 来算（toggle_ready 时会写）
+        unready_since = room.get("_unready_since", created_at)
+        deadlines["unready_player"] = unready_since + UNREADY_TIMEOUT
+
+    if status == ROOM_STATUS["COUNTDOWN"] and countdown_start:
+        # 双方都 ready 后 15 秒倒计时
+        deadlines["countdown"] = countdown_start + 15
+
+    if status == ROOM_STATUS["GAME_STARTED"]:
+        # 游戏开始后 ROOM_GAME_TIMEOUT 秒
+        game_started_at = room.get("game_started_at", now)
+        deadlines["game_timeout"] = game_started_at + ROOM_GAME_TIMEOUT
+
+    return deadlines
+
+
 # 房间管理器
 class RoomManager:
     """房间管理器：负责房间的创建、加入、准备和游戏开始"""
@@ -164,7 +216,10 @@ class RoomManager:
             "player2_ready": False,
             "created_at": now_timestamp(),
             "countdown_start": None,
+            "game_started_at": None,
             "game_id": None,
+            # 内部字段（不下发前端，只用于超时计算）
+            "_unready_since": now_timestamp(),  # 谁"不准备"的起始时间
             # 资金状态标记
             # fund_stage:
             #   local_frozen:  准备阶段，资金仅本地冻结（未上链）
@@ -295,12 +350,14 @@ class RoomManager:
             if room["creator_ready"]:
                 self._stop_unready_timer(player_address)
             else:
+                self._unready_since = now_timestamp()  # 重新开始倒计时
                 self._start_unready_timer(player_address, room_id)
         else:
             room["player2_ready"] = not room["player2_ready"]
             if room["player2_ready"]:
                 self._stop_unready_timer(player_address)
             else:
+                room["_unready_since"] = now_timestamp()  # 重新开始倒计时
                 self._start_unready_timer(player_address, room_id)
 
         # 关键修复：如果在 COUNTDOWN 阶段任一方取消准备，状态回退到 JOINED
@@ -928,13 +985,17 @@ class RoomManager:
 
     # 获取房间信息
     def get_room(self, room_id: str) -> Optional[dict]:
-        """获取房间信息（副本，包含 bot 标识）"""
+        """获取房间信息（副本，包含 bot 标识 + deadlines 倒计时字段）"""
         room = self._rooms.get(room_id)
         if not room:
             return None
         result = dict(room)
         result["creator_is_bot"] = self._is_bot_address(room.get("creator"))
         result["player2_is_bot"] = self._is_bot_address(room.get("player2"))
+        # 计算并附加所有阶段的超时 deadline（前端用来渲染倒计时）
+        result["deadlines"] = _compute_deadlines(room)
+        # 清理内部字段（不下发前端）
+        result.pop("_unready_since", None)
         return result
 
     # 获取游戏大厅房间列表

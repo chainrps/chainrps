@@ -1747,11 +1747,61 @@ const AdminApp = {
         }
     },
 
-    // 刷新本地节点状态
+    // 🆕 节点运行中时，用后端返回的 runtime_config 同步启动配置表单
+    _applyRuntimeConfigToForm(cfg) {
+        if (!cfg) return;
+        // 先标记正在同步，避免保存配置时误覆盖
+        this._runtimeConfigSyncing = true;
+        try {
+            if (cfg.chain_type != null) {
+                const el = document.getElementById('nodeConfigChainType');
+                if (el) el.value = cfg.chain_type;
+            }
+            if (cfg.host != null) {
+                const el = document.getElementById('nodeConfigHost');
+                if (el) el.value = cfg.host;
+            }
+            if (cfg.port != null) {
+                const el = document.getElementById('nodeConfigPort');
+                if (el) el.value = cfg.port;
+            }
+            if (cfg.chain_id != null) {
+                const el = document.getElementById('nodeConfigChainId');
+                if (el) el.value = cfg.chain_id;
+            }
+            if (cfg.accounts_count != null) {
+                const el = document.getElementById('nodeConfigAccounts');
+                if (el) el.value = cfg.accounts_count;
+            }
+            if (cfg.default_balance != null) {
+                const el = document.getElementById('nodeConfigBalance');
+                if (el) el.value = cfg.default_balance;
+            }
+            if (cfg.symbol != null) {
+                const el = document.getElementById('nodeConfigSymbol');
+                if (el) el.value = cfg.symbol;
+            }
+            if (cfg.deterministic != null) {
+                const el = document.getElementById('nodeConfigDeterministic');
+                if (el) el.checked = !!cfg.deterministic;
+            }
+            if (cfg.persist != null) {
+                const el = document.getElementById('nodeConfigPersist');
+                if (el) el.checked = !!cfg.persist;
+            }
+        } finally {
+            this._runtimeConfigSyncing = false;
+        }
+    },
     async refreshNodeStatus() {
         try {
             const status = await this.apiRequest('/api/admin/local-chain/status');
             this._renderNodeStatus(status);
+            // 🆕 节点正在运行时，用后端返回的 runtime_config 同步启动配置表单
+            // （表单原先只读 localStorage，和实际运行状态独立，导致显示不一致）
+            if (status.running && status.runtime_config) {
+                this._applyRuntimeConfigToForm(status.runtime_config);
+            }
             // 自动填充充值接收地址为当前连接钱包地址
             if (this.adminAddress) {
                 const fundToAddr = document.getElementById('fundToAddress');

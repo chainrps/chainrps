@@ -704,6 +704,18 @@ class LocalChainService:
             "persist_supported": persist_supported,
             "persist_enabled": persist_enabled,
             "persist_data_dir": self._get_chain_data_dir() if persist_supported else None,
+            # 🆕 运行时完整配置（用于前端启动配置表单同步）
+            "runtime_config": {
+                "chain_type": self._chain_type,
+                "host": self._rpc_url.split("://")[-1].split(":")[0] if self._rpc_url else None,
+                "port": int(self._rpc_url.split(":")[-1]) if self._rpc_url and ":" in self._rpc_url.split("://")[-1] else None,
+                "chain_id": self._chain_id,
+                "accounts_count": (self._keep_alive_config or {}).get("accounts_count") or len(self._accounts),
+                "default_balance": (self._keep_alive_config or {}).get("default_balance") or RPC_LOCAL_BALANCE,
+                "symbol": configured_symbol,
+                "persist": persist_enabled,
+                "deterministic": True,  # 本地链启动时始终 deterministic
+            },
         }
 
         if running and self._w3:

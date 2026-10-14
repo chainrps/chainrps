@@ -49,11 +49,14 @@ async def get_chain_config():
     db_contract = contracts[0]["address"] if contracts else ""
 
     # 优先从系统配置读取，其次从环境变量/默认配置读取
+    # 🆕 config.CONTRACT_ADDRESS（环境变量/最新部署）优先级最高，
+    #   因为 DB contracts 表可能残留多个历史 active 合约（部署重启遗留）
     chain_id = int(config_dict.get("chain_id") or RPC_CHAIN_ID)
     network_name = config_dict.get("network_name") or _get_default_network_name(chain_id)
     raw_rpc_url = config_dict.get("rpc_url") or RPC_URL
     rpc_url = _validate_rpc_url(raw_rpc_url, chain_id)
-    contract_address = config_dict.get("contract_address") or db_contract or CONTRACT_ADDRESS
+    # 优先级：config.CONTRACT_ADDRESS（最新部署）> system_config > DB active 合约
+    contract_address = CONTRACT_ADDRESS or config_dict.get("contract_address") or db_contract
     native_symbol = config_dict.get("native_symbol") or _get_default_native_symbol(chain_id)
     native_name = config_dict.get("native_name") or native_symbol
     native_decimals = int(config_dict.get("native_decimals") or 18)
@@ -118,7 +121,7 @@ async def get_chain_status():
     chain_id_cfg = int(config_dict.get("chain_id") or RPC_CHAIN_ID)
     raw_rpc_url = config_dict.get("rpc_url") or RPC_URL
     rpc_url = _validate_rpc_url(raw_rpc_url, chain_id_cfg)
-    contract_address = config_dict.get("contract_address") or db_contract or CONTRACT_ADDRESS
+    contract_address = CONTRACT_ADDRESS or config_dict.get("contract_address") or db_contract
 
     result = {
         "success": True,
@@ -235,6 +238,66 @@ def _get_default_network_name(chain_id: int) -> str:
         10: "Optimism",
     }
     return names.get(chain_id, f"Chain #{chain_id}")
+
+
+# ==================== 水龙头 ====================
+
+@router.post("/faucet")
+async def faucet(address: str, eth_amount: float = 1.0, usdc_amount: float = 100.0):
+    """
+    给指定地址发 ETH（gas 费）+ USDC（测试代币）。
+
+    用途：前端预检发现用户余额不足时，自动调此端点给用户充值。
+    仅适用于 ChainRPS 本地链（chain_id = RPC_CHAIN_ID）。
+    """
+    result = {
+        "success": False,
+        "address": address,
+        "eth_sent": False,
+        "usdc_sent": False,
+        "eth_tx": None,
+        "usdc_tx": None,
+        "error": None,
+    }
+    try:
+        from web3 import Web3
+        if not address or not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
+            result["error"] = "地址格式无效（应为 0x + 40 hex 字符）"
+            return result
+
+        from rps_backend.service.local_chain_service import get_local_chain_service
+        chain_svc = get_local_chain_service()
+        if not chain_svc.is_running():
+            result["error"] = "本地链未运行"
+            return result
+
+        # 1. 发 ETH（from Ganache account 0）
+        if eth_amount > 0:
+            eth_res = chain_svc.send_eth(0, address, eth_amount)
+            if eth_res.get("success"):
+                result["eth_sent"] = True
+                result["eth_tx"] = eth_res.get("tx_hash")
+            else:
+                result["error"] = f"ETH 发送失败: {eth_res.get('message')}"
+
+        # 2. 发 USDC
+        if usdc_amount > 0 and not result.get("error"):
+            usdc_res = chain_svc.mint_tokens("USDC", address, usdc_amount, from_index=0)
+            if usdc_res.get("success"):
+                result["usdc_sent"] = True
+                result["usdc_tx"] = usdc_res.get("tx_hash")
+            else:
+                # USDC 铸造失败不阻塞，ETH 已发
+                if not result.get("error"):
+                    result["error"] = f"USDC 铸造失败: {usdc_res.get('message')}"
+
+        result["success"] = result["eth_sent"] or result["usdc_sent"]
+        print(f"🔑 Faucet: {address}  ETH={result['eth_sent']}({eth_amount})  USDC={result['usdc_sent']}({usdc_amount})")
+        return result
+
+    except Exception as e:
+        result["error"] = f"faucet 异常: {e}"
+        return result
 
 
 # 获取默认原生代币符号

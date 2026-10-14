@@ -56,6 +56,16 @@ def _room_to_response(room: dict) -> RoomResponse:
             player2_is_bot = room_manager._is_bot_address(room["player2"])
     except Exception:
         pass
+
+    # deadlines：要么 dict 里已经有（get_room 返回的），要么动态算
+    deadlines = room.get("deadlines")
+    if deadlines is None:
+        try:
+            from rps_backend.service.room_service import _compute_deadlines
+            deadlines = _compute_deadlines(room)
+        except Exception:
+            deadlines = None
+
     return RoomResponse(
         room_id=room["room_id"],
         creator=room["creator"],
@@ -76,6 +86,7 @@ def _room_to_response(room: dict) -> RoomResponse:
         seat_mode=room.get("seat_mode"),
         creator_is_bot=bool(creator_is_bot),
         player2_is_bot=bool(player2_is_bot),
+        deadlines=deadlines,
     )
 
 
@@ -170,6 +181,27 @@ async def set_seat_mode(request: SetSeatModeRequest):
             "success": False,
             "message": result.get("message", "设置空位模式失败"),
         }
+
+    # 🆕 如果设为 ai 模式，主动触发 Bot 即时加入（不等扫描轮询）
+    if request.seat_mode == "ai":
+        try:
+            from rps_backend.service.bot_service import bot_service
+            if bot_service._is_running and bot_service._config.auto_join_room:
+                # 检查 Bot 并发槽位
+                if len(bot_service._active_rooms) < bot_service._config.max_concurrent_rooms:
+                    # 异步触发，不阻塞响应
+                    room_id = request.room_id
+                    import asyncio
+                    asyncio.create_task(bot_service._join_room(room_id))
+                else:
+                    bot_service._log("INFO", f"响应玩家邀请但并发槽已满，等下轮扫描自动加入 #{request.room_id}")
+        except Exception as e:
+            # Bot 加入失败不影响 seat_mode 设置成功
+            try:
+                from rps_backend.service.bot_service import bot_service
+                bot_service._log("WARN", f"主动触发 Bot 加入失败（将由扫描兜底）: {e}")
+            except Exception:
+                pass
 
     return {
         "success": True,
@@ -716,6 +748,7 @@ async def submit_commit_with_sig(request: SubmitCommitSigRequest):
         player=request.player_address,
         commit_hash=request.commit_hash,
         nonce=request.nonce,
+        deadline=request.deadline,  # 🆕 可选，玩家签名时的 deadline
         v=request.v,
         r=request.r,
         s=request.s,
@@ -744,6 +777,7 @@ async def reveal_choice_with_sig(request: RevealChoiceSigRequest):
         choice=request.choice,
         salt=request.salt,
         nonce=request.nonce,
+        deadline=request.deadline,  # 🆕 可选，玩家签名时的 deadline
         v=request.v,
         r=request.r,
         s=request.s,

@@ -1,0 +1,10 @@
+﻿python.exe :   File "<string>", line 8
+At line:15 char:2180
++ ... ; $py = "c:\git\github\chainrps\.venv\Scripts\python.exe"; & $py -c "
++                                                                ~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (  File "<string>", line 8:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    cur.execute(" SELECT level,message,created_at FROM bot_logs WHERE created_at now -30
+                ^
+SyntaxError: unterminated string literal (detected at line 8)

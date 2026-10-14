@@ -335,12 +335,15 @@ class ContractService:
 
                 for log in logs:
                     try:
-                        # 解析事件参数
+                        # 解析事件参数（web3.py v6+ 用 camelCase，旧版用 snake_case，兼容两者）
+                        tx_hash = getattr(log, 'transactionHash', None) or getattr(log, 'transaction_hash', None)
+                        blk_num = getattr(log, 'blockNumber', None) or getattr(log, 'block_number', None)
+                        log_idx = getattr(log, 'logIndex', None) or getattr(log, 'log_index', None)
                         event_data = {
                             "args": dict(log.args),
-                            "transaction_hash": log.transaction_hash.hex(),
-                            "block_number": log.block_number,
-                            "log_index": log.log_index,
+                            "transaction_hash": tx_hash.hex() if tx_hash else '',
+                            "block_number": blk_num,
+                            "log_index": log_idx,
                         }
                         await handler(event_data)
                     except Exception as e:

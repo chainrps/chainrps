@@ -366,19 +366,13 @@ class RelayerService:
                 lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
             )
             new_status["chain_nonce"] = chain_nonce
-            # 本地 nonce 未初始化时，以链上为准
-            if self._local_nonce is None:
+            # 🆕 无论何时发现本地 nonce 落后，强制同步到链上（避免 pending tx 被挤掉后本地缓存漂移）
+            if self._local_nonce is None or self._local_nonce < chain_nonce:
+                if self._local_nonce is not None and self._local_nonce < chain_nonce:
+                    _safe_log(f"[Relayer] 本地 nonce 落后链上，强制同步: local={self._local_nonce} → chain={chain_nonce}")
                 self._local_nonce = chain_nonce
-                new_status["local_nonce"] = chain_nonce
-                new_status["nonce_synced"] = True
-            else:
-                new_status["local_nonce"] = self._local_nonce
-                # 本地 nonce 不应落后于链上 pending nonce
-                new_status["nonce_synced"] = self._local_nonce >= chain_nonce
-                if not new_status["nonce_synced"]:
-                    new_status["error"] = (
-                        f"Nonce 不同步：local={self._local_nonce} chain={chain_nonce}"
-                    )
+            new_status["local_nonce"] = self._local_nonce
+            new_status["nonce_synced"] = True
         except Exception as e:
             new_status["error"] = f"nonce 查询失败: {e}"
             self._health_status = new_status
@@ -889,6 +883,7 @@ class RelayerService:
         v: int,
         r: str,
         s: str,
+        deadline: int | None = None,  # 🆕 可选，不传则用当前时间+30min
     ) -> dict:
         """
         代提交 commit（方案A） - relayer 调用合约 submitCommitWithSig
@@ -898,7 +893,7 @@ class RelayerService:
         """
         async def _factory():
             return await self._do_submit_commit_with_sig(
-                game_id, player, commit_hash, nonce, v, r, s
+                game_id, player, commit_hash, nonce, v, r, s, deadline
             )
         return await self._enqueue_and_wait(player, _factory)
 
@@ -911,32 +906,34 @@ class RelayerService:
         v: int,
         r: str,
         s: str,
+        deadline: int | None = None,  # 🆕
     ) -> dict:
         """实际执行代提交 commit（在玩家 worker 中串行执行）"""
         if not self._available:
             return {"success": False, "message": "Relayer 服务不可用"}
 
         try:
-            # 获取本地 nonce（带锁，避免并发冲突）
             async with self._nonce_lock:
                 if self._local_nonce is None:
                     self._local_nonce = await _run_sync(
                         lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
                     )
                 tx_nonce = self._local_nonce
-                # 提前自增，下一次调用使用新 nonce
                 self._local_nonce = tx_nonce + 1
 
             def _from_hex(x):
                 return bytes.fromhex(x[2:]) if isinstance(x, str) and x.startswith("0x") else bytes.fromhex(x)
 
             gas_price = await _run_sync(lambda: self.w3.eth.gas_price)
+            if deadline is None:
+                deadline = int(time.time()) + 1800  # 默认 +30min
 
             tx = self.contract.functions.submitCommitWithSig(
                 game_id,
                 self.w3.to_checksum_address(player),
                 _from_hex(commit_hash),
                 nonce,
+                deadline,  # 🆕 合约要求 deadline 参数
                 v,
                 _from_hex(r),
                 _from_hex(s),
@@ -1005,6 +1002,7 @@ class RelayerService:
         v: int,
         r: str,
         s: str,
+        deadline: int | None = None,  # 🆕
     ) -> dict:
         """
         代提交 reveal（方案A） - relayer 调用合约 revealChoiceWithSig
@@ -1014,7 +1012,7 @@ class RelayerService:
         """
         async def _factory():
             return await self._do_reveal_choice_with_sig(
-                game_id, player, choice, salt, nonce, v, r, s
+                game_id, player, choice, salt, nonce, v, r, s, deadline
             )
         return await self._enqueue_and_wait(player, _factory)
 
@@ -1028,6 +1026,7 @@ class RelayerService:
         v: int,
         r: str,
         s: str,
+        deadline: int | None = None,  # 🆕
     ) -> dict:
         """实际执行代提交 reveal（在玩家 worker 中串行执行）"""
         if not self._available:
@@ -1046,6 +1045,8 @@ class RelayerService:
                 return bytes.fromhex(x[2:]) if isinstance(x, str) and x.startswith("0x") else bytes.fromhex(x)
 
             gas_price = await _run_sync(lambda: self.w3.eth.gas_price)
+            if deadline is None:
+                deadline = int(time.time()) + 1800  # 默认 +30min
 
             tx = self.contract.functions.revealChoiceWithSig(
                 game_id,
@@ -1053,6 +1054,7 @@ class RelayerService:
                 choice,
                 _from_hex(salt),
                 nonce,
+                deadline,  # 🆕 合约要求 deadline 参数
                 v,
                 _from_hex(r),
                 _from_hex(s),

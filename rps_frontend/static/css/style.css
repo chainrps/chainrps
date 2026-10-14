@@ -2154,6 +2154,40 @@ input:checked + .slider:before {
     color: var(--primary-color);
 }
 
+.room-lifecycle-timer {
+    font-size: 13px;
+    font-weight: 500;
+    font-family: monospace;
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    background: #f1f5f9;
+    color: #64748b;
+    white-space: nowrap;
+    transition: all 0.3s ease;
+}
+
+.room-lifecycle-timer.warning {
+    background: #fef3c7;
+    color: #92400e;
+    animation: pulse-warning 1.5s ease-in-out infinite;
+}
+
+.room-lifecycle-timer.danger {
+    background: #fee2e2;
+    color: #991b1b;
+    animation: pulse-danger 0.8s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+@keyframes pulse-danger {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.03); }
+}
+
 .room-players {
     display: flex;
     justify-content: center;
@@ -4639,4 +4673,216 @@ input:checked + .slider:before {
     .sd-countdown-num { font-size: 56px; }
     .sd-choice-display { width: 60px; height: 60px; font-size: 26px; }
     .sd-choice-btn { width: 42px; height: 42px; font-size: 18px; }
+}/* ========================================
+   🆕 PK 对决动画 (Result Stage)
+   ======================================== */
+
+.pk-arena {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 12px;
+    position: relative;
+    padding: 10px 0;
+}
+
+.pk-side {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    max-width: 180px;
+}
+
+.pk-fighter-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.pk-fist {
+    font-size: 96px;
+    line-height: 1;
+    filter: drop-shadow(0 8px 24px rgba(0,0,0,0.25));
+    transform-origin: center;
+    user-select: none;
+}
+
+.pk-left .pk-fist {
+    animation: pkMyFistIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+}
+
+.pk-right .pk-fist {
+    animation: pkOppFistIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+}
+
+.pk-fighter-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.pk-left .pk-fighter-name {
+    color: var(--primary, #6366f1);
+}
+
+.pk-right .pk-fighter-name {
+    color: #f59e0b;
+}
+
+.pk-vs {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    width: 80px;
+    height: 80px;
+}
+
+.vs-text {
+    font-size: 24px;
+    font-weight: 900;
+    color: #fff;
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 20px rgba(239,68,68,0.4);
+    animation: vsPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.4s both;
+    z-index: 2;
+}
+
+.pk-spark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 120px;
+    height: 120px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.pk-spark::before,
+.pk-spark::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    background: #fbbf24;
+    border-radius: 50%;
+    box-shadow: 0 0 20px 6px rgba(251,191,36,0.6);
+    opacity: 0;
+    animation: sparkBurst 0.8s ease-out 0.6s both;
+}
+
+.pk-spark::before {
+    transform: translate(-50%, -50%) rotate(0deg) translateX(40px);
+}
+
+.pk-spark::after {
+    transform: translate(-50%, -50%) rotate(180deg) translateX(40px);
+    animation-delay: 0.7s;
+}
+
+/* Winner highlight */
+.pk-side.winner .pk-fist {
+    animation: winnerPulse 0.8s ease-in-out 1.2s infinite;
+}
+
+.pk-side.winner::after {
+    content: '👑';
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 24px;
+    animation: crownDrop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.9s both;
+}
+
+.pk-side.loser .pk-fist {
+    filter: grayscale(0.5) brightness(0.7);
+    transform: scale(0.85);
+    transition: all 0.3s ease 0.9s;
+}
+
+.pk-side.draw .pk-fist {
+    animation: drawShake 0.4s ease-in-out 1.2s 2;
+}
+
+.pk-side {
+    position: relative;
+}
+
+/* Animations */
+@keyframes pkMyFistIn {
+    0% { transform: translateX(-100px) scale(0.3) rotate(-30deg); opacity: 0; }
+    60% { transform: translateX(10px) scale(1.1) rotate(10deg); }
+    100% { transform: translateX(0) scale(1) rotate(0); opacity: 1; }
+}
+
+@keyframes pkOppFistIn {
+    0% { transform: translateX(100px) scale(0.3) rotate(30deg); opacity: 0; }
+    60% { transform: translateX(-10px) scale(1.1) rotate(-10deg); }
+    100% { transform: translateX(0) scale(1) rotate(0); opacity: 1; }
+}
+
+@keyframes vsPop {
+    0% { transform: scale(0); opacity: 0; }
+    60% { transform: scale(1.3); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes sparkBurst {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0); }
+    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(2) translateY(-20px); }
+}
+
+@keyframes winnerPulse {
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 8px 24px rgba(99,102,241,0.5)); }
+    50% { transform: scale(1.1); filter: drop-shadow(0 8px 32px rgba(99,102,241,0.9)); }
+}
+
+@keyframes crownDrop {
+    0% { transform: translateX(-50%) translateY(-30px) scale(0); opacity: 0; }
+    100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes drawShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px) rotate(-5deg); }
+    75% { transform: translateX(5px) rotate(5deg); }
+}
+
+/* Result reveal after PK */
+.result-reveal {
+    animation: revealFadeIn 0.5s ease-out 1.5s both;
+}
+
+.result-reveal.hidden {
+    display: none !important;
+}
+
+@keyframes revealFadeIn {
+    0% { opacity: 0; transform: translateY(20px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive: smaller screens */
+@media (max-width: 480px) {
+    .pk-fist { font-size: 72px; }
+    .pk-arena { gap: 12px; }
+    .pk-vs { width: 60px; height: 60px; }
+    .vs-text { width: 44px; height: 44px; font-size: 18px; }
 }

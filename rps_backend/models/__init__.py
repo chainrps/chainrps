@@ -104,6 +104,7 @@ class SubmitCommitSigRequest(BaseModel):
     player_address: str
     commit_hash: str
     nonce: int
+    deadline: int | None = None  # 🆕 签名时用的 deadline，不传则 relayer 自动 +30min
     v: int
     r: str
     s: str
@@ -120,6 +121,7 @@ class RevealChoiceSigRequest(BaseModel):
     choice: int  # 1=石头, 2=布, 3=剪刀
     salt: str
     nonce: int
+    deadline: int | None = None  # 🆕 签名时用的 deadline，不传则 relayer 自动 +30min
     v: int
     r: str
     s: str
@@ -226,6 +228,7 @@ class RoomResponse(BaseModel):
     seat_mode: Optional[str] = None
     creator_is_bot: bool = False
     player2_is_bot: bool = False
+    deadlines: Optional[dict] = None  # 各阶段超时 deadline 时间戳 + 超时常量
 
 
 class SetSeatModeRequest(BaseModel):

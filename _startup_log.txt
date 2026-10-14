@@ -1,0 +1,10 @@
+﻿python.exe : INFO:     Started server process [6252]
+At line:15 char:2610
++ ... ython.exe"; & $py -m uvicorn rps_backend.main:app --host 0.0.0.0 --po ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO:     Started server process [6252]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

@@ -454,13 +454,54 @@ const UI = (function() {
     function showResult(result) {
         if (!elements.resultTitle) return;
         
+        // 🆕 PK 动画模式
+        const myFist = document.getElementById('pkMyFist');
+        const oppFist = document.getElementById('pkOppFist');
+        const pkLeft = document.getElementById('pkLeft');
+        const pkRight = document.getElementById('pkRight');
+        const resultReveal = document.getElementById('resultReveal');
+        
+        // 重置 PK 样式
+        [pkLeft, pkRight].forEach(el => {
+            el.classList.remove('winner', 'loser', 'draw');
+        });
+        if (resultReveal) resultReveal.classList.add('hidden');
+        
+        // 设置双方出拳 emoji
+        if (myFist && result.myChoice !== undefined) {
+            myFist.textContent = RPSCrypto.getChoiceEmoji(result.myChoice);
+        }
+        if (oppFist && result.opponentChoice !== undefined) {
+            oppFist.textContent = RPSCrypto.getChoiceEmoji(result.opponentChoice);
+        }
+        
+        // 🆕 触发 PK 对决结果（延迟 0.9s 后标记胜方，1.5s 后显示结算详情）
+        setTimeout(() => {
+            if (result.type === 'win') {
+                pkLeft?.classList.add('winner');
+                pkRight?.classList.add('loser');
+            } else if (result.type === 'lose') {
+                pkLeft?.classList.add('loser');
+                pkRight?.classList.add('winner');
+            } else {
+                pkLeft?.classList.add('draw');
+                pkRight?.classList.add('draw');
+            }
+        }, 900);
+        
+        setTimeout(() => {
+            if (resultReveal) {
+                resultReveal.classList.remove('hidden');
+            }
+        }, 1500);
+        
+        // 原有的结算详情填充
         elements.resultTitle.classList.remove('win', 'lose', 'draw');
         elements.resultIcon.classList.remove('win-icon', 'lose-icon', 'draw-icon');
         
-        // 重触发动画：先移除再添加，确保每次展示都有动画
+        // 重触发动画
         elements.resultIcon.style.animation = 'none';
         elements.resultTitle.style.animation = 'none';
-        // 强制 reflow
         void elements.resultIcon.offsetWidth;
         void elements.resultTitle.offsetWidth;
         elements.resultIcon.style.animation = '';
@@ -484,14 +525,6 @@ const UI = (function() {
             elements.resultTitle.classList.add('draw');
             elements.resultIcon.classList.add('draw-icon');
             elements.resultDesc.textContent = '双方出拳相同，不分胜负';
-        }
-        
-        if (result.myChoice !== undefined) {
-            elements.resultMyChoice.textContent = `${RPSCrypto.getChoiceEmoji(result.myChoice)} ${RPSCrypto.getChoiceName(result.myChoice)}`;
-        }
-        
-        if (result.opponentChoice !== undefined) {
-            elements.resultOpponentChoice.textContent = `${RPSCrypto.getChoiceEmoji(result.opponentChoice)} ${RPSCrypto.getChoiceName(result.opponentChoice)}`;
         }
         
         if (result.amount !== undefined) {
