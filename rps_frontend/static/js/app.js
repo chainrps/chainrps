@@ -144,7 +144,7 @@ const App = (function () {
     // 检查主链状态
     async function checkChainStatus(forceRefresh = false) {
         if (chainStatusCheckInProgress) return;
-        if (!CONFIG.backendUrl) return;
+        if (CONFIG.backendUrl === undefined || CONFIG.backendUrl === null) return;
         chainStatusCheckInProgress = true;
 
         const indicator = document.getElementById('chainStatusIndicator');
@@ -1014,18 +1014,6 @@ const App = (function () {
                             onOk: () => forceCloseRoom(roomId, myAddress),
                             onCancel: () => _forceCleanLocalState(),
                         });
-                    } catch (e) {
-                        console.error('退出房间请求失败:', e);
-                        // 网络错误 → 提示 + 兜底清理
-                        FWUI.Modal.confirm({
-                            title: '网络请求失败',
-                            content: `无法连接后端服务（${e.message || ''}）。<br><br>` +
-                                     `可尝试<b>强制关闭</b>房间，或<b>强制清理本地 UI 状态</b>返回大厅——资金安全取决于链上状态，不受影响。`,
-                            okText: '强制关闭房间',
-                            cancelText: '强制清理本地状态',
-                            onOk: () => forceCloseRoom(roomId, myAddress),
-                            onCancel: () => _forceCleanLocalState(),
-                        });
                     }
                 } catch (e) {
                     console.error('退出房间请求失败:', e);
@@ -1739,7 +1727,7 @@ const App = (function () {
 
     // 检查并恢复玩家未完成房间
     async function checkAndRestorePlayerRoom(playerAddress) {
-        if (!playerAddress || !CONFIG.backendUrl) return;
+        if (!playerAddress || CONFIG.backendUrl === undefined || CONFIG.backendUrl === null) return;
 
         try {
             const response = await fetch(`${CONFIG.backendUrl}/api/game/room/player/${playerAddress}`);
@@ -1992,7 +1980,7 @@ const App = (function () {
 
     // 加载房间列表
     function loadRoomList() {
-        if (!CONFIG.backendUrl) return;
+        if (CONFIG.backendUrl === undefined || CONFIG.backendUrl === null) return;
 
         if (roomListLoading) {
             if (roomListTimeout) clearTimeout(roomListTimeout);
@@ -2586,7 +2574,7 @@ const App = (function () {
 
         // 加载房间列表用于下拉框
         async function loadRoomsForDropdown() {
-            if (!CONFIG.backendUrl) return [];
+            if (CONFIG.backendUrl === undefined || CONFIG.backendUrl === null) return [];
             try {
                 const response = await fetch(`${CONFIG.backendUrl}/api/game/room/list`);
                 const data = await response.json();
@@ -4662,7 +4650,7 @@ const App = (function () {
 
     // 从后端请求匹配
     function requestMatchFromBackend() {
-        if (!CONFIG.backendUrl) return;
+        if (CONFIG.backendUrl === undefined || CONFIG.backendUrl === null) return;
 
         // 防止 fetch 和 WebSocket 重复触发匹配成功
         let matchHandled = false;
