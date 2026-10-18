@@ -4439,6 +4439,7 @@ const App = (function () {
     let lastOpponentRevealState = false;
 
     // 启动游戏阶段兜底轮询（WS 事件丢失时通过链上查询恢复）
+    // 同时检查本地 DB 端点：Bot 本地模式下不会发链上 tx，但 game_manager.submit_commit 会写 DB
     function startGamePhaseFallbackPolling() {
         stopGamePhaseFallbackPolling();
         lastOpponentCommitState = opponentCommitSubmitted;
@@ -4456,14 +4457,14 @@ const App = (function () {
                 const myAddress = Wallet.getAddress();
                 const isPlayer1 = game.player1 && game.player1.toLowerCase() === myAddress.toLowerCase();
                 const opponentAddr = isPlayer1 ? game.player2 : game.player1;
+                const myChoiceField = isPlayer1 ? game.choice1 : game.choice2;
+                const oppChoiceField = isPlayer1 ? game.choice2 : game.choice1;
 
                 // 检测对手是否已提交哈希（链上 commit 字段非零）
-                // 注意：合约的 commit1/commit2 是 bytes32，需要通过 getCommit 查询
                 if (!opponentCommitSubmitted && currentGameId) {
                     try {
                         const opponentCommit = await Contract.getCommit(currentGameId, opponentAddr);
                         if (opponentCommit && opponentCommit !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
-                            // 链上检测到对手已提交，但 WS 事件未到达，手动触发
                             console.log('[Fallback] 链上检测到对手已提交，补触发 opponent_commit');
                             opponentCommitSubmitted = true;
                             UI.setOpponentStatus('已提交');
@@ -4479,8 +4480,69 @@ const App = (function () {
                         }
                     } catch (_) {}
                 }
+
+                // 🆕 检测对手是否已揭晓（链上 choice 非零 = revealed）
+                if (!opponentRevealed && myCommitSubmitted) {
+                    if (oppChoiceField && oppChoiceField > 0) {
+                        console.log('[Fallback] 链上检测到对手已揭晓，补触发 opponent_reveal');
+                        opponentRevealed = true;
+                        const choiceMap = {1: 'rock', 2: 'paper', 3: 'scissors'};
+                        const oppChoiceStr = choiceMap[oppChoiceField] || 'unknown';
+                        UI.setOpponentChoice(oppChoiceStr);
+                        UI.setOpponentStatus('已揭晓');
+                        if (myRevealed) {
+                            UI.setGameStatus('双方已揭晓，等待链上结算');
+                        } else {
+                            FWUI.Toast.info('对手已揭晓，请尽快揭晓');
+                        }
+                    }
+                }
             } catch (e) {
                 console.warn('[Fallback] 游戏阶段兜底轮询失败:', e.message);
+            }
+
+            // 🆕 本地 DB 轮询：覆盖 Bot 本地模式 / 链未运行 时的"链上看不到、DB 能看到"场景
+            if (!opponentCommitSubmitted || !opponentRevealed) {
+                try {
+                    const localResp = await fetch(`${CONFIG.backendUrl}/api/game/${currentGameId}`);
+                    if (!localResp.ok) return;
+                    const localGame = await localResp.json();
+                    if (!localGame) return;
+
+                    const myAddressLower = (Wallet.getAddress() || '').toLowerCase();
+                    const isP1 = (localGame.player1 || '').toLowerCase() === myAddressLower;
+                    const localCommitField = isP1 ? 'commit2' : 'commit1';
+                    const localChoiceField = isP1 ? 'choice2' : 'choice1';
+
+                    // 对手在 DB 中已 commit（Bot 本地模式 / WS 已到达）→ 同步前端状态
+                    if (!opponentCommitSubmitted && localGame[localCommitField]) {
+                        console.log('[Fallback/DB] 本地 DB 检测到对手已 commit，同步前端');
+                        opponentCommitSubmitted = true;
+                        UI.setOpponentStatus('已提交');
+                        if (myCommitSubmitted && gamePhase === 'commit') {
+                            gamePhase = 'reveal';
+                            UI.setGameStatus('揭晓阶段 · 即将自动揭晓');
+                            UI.setMyStatus('待揭晓');
+                            UI.showRevealButton(true);
+                            startGameTimer('reveal');
+                            startAutoReveal(5);
+                            FWUI.Toast.info('双方都已提交，进入揭晓阶段（5秒后自动揭晓）');
+                        }
+                    }
+
+                    // 对手在 DB 中已 reveal → 同步前端状态
+                    if (!opponentRevealed && localGame[localChoiceField]) {
+                        console.log('[Fallback/DB] 本地 DB 检测到对手已 reveal，同步前端');
+                        opponentRevealed = true;
+                        UI.setOpponentChoice(localGame[localChoiceField]);
+                        UI.setOpponentStatus('已揭晓');
+                        if (myRevealed) {
+                            UI.setGameStatus('双方已揭晓，等待链上结算');
+                        }
+                    }
+                } catch (e) {
+                    // DB 轮询失败不影响链上兜底
+                }
             }
         }, 5000);
     }

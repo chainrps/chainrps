@@ -107,6 +107,11 @@ def _build_game_response(game: dict) -> GameResponse:
         reveal_deadline=datetime.fromisoformat(game["reveal_deadline"]) if game.get("reveal_deadline") else None,
         winner=game.get("winner"),
         is_draw=bool(game.get("is_draw")),
+        # 🆕 前端 fallback 轮询字段（commit/reveal 是否已提交，由 game_manager 写入 DB）
+        commit1=game.get("commit1"),
+        commit2=game.get("commit2"),
+        choice1=game.get("choice1"),
+        choice2=game.get("choice2"),
     )
 
 

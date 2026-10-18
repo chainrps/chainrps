@@ -155,9 +155,11 @@ class GameManager:
         if not game:
             return {"error": "Game not found"}
 
+        # 地址归一化（大小写不敏感，避免前端 checksum 与后端存储大小写不一致）
+        pa = (player_address or "").lower()
         # 判断是哪一方玩家
-        is_player1 = game.get("player1") == player_address
-        is_player2 = game.get("player2") == player_address
+        is_player1 = (game.get("player1") or "").lower() == pa
+        is_player2 = (game.get("player2") or "").lower() == pa
         if not (is_player1 or is_player2):
             return {"error": "Not a player in this game"}
 
@@ -236,9 +238,11 @@ class GameManager:
         if not game:
             return {"error": "Game not found"}
 
+        # 地址归一化（大小写不敏感）
+        pa = (player_address or "").lower()
         # 判断是哪一方玩家
-        is_player1 = game.get("player1") == player_address
-        is_player2 = game.get("player2") == player_address
+        is_player1 = (game.get("player1") or "").lower() == pa
+        is_player2 = (game.get("player2") or "").lower() == pa
         if not (is_player1 or is_player2):
             return {"error": "Not a player in this game"}
 
@@ -285,8 +289,76 @@ class GameManager:
                 }
             ))
 
-        # 胜负结果由链上合约事件同步（contract_service 监听 GameSettled / DrawHandled）
+        # 🆕 双方都已揭晓 → 本地兜底结算（优先以链上 GameSettled/DrawHandled 为准；
+        # 无链/链事件延迟/链未运行 时，后端立即判定胜负、推进 FINISHED，让前端显示对局结果）
+        latest = get_game_record(game_id)
+        if latest and latest.get("choice1") and latest.get("choice2"):
+            await self._local_settle_if_needed(game_id, latest)
+
         return {"success": True, "game_id": game_id}
+
+    # 🆕 本地结算兜底：双方都揭晓后推进 FINISHED，避免 UI 永远停在 reveal 阶段
+    async def _local_settle_if_needed(self, game_id: int, game: dict) -> None:
+        """
+        兜底结算：链上未响应时（无链/合约未部署/GameSettled 事件丢失），
+        后端直接根据双方已揭晓的 choice1/choice2 判定胜负、更新 DB、推送 game_result。
+        链上事件若稍后到达，会被 update_game_result_from_chain 覆盖——两者判据完全相同，结果一致。
+        """
+        # 已结算则跳过（链上事件已触发 update_game_result_from_chain）
+        if game.get("state") == GameState.FINISHED.value:
+            return
+
+        c1 = game.get("choice1")
+        c2 = game.get("choice2")
+        if not c1 or not c2:
+            return
+
+        player1 = game.get("player1")
+        player2 = game.get("player2")
+        bet_amount = game.get("bet_amount", 0.0) or 0.0
+
+        winner_idx = _determine_winner(c1, c2)
+        winner_addr = (player1 if winner_idx == 1 else player2) if winner_idx else None
+        is_draw = winner_idx is None
+        # 本地兜底不算手续费（合约结算时再写入真实 fee）
+        fee = 0.0
+
+        updates = {
+            "state": GameState.DRAW.value if is_draw else GameState.FINISHED.value,
+            "winner": winner_addr,
+            "is_draw": 1 if is_draw else 0,
+            "fee": fee,
+            "finished_at": datetime.utcnow().isoformat(),
+        }
+        update_game_record(game_id, updates)
+
+        logger_pkg = __import__("logging", fromlist=["getLogger"])
+        logger_pkg.getLogger("rps_backend.game").info(
+            f"[LocalSettle] game_id={game_id} winner={winner_addr or 'draw'} "
+            f"choice1={c1} choice2={c2} is_draw={is_draw}"
+        )
+
+        # 通知双方 game_result
+        result_data = {
+            "game_id": game_id,
+            "winner": winner_addr,
+            "is_draw": is_draw,
+            "fee": fee,
+            "local_settle": True,  # 标记来源：链上事件稍后到达会覆盖
+        }
+        if player1:
+            await ws_manager.send_to_player(player1, WSMessage(
+                type="game_result", data=result_data,
+            ))
+        if player2:
+            await ws_manager.send_to_player(player2, WSMessage(
+                type="game_result", data=result_data,
+            ))
+
+        # 更新玩家统计 & 清理房间（复用链上结算路径）
+        await self.update_game_result_from_chain(
+            game_id, winner_addr, is_draw, fee=fee,
+        )
 
     # 处理平局
     async def handle_draw(self, game_id: int, player_address: str) -> dict:
@@ -321,7 +393,7 @@ class GameManager:
 
         # 更新对局记录
         updates = {
-            "state": GameState.FINISHED.value,
+            "state": GameState.DRAW.value if is_draw else GameState.FINISHED.value,
             "is_draw": 1 if is_draw else 0,
             "fee": fee,
             "finished_at": datetime.utcnow().isoformat(),

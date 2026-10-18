@@ -243,6 +243,11 @@ class GameResponse(BaseModel):
     reveal_deadline: Optional[datetime] = None
     winner: Optional[str] = None
     is_draw: bool
+    # 🆕 前端 fallback 兜底轮询需要的字段
+    commit1: Optional[str] = None
+    commit2: Optional[str] = None
+    choice1: Optional[str] = None
+    choice2: Optional[str] = None
 
 
 class MatchStatusResponse(BaseModel):

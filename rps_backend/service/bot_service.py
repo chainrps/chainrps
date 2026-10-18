@@ -207,43 +207,63 @@ class BotInstance:
     # ==================== 初始化 ====================
 
     async def initialize(self) -> bool:
-        """初始化 Bot 钱包、Web3 连接和合约"""
+        """初始化 Bot 钱包、Web3 连接和合约
+
+        注意：即使本地链未运行也会以"本地模式"初始化成功，此时 Bot 可以：
+          - 加入房间、自动准备、本地 commit/reveal（推动 WS 事件让前端界面正常流转）
+        但不能：
+          - 发起链上交易（createMatch/joinMatch/submitCommitWithSig 等）
+        链上交易会被跳过，Bot 等待本地 game_manager 的事件推进。
+        """
         if RPC_CHAIN_ID != 5208888:
             self._log("WARN", f"Bot 仅在测试链 (5208888) 启用，当前: {RPC_CHAIN_ID}")
             return False
 
         chain_svc = get_local_chain_service()
-        if not chain_svc.is_running():
-            self._log("WARN", "本地链未运行，Bot 无法初始化")
-            return False
+        chain_running = chain_svc.is_running()
+        if not chain_running:
+            self._log(
+                "WARN",
+                "本地链未运行，Bot 进入「本地模式」——仍可加入/准备/本地提交推进 UI，但不会发起链上交易",
+            )
 
-        self._contract_abi = self._load_contract_abi()
-        if self._contract_abi and CONTRACT_ADDRESS:
-            try:
-                from web3 import Web3
-                self._w3 = chain_svc._w3
-                if self._w3 and self._w3.is_connected():
-                    if Web3.is_address(CONTRACT_ADDRESS):
-                        self._contract = self._w3.eth.contract(
-                            address=CONTRACT_ADDRESS, abi=self._contract_abi,
-                        )
-                        self._log("INFO", f"合约已加载: {CONTRACT_ADDRESS[:10]}...")
-            except Exception as e:
-                self._log("WARN", f"合约初始化失败: {e}")
+        # 仅当链运行时加载合约 + 绑定 w3
+        if chain_running:
+            self._contract_abi = self._load_contract_abi()
+            if self._contract_abi and CONTRACT_ADDRESS:
+                try:
+                    from web3 import Web3
+                    self._w3 = chain_svc._w3
+                    if self._w3 and self._w3.is_connected():
+                        if Web3.is_address(CONTRACT_ADDRESS):
+                            self._contract = self._w3.eth.contract(
+                                address=CONTRACT_ADDRESS, abi=self._contract_abi,
+                            )
+                            self._log("INFO", f"合约已加载: {CONTRACT_ADDRESS[:10]}...")
+                except Exception as e:
+                    self._log("WARN", f"合约初始化失败: {e}")
 
+        # 无论链是否运行，都尝试派生钱包（默认密钥或本地链账户）
         self._wallet_private_key = self._derive_private_key(chain_svc)
         if self._wallet_private_key:
             try:
-                from web3 import Web3
-                self._wallet_account = self._w3.eth.account.from_key(
-                    self._wallet_private_key
-                )
+                from eth_account import Account
+                # eth_account 是纯库，不需要 w3，任何时候都能用来从私钥派生地址
+                self._wallet_account = Account.from_key(self._wallet_private_key)
                 self._wallet_available = True
                 self._wallet_address = self._wallet_account.address
-                self._wallet_nonce = await _run_sync(
-                    lambda: self._w3.eth.get_transaction_count(self._wallet_address)
+                if self._w3 is not None:
+                    try:
+                        self._wallet_nonce = await _run_sync(
+                            lambda: self._w3.eth.get_transaction_count(self._wallet_address)
+                        )
+                    except Exception:
+                        self._log("WARN", "nonce 同步失败（不影响本地模式）")
+                self._log(
+                    "INFO",
+                    f"钱包初始化成功: {self._wallet_address}"
+                    + ("（本地模式，链未启动）" if not chain_running else ""),
                 )
-                self._log("INFO", f"钱包初始化成功: {self._wallet_address}")
             except Exception as e:
                 self._log("ERROR", f"钱包账户创建失败: {e}")
                 return False
@@ -251,8 +271,8 @@ class BotInstance:
             self._log("ERROR", "私钥派生失败")
             return False
 
-        # 🆕 钱包就绪后自动 approve USDC（∞ 额度），确保后续链上 createMatch/joinMatch 不会因额度不足而失败
-        if self._contract and self._wallet_account:
+        # 链运行时才尝试 approve（本地模式无意义）
+        if chain_running and self._contract and self._wallet_account:
             try:
                 usdc_addr = self._get_token_address("USDC")
                 if usdc_addr and usdc_addr != "0x0000000000000000000000000000000000000000":
@@ -1776,7 +1796,15 @@ class BotInstance:
             elapsed += 1
 
     async def _wait_for_game_result(self, game_id: int) -> None:
-        timeout, elapsed = 300, 0
+        """等待对局结算
+
+        本地模式（无链上合约）：2 分钟超时后直接退出，避免永远等待一个不可能触发的 GameSettled 事件。
+        有链上合约：正常 300 秒超时等待链上结算。
+        """
+        local_mode = self._contract is None
+        timeout = 120 if local_mode else 300
+        elapsed = 0
+        step = 2
         while elapsed < timeout and self._is_running:
             try:
                 from rps_backend.repository import get_game_record
@@ -1800,10 +1828,25 @@ class BotInstance:
                             increment_bot_stats(self.bot_id, "total_losses")
                             self._log("INFO", "游戏结果: 失败")
                     return
+                # 本地模式 + 双方都已揭晓 → 直接退出，链上结算需要真实链
+                if local_mode and record:
+                    if record.get("choice1") and record.get("choice2"):
+                        self._log(
+                            "INFO",
+                            f"本地模式：双方都已揭晓 choice1={record.get('choice1')} "
+                            f"choice2={record.get('choice2')}，退出等待（真实结算需链）",
+                        )
+                        return
             except Exception:
                 pass
-            await asyncio.sleep(2)
-            elapsed += 2
+            await asyncio.sleep(step)
+            elapsed += step
+
+        if local_mode:
+            self._log(
+                "WARN",
+                f"本地模式：等待对局结算超时（无链），game_id={game_id}，已退出",
+            )
 
     # ==================== 核心算法 ====================
 
@@ -2000,7 +2043,12 @@ class BotService:
         self._default_instance_id: str = "bot_001"
 
     async def initialize(self) -> bool:
-        """初始化默认 Bot 实例"""
+        """初始化默认 Bot 实例
+
+        钱包分配优先级：
+        1. 本地链 wallet_pool_manager（链运行时首选，链上有真实 ETH/USDC）
+        2. 兜底：确定性私钥派生（链未运行时，进入本地模式，能加入/commit/reveal 推进 UI）
+        """
         from rps_backend.repository import get_next_bot_id
         bot_id = self._default_instance_id
         instance = self._instances.get(bot_id)
@@ -2009,9 +2057,28 @@ class BotService:
 
         from rps_backend.service.wallet_pool_manager import wallet_pool_manager
         idx, addr = wallet_pool_manager.allocate()
-        if idx < 0 or not addr:
-            logger.error("无法分配钱包，Bot 初始化失败")
-            return False
+        pool_ok = idx >= 0 and bool(addr)
+
+        if pool_ok:
+            logger.info(f"BotService 从钱包池分配: idx={idx} addr={addr}")
+        else:
+            # 兜底：用确定性私钥派生地址（不依赖本地链）
+            logger.warning(
+                "BotService: 钱包池不可用（本地链未运行），使用确定性默认密钥派生地址（本地模式）"
+            )
+            try:
+                import hashlib
+                from eth_account import Account
+                # 固定 bot_id + 固定 chain_id → 固定私钥 → 固定地址
+                seed = f"chainrps_fallback_bot_{RPC_CHAIN_ID}_{bot_id}"
+                pk_bytes = hashlib.sha256(seed.encode()).digest()
+                pk_hex = "0x" + pk_bytes.hex()
+                account = Account.from_key(pk_hex)
+                idx = 9  # 默认 bot 钱包索引（仅用于标识，实际地址由私钥派生）
+                addr = account.address
+            except Exception as e:
+                logger.error(f"BotService 无法分配钱包，Bot 初始化失败: {e}")
+                return False
 
         instance = BotInstance(
             bot_id=bot_id,

@@ -484,9 +484,10 @@ class ContractService:
         if not game:
             return
 
-        # 判断是哪一方玩家
-        is_player1 = player == game.get("player1")
-        is_player2 = player == game.get("player2")
+        # 判断是哪一方玩家（地址大小写归一化，避免前端 checksum 与 DB 小写不一致）
+        p_lower = (player or "").lower()
+        is_player1 = (game.get("player1") or "").lower() == p_lower
+        is_player2 = (game.get("player2") or "").lower() == p_lower
         if not (is_player1 or is_player2):
             return
 
@@ -573,8 +574,10 @@ class ContractService:
         if not game:
             return
 
-        is_player1 = player == game.get("player1")
-        is_player2 = player == game.get("player2")
+        # 地址大小写归一化
+        p_lower = (player or "").lower()
+        is_player1 = (game.get("player1") or "").lower() == p_lower
+        is_player2 = (game.get("player2") or "").lower() == p_lower
         if not (is_player1 or is_player2):
             return
 
