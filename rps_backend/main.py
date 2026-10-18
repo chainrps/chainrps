@@ -443,7 +443,11 @@ async def serve_project_file(filepath: str):
 # 捕获所有未匹配的路由
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    """捕获所有未匹配的路由，重定向到首页"""
+    """捕获所有未匹配的路由：SPA 房间深链返回 index.html，其余重定向到首页"""
+    if full_path.startswith("room/"):
+        index_path = os.path.join(STATIC_DIR, "html", "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
     return RedirectResponse(url="/")
 
 
