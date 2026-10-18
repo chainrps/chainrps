@@ -4261,10 +4261,22 @@ const App = (function () {
     // 支持所有阶段的倒计时，自动切换显示内容
     let lifecycleCountdownTimer = null;
     let lifecycleLastPhase = null;  // 上次显示的阶段（避免重复弹警告）
+    let lifecycleRoomId = null;     // 上次启动倒计时的房间，用于判断是否切换了房间
 
     function startLifecycleCountdown() {
-        stopLifecycleCountdown();
-        lifecycleLastPhase = null;
+        // 本函数会被房间轮询（约每 3 秒）反复调用，
+        // 所以这里只重置计时器，不能重置 lifecycleLastPhase，
+        // 否则同一条超时警告会被反复弹出（10秒/8秒/5秒/2秒 叠加）。
+        if (lifecycleCountdownTimer) {
+            clearInterval(lifecycleCountdownTimer);
+            lifecycleCountdownTimer = null;
+        }
+        // 只有真正切换到另一个房间时，才重置警告状态
+        const rid = (currentRoom && (currentRoom.room_id || currentRoom.id)) || null;
+        if (rid !== lifecycleRoomId) {
+            lifecycleLastPhase = null;
+            lifecycleRoomId = rid;
+        }
 
         const tick = () => {
             if (!currentRoom || !currentRoom.deadlines) {
@@ -4319,6 +4331,7 @@ const App = (function () {
             lifecycleCountdownTimer = null;
         }
         lifecycleLastPhase = null;
+        lifecycleRoomId = null;
         _renderLifecycleTimer(null); // 清空
     }
 
@@ -4335,7 +4348,7 @@ const App = (function () {
             // 即将超时（最后 10 秒），Toast 提醒
             const hintMap = {
                 'empty_room': `⏰ 房间 ${remaining} 秒后将因无人加入自动关闭`,
-                'unready': `⏰ ${remaining} 秒内未准备将被自动移出房间`,
+                'unready': `⏰ 还有 ${remaining} 秒未准备，将被自动移出房间`,
                 'game_timeout': `⏰ 对局 ${remaining} 秒后超时自动关闭`,
             };
             const hint = hintMap[phase];
