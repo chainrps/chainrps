@@ -271,7 +271,8 @@ async def favicon():
 async def root():
     """根路径，返回前端页面"""
     index_path = os.path.join(STATIC_DIR, "html", "index.html")
-    return FileResponse(index_path)
+    # 入口 HTML 不缓存，确保脚本版本号变更（v=xxx）能立即生效
+    return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
 
 # 管理员面板
@@ -447,7 +448,8 @@ async def catch_all(full_path: str):
     if full_path.startswith("room/"):
         index_path = os.path.join(STATIC_DIR, "html", "index.html")
         if os.path.exists(index_path):
-            return FileResponse(index_path)
+            # 入口 HTML 不缓存，确保脚本版本号变更（v=xxx）能立即生效
+            return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
     return RedirectResponse(url="/")
 
 

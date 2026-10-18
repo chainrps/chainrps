@@ -1168,13 +1168,16 @@ class RoomManager:
         """
         room = self._rooms.get(room_id)
         if not room:
-            return {"success": False, "message": "房间不存在"}
+            # 房间已不存在 → 视为"已离开"，返回成功让前端清理本地状态回大厅
+            return {"success": True, "action": "noop", "message": "房间已不存在，已返回大厅"}
 
         is_creator = room["creator"].lower() == player_address.lower()
         is_player2 = room["player2"] and room["player2"].lower() == player_address.lower()
 
         if not (is_creator or is_player2):
-            return {"success": False, "message": "你不在此房间中"}
+            # 调用者已不在房间中（如未准备超时被踢、被房主移出）→ 视为"已离开"，
+            # 返回成功而非报错，避免前端卡在"你不在此房间中"
+            return {"success": True, "action": "noop", "message": "你已不在该房间中，已返回大厅"}
 
         # 退出规则（与用户期望一致：除"游戏中（资金已上链）"外，所有阶段均可退出）：
         # - GAME_STARTED 且资金已上链（chain_frozen/revealing）→ 不允许退出（对局进行中）

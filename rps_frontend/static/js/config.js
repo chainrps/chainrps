@@ -232,11 +232,46 @@ const CONFIG = {
     },
 
     // ==================== 后端服务器地址配置 ====================
+    // 判断主机是否为回环地址
+    _isLoopbackHost(host) {
+        if (!host) return false;
+        const h = String(host).split(':')[0];
+        return h === '127.0.0.1' || h === 'localhost' || h === '0.0.0.0';
+    },
+
+    // 页面自身同源地址（仅 http/https 页面有效）
+    _pageOrigin() {
+        if (typeof window === 'undefined' || !window.location) return null;
+        if (!/^https?:$/.test(window.location.protocol)) return null;
+        if (!window.location.host) return null;
+        return window.location.origin || `${window.location.protocol}//${window.location.host}`;
+    },
+
+    // 是否应使用"页面同源"作为后端地址
+    // FastAPI 同时托管前端与 API，因此页面来源即后端来源。
+    // 仅在用户显式配置了"非同源"的后端地址时才改用 IP:Port。
+    _useSameOrigin() {
+        const origin = this._pageOrigin();
+        if (!origin) return false;
+        const storedIp = localStorage.getItem('rps_server_ip');
+        if (!storedIp) return true;
+        // 存的是回环地址，但页面并非通过回环地址访问 → 该配置已失效（请求会打到访问者本机），回到同源
+        if (this._isLoopbackHost(storedIp) && !this._isLoopbackHost(window.location.hostname)) return true;
+        // 存的主机与当前页面同主机 → 同源（自动适配 http/https 与端口转发）
+        if (storedIp === window.location.hostname) {
+            const storedPort = localStorage.getItem('rps_server_port');
+            if (!storedPort || storedPort === (window.location.port || '8000')) return true;
+        }
+        return false;
+    },
+
     // 获取后端服务器 IP 地址
     getServerIp() {
         if (this._serverIp) return this._serverIp;
         const stored = localStorage.getItem('rps_server_ip');
-        this._serverIp = stored || '127.0.0.1';
+        this._serverIp = stored
+            || (typeof window !== 'undefined' && window.location && window.location.hostname)
+            || '127.0.0.1';
         return this._serverIp;
     },
 
@@ -244,7 +279,9 @@ const CONFIG = {
     getServerPort() {
         if (this._serverPort) return this._serverPort;
         const stored = localStorage.getItem('rps_server_port');
-        this._serverPort = stored || '8000';
+        this._serverPort = stored
+            || (typeof window !== 'undefined' && window.location && window.location.port)
+            || '8000';
         return this._serverPort;
     },
 
@@ -258,11 +295,16 @@ const CONFIG = {
 
     // 后端服务 HTTP 基础 URL
     get backendUrl() {
+        if (this._useSameOrigin()) return this._pageOrigin();
         return `http://${this.getServerIp()}:${this.getServerPort()}`;
     },
 
     // 后端服务 WebSocket 基础 URL
     get wsUrl() {
+        if (this._useSameOrigin()) {
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${proto}//${window.location.host}`;
+        }
         return `ws://${this.getServerIp()}:${this.getServerPort()}`;
     }
 };

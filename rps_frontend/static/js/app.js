@@ -582,6 +582,7 @@ const App = (function () {
         disconnectP2PChannel();
         stopAllFallbackPolling();
         stopAutoReveal();
+        roomGoneModalShown = false;
         currentRoomId = null;
         currentRoom = null;
         currentGameId = null;
@@ -595,6 +596,12 @@ const App = (function () {
     // 共享：房间不存在/已解散 Modal（带返回大厅按钮）
     // reason: 'not_found' | 'dissolved' | 'closed' | 'kicked' 等
     function _showRoomGoneModal(reason, details) {
+        // 房间状态轮询会周期性触发到这里，去重避免弹窗叠加 & 反复请求
+        if (roomGoneModalShown) return;
+        roomGoneModalShown = true;
+        // 停止轮询与 P2P，避免继续请求一个已不存在的房间
+        stopRoomPolling();
+        disconnectP2PChannel();
         const titleMap = {
             'not_found': '房间不存在',
             'dissolved': '房间已解散',
@@ -610,6 +617,7 @@ const App = (function () {
             content: `<div style="font-size:14px;line-height:1.7;">该房间已不存在或无法访问。${detailHtml}</div>`,
             okText: '返回游戏大厅',
             onOk: () => {
+                roomGoneModalShown = false;
                 _forceCleanLocalState();
                 navigateTo('/');
             },
@@ -2983,6 +2991,7 @@ const App = (function () {
     // 进入房间等待界面
     async function enterRoomWait() {
         UI.showStage('stageRoomWait');
+        roomGoneModalShown = false;
         // 初始加载一次房间状态
         await loadRoomStatus();
         updateRoomUI();
@@ -3458,8 +3467,9 @@ const App = (function () {
     function updateRoomUI() {
         if (!currentRoom) return;
 
-        const myAddress = Wallet.getAddress();
-        const amICreator = currentRoom.creator.toLowerCase() === myAddress.toLowerCase();
+        const myAddress = Wallet.getAddress() || '';
+        const amICreator = !!(currentRoom.creator
+            && currentRoom.creator.toLowerCase() === myAddress.toLowerCase());
 
         UI.setRoomInfo(currentRoom, amICreator);
 
@@ -4180,6 +4190,8 @@ const App = (function () {
     let roomPollingInterval = null;
     let roomStatusLoading = false;
     let roomStatusTimeout = null;
+    // 房间不存在/已关闭 Modal 防重标志（轮询会重复触发）
+    let roomGoneModalShown = false;
     // 防止轮询恢复 game_started 状态时重复触发 handleRoomGameStarted
     let roomGameStartedHandled = false;
     // 游戏阶段兜底轮询定时器（用于 WS 事件丢失时检测对手提交/揭晓状态）
