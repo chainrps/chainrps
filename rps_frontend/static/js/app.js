@@ -576,6 +576,106 @@ const App = (function () {
         UI.setTheme(savedTheme);
     }
 
+    // 清理本地游戏状态（不调后端 room/leave，不碰链上资金，纯前端兜底）
+    function _forceCleanLocalState() {
+        stopRoomPolling();
+        disconnectP2PChannel();
+        stopAllFallbackPolling();
+        stopAutoReveal();
+        currentRoomId = null;
+        currentRoom = null;
+        currentGameId = null;
+        chainGameIdResolved = false;
+        myChainJoined = false;
+        try { GameSocket && GameSocket.disconnect && GameSocket.disconnect(); } catch (_) {}
+        UI.showStage('stageLobby');
+        loadRoomList();
+    }
+
+    // 共享：房间不存在/已解散 Modal（带返回大厅按钮）
+    // reason: 'not_found' | 'dissolved' | 'closed' | 'kicked' 等
+    function _showRoomGoneModal(reason, details) {
+        const titleMap = {
+            'not_found': '房间不存在',
+            'dissolved': '房间已解散',
+            'closed': '房间已关闭',
+            'kicked': '被移出房间',
+        };
+        const title = titleMap[reason] || '房间不可用';
+        const detailHtml = details
+            ? `<div style="color:#64748b;font-size:13px;margin-top:6px;">${details}</div>`
+            : '';
+        FWUI.Modal.alert({
+            title: title,
+            content: `<div style="font-size:14px;line-height:1.7;">该房间已不存在或无法访问。${detailHtml}</div>`,
+            okText: '返回游戏大厅',
+            onOk: () => {
+                _forceCleanLocalState();
+                navigateTo('/');
+            },
+        });
+    }
+
+    // === 安全退出房间（local_frozen 或链上已处理完毕后调用） ===
+    async function safeExitRoom(roomId, myAddress) {
+        FWUI.Modal.confirm({
+            title: '退出房间',
+            content: '确定要退出当前房间吗？退出后将返回游戏大厅。',
+            okText: '确认退出',
+            cancelText: '取消',
+            onOk: async () => {
+                try {
+                    const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            room_id: roomId,
+                            player_address: myAddress,
+                        }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        FWUI.Toast.info(data.message || '已退出房间');
+                        stopRoomPolling();
+                        disconnectP2PChannel();
+                        stopAllFallbackPolling();
+                        stopAutoReveal();
+                        currentRoomId = null;
+                        currentRoom = null;
+                        currentGameId = null;
+                        chainGameIdResolved = false;
+                        myChainJoined = false;
+                        navigateTo('/');
+                        loadRoomList();
+                    } else {
+                        // 后端拒绝（如资金已上链不允许退出）→ 给强制清理选项
+                        const msg = data.message || data.detail || '退出房间失败';
+                        FWUI.Modal.confirm({
+                            title: '无法安全退出',
+                            content: `后端拒绝退出：<br><b>${msg}</b><br><br>` +
+                                     `通常意味着链上资金已锁定，需先走链上取消/超时退款。<br>` +
+                                     `若链不可用，可以<b>强制清理本地 UI 状态</b>返回大厅——资金安全不受影响。`,
+                            okText: '强制清理本地状态',
+                            cancelText: '知道了',
+                            onOk: () => _forceCleanLocalState(),
+                        });
+                    }
+                } catch (e) {
+                    console.error('退出房间请求失败:', e);
+                    // Failed to fetch → 后端/网络不可达
+                    FWUI.Modal.confirm({
+                        title: '网络请求失败',
+                        content: `无法连接后端服务（${e.message || ''}）。<br><br>` +
+                                 `可以<b>强制清理本地 UI 状态</b>返回大厅——资金安全取决于链上状态，不受影响。`,
+                        okText: '强制清理本地状态',
+                        cancelText: '再试一次',
+                        onOk: () => _forceCleanLocalState(),
+                    });
+                }
+            },
+        });
+    }
+
     // 初始化事件监听器
     function initEventListeners() {
         document.getElementById('themeToggle').addEventListener('click', () => {
@@ -926,106 +1026,6 @@ const App = (function () {
                 });
             }
         });
-
-        // 清理本地游戏状态（不调后端 room/leave，不碰链上资金，纯前端兜底）
-        function _forceCleanLocalState() {
-            stopRoomPolling();
-            disconnectP2PChannel();
-            stopAllFallbackPolling();
-            stopAutoReveal();
-            currentRoomId = null;
-            currentRoom = null;
-            currentGameId = null;
-            chainGameIdResolved = false;
-            myChainJoined = false;
-            try { GameSocket && GameSocket.disconnect && GameSocket.disconnect(); } catch (_) {}
-            UI.showStage('stageLobby');
-            loadRoomList();
-        }
-
-        // 共享：房间不存在/已解散 Modal（带返回大厅按钮）
-        // reason: 'not_found' | 'dissolved' | 'closed' | 'kicked' 等
-        function _showRoomGoneModal(reason, details) {
-            const titleMap = {
-                'not_found': '房间不存在',
-                'dissolved': '房间已解散',
-                'closed': '房间已关闭',
-                'kicked': '被移出房间',
-            };
-            const title = titleMap[reason] || '房间不可用';
-            const detailHtml = details
-                ? `<div style="color:#64748b;font-size:13px;margin-top:6px;">${details}</div>`
-                : '';
-            FWUI.Modal.alert({
-                title: title,
-                content: `<div style="font-size:14px;line-height:1.7;">该房间已不存在或无法访问。${detailHtml}</div>`,
-                okText: '返回游戏大厅',
-                onOk: () => {
-                    _forceCleanLocalState();
-                    navigateTo('/');
-                },
-            });
-        }
-
-        // === 安全退出房间（local_frozen 或链上已处理完毕后调用） ===
-        async function safeExitRoom(roomId, myAddress) {
-            FWUI.Modal.confirm({
-                title: '退出房间',
-                content: '确定要退出当前房间吗？退出后将返回游戏大厅。',
-                okText: '确认退出',
-                cancelText: '取消',
-                onOk: async () => {
-                    try {
-                        const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({
-                                room_id: roomId,
-                                player_address: myAddress,
-                            }),
-                        });
-                        const data = await res.json();
-                        if (res.ok && data.success) {
-                            FWUI.Toast.info(data.message || '已退出房间');
-                            stopRoomPolling();
-                            disconnectP2PChannel();
-                            stopAllFallbackPolling();
-                            stopAutoReveal();
-                            currentRoomId = null;
-                            currentRoom = null;
-                            currentGameId = null;
-                            chainGameIdResolved = false;
-                            myChainJoined = false;
-                            navigateTo('/');
-                            loadRoomList();
-                        } else {
-                            // 后端拒绝（如资金已上链不允许退出）→ 给强制清理选项
-                            const msg = data.message || data.detail || '退出房间失败';
-                            FWUI.Modal.confirm({
-                                title: '无法安全退出',
-                                content: `后端拒绝退出：<br><b>${msg}</b><br><br>` +
-                                         `通常意味着链上资金已锁定，需先走链上取消/超时退款。<br>` +
-                                         `若链不可用，可以<b>强制清理本地 UI 状态</b>返回大厅——资金安全不受影响。`,
-                                okText: '强制清理本地状态',
-                                cancelText: '知道了',
-                                onOk: () => _forceCleanLocalState(),
-                            });
-                        }
-                    } catch (e) {
-                        console.error('退出房间请求失败:', e);
-                        // Failed to fetch → 后端/网络不可达
-                        FWUI.Modal.confirm({
-                            title: '网络请求失败',
-                            content: `无法连接后端服务（${e.message || ''}）。<br><br>` +
-                                     `可以<b>强制清理本地 UI 状态</b>返回大厅——资金安全取决于链上状态，不受影响。`,
-                            okText: '强制清理本地状态',
-                            cancelText: '再试一次',
-                            onOk: () => _forceCleanLocalState(),
-                        });
-                    }
-                },
-            });
-        }
 
         // 游戏界面中的退出房间按钮（创建/加入链上对局失败时可用）
         document.getElementById('leaveRoomInGameBtn').addEventListener('click', () => {
