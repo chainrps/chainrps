@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI):
         print(f"⚠️  本地链服务初始化失败: {e}")
 
     # 初始化并启动 Bot 服务（仅限测试链）
-    if BOT_ENABLED and RPC_CHAIN_ID == 5208888:
+    if BOT_ENABLED:
         try:
             print("🤖 初始化 Bot 服务...")
             # 先初始化 bot_service 单实例（向后兼容）

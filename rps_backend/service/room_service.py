@@ -506,11 +506,12 @@ class RoomManager:
                             commit2 = game_state.get("commit2")
                             reveal1 = game_state.get("reveal1")
                             reveal2 = game_state.get("reveal2")
-                            # 已揭晓至少 1 人，或 state 已越过 reveal_phase → 等待结算完成
+                            # 已揭晓至少 1 人，或 state 已越过 commit 阶段 → 等待结算完成
+                            # GameState 枚举值："commit" → "reveal" → "finished"/"draw"
                             if (
-                                reveal1 is not None
-                                or reveal2 is not None
-                                or state in ["reveal_phase", "finished", "settled"]
+                                commit1 is not None
+                                or commit2 is not None
+                                or state in ["reveal", "finished", "draw"]
                             ):
                                 force_close = False
                     except Exception:

@@ -215,31 +215,49 @@ class BotInstance:
           - 发起链上交易（createMatch/joinMatch/submitCommitWithSig 等）
         链上交易会被跳过，Bot 等待本地 game_manager 的事件推进。
         """
-        if RPC_CHAIN_ID != 5208888:
-            self._log("WARN", f"Bot 仅在测试链 (5208888) 启用，当前: {RPC_CHAIN_ID}")
-            return False
-
-        chain_svc = get_local_chain_service()
-        chain_running = chain_svc.is_running()
-        if not chain_running:
+        # 不再仅限 5208888（本地链），支持 Polygon Amoy 等公网测试链
+        if not self._config.auto_chain_match and not CONTRACT_ADDRESS:
             self._log(
                 "WARN",
-                "本地链未运行，Bot 进入「本地模式」——仍可加入/准备/本地提交推进 UI，但不会发起链上交易",
+                "Bot 无合约地址且 auto_chain_match=False，降级为纯本地模式",
             )
 
-        # 仅当链运行时加载合约 + 绑定 w3
-        if chain_running:
+        # ===== 链连接：直接连 config.RPC_URL，不再依赖 local_chain_service 必须启动 =====
+        from web3 import Web3  # 提前导入，避免作用域问题
+        chain_connected = False
+        chain_svc = get_local_chain_service()
+        # 先查 local_chain_service（可能起了本地链）
+        if chain_svc.is_running():
+            self._w3 = getattr(chain_svc, "_w3", None)
+            if self._w3 and self._w3.is_connected():
+                chain_connected = True
+                self._log("INFO", f"链已就绪（local_chain_service）: {RPC_URL}")
+        # local 链没起 → 直接连 config.RPC_URL（Polygon Amoy / 公网等）
+        if not chain_connected:
+            try:
+                w3 = Web3(Web3.HTTPProvider(
+                    RPC_URL,
+                    request_kwargs={"timeout": (10, 30)},
+                ))
+                if w3.is_connected():
+                    self._w3 = w3
+                    chain_connected = True
+                    self._log("INFO", f"链已就绪（直接 RPC）: {RPC_URL}")
+            except Exception as e:
+                self._log(
+                    "WARN",
+                    f"链连接失败 {RPC_URL}: {e}——Bot 进入本地模式",
+                )
+
+        # 链连接成功 → 加载合约
+        if chain_connected and CONTRACT_ADDRESS:
             self._contract_abi = self._load_contract_abi()
-            if self._contract_abi and CONTRACT_ADDRESS:
+            if self._contract_abi and Web3.is_address(CONTRACT_ADDRESS):
                 try:
-                    from web3 import Web3
-                    self._w3 = chain_svc._w3
-                    if self._w3 and self._w3.is_connected():
-                        if Web3.is_address(CONTRACT_ADDRESS):
-                            self._contract = self._w3.eth.contract(
-                                address=CONTRACT_ADDRESS, abi=self._contract_abi,
-                            )
-                            self._log("INFO", f"合约已加载: {CONTRACT_ADDRESS[:10]}...")
+                    self._contract = self._w3.eth.contract(
+                        address=CONTRACT_ADDRESS, abi=self._contract_abi,
+                    )
+                    self._log("INFO", f"合约已加载: {CONTRACT_ADDRESS[:10]}... (chain={RPC_CHAIN_ID})")
                 except Exception as e:
                     self._log("WARN", f"合约初始化失败: {e}")
 
@@ -262,7 +280,7 @@ class BotInstance:
                 self._log(
                     "INFO",
                     f"钱包初始化成功: {self._wallet_address}"
-                    + ("（本地模式，链未启动）" if not chain_running else ""),
+                    + ("（本地模式，链未启动）" if not chain_connected else ""),
                 )
             except Exception as e:
                 self._log("ERROR", f"钱包账户创建失败: {e}")
@@ -272,7 +290,7 @@ class BotInstance:
             return False
 
         # 链运行时才尝试 approve（本地模式无意义）
-        if chain_running and self._contract and self._wallet_account:
+        if chain_connected and self._contract and self._wallet_account:
             try:
                 usdc_addr = self._get_token_address("USDC")
                 if usdc_addr and usdc_addr != "0x0000000000000000000000000000000000000000":
@@ -1783,17 +1801,33 @@ class BotInstance:
             elapsed += 2
 
     async def _wait_for_reveal_start(self, game_id: int) -> None:
-        timeout, elapsed = 30, 0
+        """等待游戏进入揭晓阶段（双方都已 commit）
+
+        检查 GameState.REVEAL_PHASE.value = "reveal"（不是 "reveal_phase"！）
+        同时检查 DB 和 Redis 缓存，任何一个命中都返回。
+        """
+        from rps_backend.models import GameState
+        reveal_state = GameState.REVEAL_PHASE.value  # "reveal"
+        timeout, elapsed = 60, 0
         while elapsed < timeout and self._is_running:
             try:
-                from rps_backend.utils.redis_client import redis_client
-                cached = redis_client.get_cached_game_state(game_id)
-                if cached and cached.get("state") == "reveal_phase":
+                # 1. 先查 DB（最可靠，不受 Redis 影响）
+                from rps_backend.repository import get_game_record
+                record = get_game_record(game_id)
+                if record and record.get("state") == reveal_state:
                     return
             except Exception:
                 pass
-            await asyncio.sleep(1)
-            elapsed += 1
+            try:
+                # 2. 再查 Redis 缓存
+                from rps_backend.utils.redis_client import redis_client
+                cached = redis_client.get_cached_game_state(game_id)
+                if cached and cached.get("state") == reveal_state:
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)  # 更快轮询
+            elapsed += 0.5
 
     async def _wait_for_game_result(self, game_id: int) -> None:
         """等待对局结算

@@ -4970,6 +4970,22 @@ const App = (function () {
                 await Contract.submitCommit(currentGameId, commitHash);
             }
 
+            // 🆕 同步本地 DB：无论方案A/B链上是否成功，都调后端 game_manager.submit_commit()
+            // 这样即使链上事件监听延迟/丢失，本地状态也能立即推进（Bot、WS、前端轮询都能看到）
+            try {
+                await fetch(`${CONFIG.backendUrl}/api/game/commit`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        game_id: currentGameId,
+                        player_address: myAddress,
+                        commit_hash: commitHash,
+                    })
+                });
+            } catch (syncErr) {
+                console.warn('[Commit] 本地同步失败（链上事件稍后会自动补）:', syncErr.message);
+            }
+
             myCommitSubmitted = true;
             UI.setMyStatus('已提交');
             UI.setChoiceButtonsEnabled(false);
@@ -5062,6 +5078,26 @@ const App = (function () {
                 }
                 FWUI.Toast.info('签名代提交不可用，将直接上链揭晓（需要 gas 费）');
                 await Contract.revealChoice(currentGameId, selectedChoice, currentSalt);
+                revealed = true;
+            }
+
+            // 🆕 同步本地 DB：无论方案A/B链上是否成功，都调后端 game_manager.reveal_choice()
+            // 这样本地结算兜底 _local_settle_if_needed 能立即推进 FINISHED，UI 不会卡在 reveal 阶段
+            if (revealed) {
+                try {
+                    await fetch(`${CONFIG.backendUrl}/api/game/reveal`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            game_id: currentGameId,
+                            player_address: myAddress,
+                            choice: selectedChoice,
+                            salt: currentSalt,
+                        })
+                    });
+                } catch (syncErr) {
+                    console.warn('[Reveal] 本地同步失败（链上事件稍后会自动补）:', syncErr.message);
+                }
             }
 
             myRevealed = true;
