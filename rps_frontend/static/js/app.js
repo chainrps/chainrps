@@ -3435,13 +3435,23 @@ const App = (function () {
                         stopLifecycleCountdown();
                     }
                 } else {
-                    // 房间不存在或已关闭 → Modal 提示后回大厅
+                    // 房间不存在或已关闭
                     const msg = (data && data.message) || '房间已解散';
                     console.warn('[Room] 房间不可用:', msg);
                     const reason = msg.includes('解散') ? 'dissolved'
                                   : msg.includes('关闭') ? 'closed'
                                   : 'not_found';
-                    _showRoomGoneModal(reason, msg);
+                    if (currentRoom) {
+                        // 本来就在这个房间里（未准备超时被移出 / 房主移出 / 房间解散）→
+                        // 自动返回大厅，不能只弹需要手动点击的 Modal，否则会一直卡在已失效的房间页。
+                        console.warn('[Room] 房间已失效，自动返回大厅');
+                        FWUI.Toast.warning('房间已失效，正在返回大厅');
+                        _forceCleanLocalState();
+                        navigateTo('/');
+                    } else {
+                        // 陌生人直接打开无效深链 → 弹 Modal 说明情况
+                        _showRoomGoneModal(reason, msg);
+                    }
                 }
             })
             .catch(e => {
