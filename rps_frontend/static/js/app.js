@@ -3187,7 +3187,9 @@ const App = (function () {
                 disconnectP2PChannel();
                 currentRoomId = null;
                 currentRoom = null;
-                UI.showStage('stageLobby');
+                currentGameId = null;
+                // 同步 URL 回大厅，避免刷新后重新进入已不在的房间
+                navigateTo('/');
                 loadRoomList();
             }
         });
@@ -3399,6 +3401,21 @@ const App = (function () {
             })
             .then(({ok, data}) => {
                 if (ok && data.room_id) {
+                    // 校验当前钱包是否仍是该房间的玩家：房间可能因超时（未准备/生命周期）
+                    // 或房主移出等原因把玩家踢出（此时 player2 被置空、房间回落为 created）。
+                    // 若我已不在房间内，必须自动退出，否则后续操作会报"你不在此房间中"。
+                    const myAddrLower = (Wallet.getAddress() || '').toLowerCase();
+                    const stillMember = !!myAddrLower && (
+                        (data.creator && data.creator.toLowerCase() === myAddrLower) ||
+                        (data.player2 && data.player2.toLowerCase() === myAddrLower)
+                    );
+                    if (myAddrLower && !stillMember) {
+                        console.warn('[Room] 当前钱包已不在房间中，自动退出:', currentRoomId);
+                        FWUI.Toast.warning('你已不在该房间中，正在返回大厅');
+                        _forceCleanLocalState();
+                        navigateTo('/');
+                        return;
+                    }
                     currentRoom = data;
                     updateRoomUI();
                     updateExitGameBtnState();
