@@ -772,7 +772,7 @@ const UI = (function() {
                         </div>
                     </div>
                     ${isAvailable ? `
-                        <button class="btn btn-primary btn-block btn-join-room" data-room-id="${room.room_id}">
+                        <button class="btn btn-success btn-block btn-join-room" data-room-id="${room.room_id}">
                             加入房间
                         </button>
                     ` : inProgress ? `
