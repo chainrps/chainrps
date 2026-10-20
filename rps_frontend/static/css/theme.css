@@ -1,10 +1,16 @@
 /* ============================================================
    ChainRPS 双主题系统
-   - 亮色（默认）：欢乐、游戏、活泼风格
-   - 暗色：低调、沉稳、专业风格
+   - 亮色（默认）：欢乐、游戏、活泼风格（活力橙+紫）
+   - 暗色：低调、专业、竞技风格（霓虹青+淡紫+微网格）
+
+   变量层级：
+     Layer 1 — 设计色板（--primary-color, --bg-card 等）
+     Layer 2 — 语义别名（--btn-bg-idle, --card-border, --text-heading 等）
+   组件 CSS 应该引用 Layer 2 语义别名，不要直接用 Layer 1
+   换主题只需改 Layer 1，Layer 2 自动同步
    ============================================================ */
 
-/* 全局基础样式 sta -------------------*/
+/* ============ 全局基础样式 ============ */
 * {
     box-sizing: border-box;
     margin: 0;
@@ -21,14 +27,19 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
-/* 全局基础样式 end -------------------*/
+/* 等宽数字 — 用于金额/赔率/倒计时/Gas 等频繁变化的数字 */
+.number-mono {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
 
 
 /* ============================================================
-   亮色主题（默认）—— 漂亮、欢乐、游戏风格
-   暖色调 + 活力橙 + 明亮渐变 + 大圆角
+   亮色主题（默认）—— 活力橙 + 紫 + 明亮渐变
    ============================================================ */
 :root {
+    /* ----- Layer 1: 设计色板 ----- */
     --bg-primary: #fff8f0;
     --bg-secondary: #fff0e0;
     --bg-tertiary: #ffe4cc;
@@ -36,10 +47,6 @@ body {
     --bg-hover: #fff5eb;
     --bg-success: #d4f5e0;
     --bg-warning: #fff3cd;
-
-    /* 兼容别名 */
-    --card-bg: var(--bg-card);
-    --input-bg: var(--bg-secondary);
 
     --text-primary: #2d1b00;
     --text-secondary: #6b4c2a;
@@ -88,14 +95,70 @@ body {
     --gradient-primary: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #ffb627 100%);
     --gradient-accent: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
     --gradient-bg: linear-gradient(180deg, #fff8f0 0%, #fff0e0 100%);
+
+    /* ----- Layer 2: 语义别名（Button 5 态） ----- */
+    --btn-bg-idle:             var(--gradient-primary);
+    --btn-bg-hover:            var(--gradient-primary);
+    --btn-bg-active:           var(--primary-hover);
+    --btn-bg-loading:          var(--bg-tertiary);
+    --btn-bg-approved:         var(--success-light);
+    --btn-bg-error:            var(--danger-light);
+    --btn-bg-success:          var(--success-light);
+
+    --btn-text-idle:           var(--text-inverse);
+    --btn-text-hover:          var(--text-inverse);
+    --btn-text-loading:        var(--text-tertiary);
+    --btn-text-approved:       var(--success-color);
+    --btn-text-error:          var(--danger-color);
+    --btn-text-success:        var(--success-color);
+
+    --btn-border-approved:     var(--success-color);
+    --btn-border-error:        var(--danger-color);
+    --btn-border-success:      var(--success-color);
+
+    /* ----- Layer 2: 语义别名（Card 通用） ----- */
+    --card-bg:                 var(--bg-card);
+    --card-border:             var(--border-color);
+    --card-border-hover:       var(--primary-color);
+    --card-shadow:             var(--shadow-md);
+    --card-shadow-hover:       var(--shadow-lg);
+
+    /* ----- Layer 2: 语义别名（Text 层级） ----- */
+    --text-heading:            var(--text-primary);
+    --text-body:               var(--text-secondary);
+    --text-label:              var(--text-tertiary);
+    --text-monetary:           var(--primary-color);
+
+    /* ----- Layer 2: 语义别名（FWUI 组件） ----- */
+    --fwui-bg-modal:           var(--bg-card);
+    --fwui-bg-input:           var(--bg-secondary);
+    --fwui-bg-toast-success:   var(--success-light);
+    --fwui-bg-toast-error:     var(--danger-light);
+    --fwui-bg-toast-warning:   var(--warning-light);
+    --fwui-bg-toast-info:      var(--info-light);
+    --fwui-border-input:       var(--border-color);
+    --fwui-border-input-focus: var(--primary-color);
+    --fwui-color-toast-success: var(--success-color);
+    --fwui-color-toast-error:  var(--danger-color);
+    --fwui-color-toast-warning:var(--warning-color);
+    --fwui-color-toast-info:   var(--info-color);
+
+    /* ----- 暗色专用（亮色无微网格，留空不显示） ----- */
+    --grid-bg-image:           none;
+    --grid-bg-size:            0;
+
+    /* ----- 通用兼容别名 ----- */
+    --card-bg-old:             var(--bg-card);
+    --input-bg-old:            var(--bg-secondary);
 }
 
 
 /* ============================================================
-   暗色主题 —— 低调、沉稳、专业风格
-   深灰蓝调 + 低饱和度 + 柔和对比
+   暗色主题 —— 霓虹青 + 淡紫 + 微网格 + hover 发光
+   不再把亮色主色"降饱和"，而是用独立的专业/竞技风格
    ============================================================ */
 [data-theme="dark"] {
+    /* ----- Layer 1: 设计色板（霓虹化重写） ----- */
     --bg-primary: #0f1117;
     --bg-secondary: #181b24;
     --bg-tertiary: #232733;
@@ -103,10 +166,6 @@ body {
     --bg-hover: #232733;
     --bg-success: #16291f;
     --bg-warning: #2a2310;
-
-    /* 兼容别名 */
-    --card-bg: var(--bg-card);
-    --input-bg: var(--bg-tertiary);
 
     --text-primary: #c8cdd6;
     --text-secondary: #8b919e;
@@ -117,24 +176,25 @@ body {
     --border-color: #2a2e3a;
     --border-light: #1e222c;
 
-    --primary-color: #6b7280;
-    --primary-hover: #9ca3af;
-    --primary-light: #2a2e3a;
-    --primary-lighter: #1e222c;
-    --primary-rgb: 107, 114, 128;
+    /* 暗色主色：霓虹青 + 淡紫 —— 保留品牌辨识度，不再降成灰 */
+    --primary-color: #22d3ee;
+    --primary-hover: #06b6d4;
+    --primary-light: #163040;
+    --primary-lighter: #132a36;
+    --primary-rgb: 34, 211, 238;
 
-    --accent-color: #4b5563;
-    --accent-hover: #6b7280;
-    --accent-light: #1e222c;
-    --accent-rgb: 75, 85, 99;
+    --accent-color: #a78bfa;
+    --accent-hover: #8b5cf6;
+    --accent-light: #2a1f4a;
+    --accent-rgb: 167, 139, 250;
 
-    --success-color: #4b9b7a;
+    --success-color: #27c93f;
     --success-light: #16291f;
-    --danger-color: #9b5050;
+    --danger-color: #f87171;
     --danger-light: #2a1a1a;
-    --warning-color: #8a7440;
+    --warning-color: #fbbf24;
     --warning-light: #2a2310;
-    --info-color: #5570a0;
+    --info-color: #60a5fa;
     --info-light: #1a2230;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
@@ -142,43 +202,163 @@ body {
     --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
     --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.4);
 
-    --gradient-primary: linear-gradient(135deg, #4b5563 0%, #6b7280 100%);
-    --gradient-accent: linear-gradient(135deg, #374151 0%, #4b5563 100%);
+    --gradient-primary: linear-gradient(135deg, #22d3ee 0%, #a78bfa 100%);
+    --gradient-accent: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%);
     --gradient-bg: linear-gradient(180deg, #0f1117 0%, #181b24 100%);
+
+    /* 暗色微网格背景 — 低透明度，不抢主视觉 */
+    --grid-bg-image:
+        linear-gradient(rgba(34, 211, 238, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34, 211, 238, 0.06) 1px, transparent 1px);
+    --grid-bg-size: 24px 24px;
+
+    /* ----- Layer 2: 语义别名（与亮色同名，自动适配） ----- */
+    --btn-bg-idle:             var(--gradient-primary);
+    --btn-bg-hover:            var(--gradient-primary);
+    --btn-bg-active:           var(--primary-hover);
+    --btn-bg-loading:          var(--bg-tertiary);
+    --btn-bg-approved:         var(--success-light);
+    --btn-bg-error:            var(--danger-light);
+    --btn-bg-success:          var(--success-light);
+
+    --btn-text-idle:           var(--text-inverse);
+    --btn-text-hover:          var(--text-inverse);
+    --btn-text-loading:        var(--text-tertiary);
+    --btn-text-approved:       var(--success-color);
+    --btn-text-error:          var(--danger-color);
+    --btn-text-success:        var(--success-color);
+
+    --btn-border-approved:     var(--success-color);
+    --btn-border-error:        var(--danger-color);
+    --btn-border-success:      var(--success-color);
+
+    --card-bg:                 var(--bg-card);
+    --card-border:             var(--border-color);
+    --card-border-hover:       var(--primary-color);
+    --card-shadow:             var(--shadow-md);
+    --card-shadow-hover:       var(--shadow-lg);
+
+    --text-heading:            var(--text-primary);
+    --text-body:               var(--text-secondary);
+    --text-label:              var(--text-tertiary);
+    --text-monetary:           var(--primary-color);
+
+    --fwui-bg-modal:           var(--bg-card);
+    --fwui-bg-input:           var(--bg-tertiary);
+    --fwui-bg-toast-success:   var(--success-light);
+    --fwui-bg-toast-error:     var(--danger-light);
+    --fwui-bg-toast-warning:   var(--warning-light);
+    --fwui-bg-toast-info:      var(--info-light);
+    --fwui-border-input:       var(--border-color);
+    --fwui-border-input-focus: var(--primary-color);
+    --fwui-color-toast-success: var(--success-color);
+    --fwui-color-toast-error:  var(--danger-color);
+    --fwui-color-toast-warning:var(--warning-color);
+    --fwui-color-toast-info:   var(--info-color);
+
+    --card-bg-old:             var(--bg-card);
+    --input-bg-old:            var(--bg-tertiary);
 }
 
 
-/* 超链接样式 sta -------------------*/
+/* ============================================================
+   暗色色板 覆盖 body 微网格（亮色无此效果）
+   ============================================================ */
+/* 暗色 body：微网格 + 深色底（用 background 简写更可靠，防止被覆盖） */
+[data-theme="dark"] body {
+    background-color: var(--bg-primary);
+    background-image: var(--grid-bg-image);
+    background-size: var(--grid-bg-size);
+    background-position: 0 0;
+    background-repeat: repeat;
+}
+
+/* #app 也要透明，不挡住 body 的网格 */
+#app { background: transparent !important; }
+
+
+/* ============ 超链接样式 ============ */
 a {
     color: var(--primary-color);
     text-decoration: none;
     transition: color var(--transition-fast);
 }
-
-a:hover {
-    color: var(--primary-hover);
-}
-
-/* 超链接样式 end -------------------*/
+a:hover { color: var(--primary-hover); }
 
 
-/* 滚动条样式 sta -------------------*/
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-::-webkit-scrollbar-track {
-    background: var(--bg-secondary);
-}
-
+/* ============ 滚动条样式 ============ */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
 ::-webkit-scrollbar-thumb {
     background: var(--border-color);
     border-radius: var(--radius-full);
 }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 
-::-webkit-scrollbar-thumb:hover {
-    background: var(--text-tertiary);
+
+/* ============================================================
+   游戏竞态动画（全部纯 CSS，不阻塞交互）
+   命名规范：.anim-{阶段}-{效果}
+   ============================================================ */
+
+/* 倒计时：数字脉冲放大 */
+.anim-countdown {
+    animation: anim-countdown-pulse 1s ease-in-out infinite;
+}
+@keyframes anim-countdown-pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.08); }
 }
 
-/* 滚动条样式 end -------------------*/
+/* 选择中：呼吸循环 */
+.anim-breathing {
+    animation: anim-breathing 2s ease-in-out infinite;
+}
+@keyframes anim-breathing {
+    0%, 100% { box-shadow: 0 0 6px rgba(var(--primary-rgb), 0.3); }
+    50%      { box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.8); }
+}
+
+/* Reveal：3D 翻转 */
+.anim-flip-3d {
+    transform-style: preserve-3d;
+    animation: anim-flip-3d 0.8s ease-out forwards;
+}
+@keyframes anim-flip-3d {
+    0%   { transform: rotateY(0); }
+    100% { transform: rotateY(180deg); }
+}
+
+/* 结算：赢家发光 */
+.anim-win-glow {
+    animation: anim-win-glow 1.5s ease-in-out infinite alternate;
+}
+@keyframes anim-win-glow {
+    from { box-shadow: 0 0 8px rgba(var(--primary-rgb), 0.3); }
+    to   { box-shadow: 0 0 24px rgba(var(--primary-rgb), 0.7); }
+}
+
+/* 结算：输家下沉 + 降透明度 */
+.anim-loss-fade {
+    transform: translateY(8px);
+    opacity: 0.55;
+}
+
+/* 骨架屏 shimmer */
+.anim-shimmer {
+    background: linear-gradient(90deg,
+        var(--bg-tertiary) 25%,
+        var(--border-color) 50%,
+        var(--bg-tertiary) 75%);
+    background-size: 200% 100%;
+    animation: anim-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes anim-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Spinner（FWUI button loading 共用） */
+@keyframes fwui-spin {
+    to { transform: rotate(360deg); }
+}

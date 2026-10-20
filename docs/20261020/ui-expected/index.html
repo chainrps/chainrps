@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChainRPS UI 预期效果预览 — v1.0</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* =============================
+   全局预览容器
+============================= */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f1117;
+    color: #c8cdd6;
+    padding: 40px 24px 80px;
+    line-height: 1.6;
+}
+.page-title {
+    font-size: 32px; font-weight: 700;
+    color: #22d3ee; margin-bottom: 8px;
+}
+.page-subtitle {
+    color: #8b919e; margin-bottom: 48px; font-size: 14px;
+}
+.section {
+    background: #181b24;
+    border: 1px solid #2a2e3a;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 32px;
+}
+.section-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 24px; padding-bottom: 16px;
+    border-bottom: 1px dashed #2a2e3a;
+}
+.section-title { font-size: 20px; font-weight: 600; color: #22d3ee; }
+.section-tag {
+    font-size: 12px; color: #8b919e; background: #232733;
+    padding: 4px 10px; border-radius: 12px;
+}
+.compare-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+}
+.compare-cell {
+    background: #1a1e28; border-radius: 12px; padding: 20px;
+    border: 1px solid #2a2e3a;
+}
+.compare-cell.before { border-color: #9b5050; }
+.compare-cell.after { border-color: #22d3ee; }
+.cell-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 12px; padding-bottom: 8px;
+}
+.before .cell-label { color: #9b5050; border-bottom: 1px solid #9b505040; }
+.after .cell-label { color: #22d3ee; border-bottom: 1px solid #22d3ee40; }
+.cell-desc { font-size: 12px; color: #8b919e; margin-top: 12px; }
+
+/* =============================
+   预览设备框（模拟浏览器窗口）
+============================= */
+.device-frame {
+    background: #0a0c10; border-radius: 10px; overflow: hidden;
+    border: 1px solid #2a2e3a;
+}
+.device-bar {
+    background: #232733; padding: 8px 12px;
+    display: flex; gap: 6px; align-items: center;
+}
+.device-dot { width: 10px; height: 10px; border-radius: 50%; }
+.device-dot.r { background: #ff5f56; }
+.device-dot.y { background: #ffbd2e; }
+.device-dot.g { background: #27c93f; }
+
+/* =============================
+   【场景 1】Header 三级置顶
+============================= */
+.mock-header {
+    height: 48px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; background: #1a1e28;
+    border-bottom: 1px solid #2a2e3a;
+}
+.mock-header-before { height: auto; min-height: 56px; padding: 10px 16px; gap: 12px; flex-wrap: wrap; }
+.h-left, .h-right { display: flex; align-items: center; gap: 12px; }
+.h-center { display: flex; align-items: center; gap: 16px; }
+.h-logo { font-weight: 700; font-size: 16px; color: #22d3ee; }
+.h-logo-before { font-size: 14px; color: #ff6b35; }
+.h-chain {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 10px; background: #16291f; border-radius: 12px; font-size: 12px;
+}
+.h-chain-dot { width: 8px; height: 8px; background: #27c93f; border-radius: 50%; box-shadow: 0 0 6px #27c93f; }
+.h-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #232733; display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+}
+.h-balance { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #22d3ee; font-weight: 600; }
+.h-network-tag {
+    font-size: 11px; padding: 2px 8px; border-radius: 4px;
+    background: #2a2e3a; color: #c8cdd6;
+}
+.h-btn { background: transparent; border: none; font-size: 16px; cursor: pointer; color: #8b919e; }
+.h-btn:hover { color: #22d3ee; }
+
+/* =============================
+   【场景 2】按钮 5 态状态机
+============================= */
+.btn-showcase { display: flex; flex-direction: column; gap: 14px; padding: 20px; }
+.btn-item { display: flex; align-items: center; gap: 16px; }
+.btn-label { font-size: 12px; color: #8b919e; width: 80px; font-family: 'JetBrains Mono', monospace; }
+.btn-50 { width: 200px; height: 44px; border-radius: 10px; border: none;
+         font-size: 14px; font-weight: 600; cursor: pointer; transition: all .2s; }
+
+/* idle */
+.btn-idle { background: linear-gradient(135deg, #22d3ee, #a78bfa); color: #0f1117; }
+.btn-idle:hover { transform: translateY(-1px); box-shadow: 0 4px 16px #22d3ee40; }
+
+/* loading */
+.btn-loading { background: #232733; color: #8b919e; cursor: not-allowed; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.spinner { width: 14px; height: 14px; border: 2px solid #3d424c; border-top-color: #22d3ee; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* approved */
+.btn-approved { background: #16291f; color: #4b9b7a; border: 1px solid #4b9b7a; }
+
+/* error */
+.btn-error { background: #2a1a1a; color: #f87171; border: 1px solid #dc2626; }
+
+/* success */
+.btn-success { background: #16291f; color: #27c93f; border: 1px solid #27c93f; display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+/* =============================
+   【场景 3】暗色主题重做
+============================= */
+.grid-bg {
+    background-color: #0f1117;
+    background-image:
+        linear-gradient(#2a2e3a15 1px, transparent 1px),
+        linear-gradient(90deg, #2a2e3a15 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+.grid-bg-card {
+    background-color: #0f1117;
+    background-image:
+        linear-gradient(#22d3ee08 1px, transparent 1px),
+        linear-gradient(90deg, #22d3ee08 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+.room-card {
+    background: #181b24; border-radius: 12px; padding: 18px;
+    border: 1px solid #2a2e3a; display: flex; flex-direction: column; gap: 10px;
+}
+.room-card-new {
+    background: #13161f; border-radius: 12px; padding: 18px;
+    border: 1px solid #22d3ee20; display: flex; flex-direction: column; gap: 10px;
+    transition: all .3s;
+}
+.room-card-new:hover { border-color: #22d3ee; box-shadow: 0 0 24px #22d3ee20; }
+.room-title { font-weight: 600; font-size: 14px; }
+.room-meta { display: flex; gap: 12px; font-size: 12px; color: #8b919e; }
+.room-before .room-title { color: #6b4c2a; }
+.room-before .room-meta { color: #a08060; }
+.room-new .room-title { color: #c8cdd6; }
+.room-new .room-meta { color: #8b919e; }
+.room-bet { font-family: 'JetBrains Mono', monospace; color: #22d3ee; font-weight: 600; }
+.room-bet-before { color: #ff6b35; }
+.tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #232733; }
+.tag.before { background: #fff3cd; color: #d97706; }
+.tag.new { background: #16291f; color: #4b9b7a; }
+
+/* =============================
+   【场景 4】游戏竞态动画
+============================= */
+.game-stage { display: flex; justify-content: center; gap: 16px; padding: 24px 0; flex-wrap: wrap; }
+.stage-item { text-align: center; }
+.stage-title { font-size: 11px; color: #8b919e; margin-bottom: 8px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; }
+
+/* 倒计时 */
+.countdown-num {
+    width: 80px; height: 80px; border-radius: 50%;
+    background: linear-gradient(135deg, #22d3ee, #a78bfa);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; font-weight: 800; color: #0f1117;
+    animation: countdown-pulse 1s ease-in-out infinite;
+}
+@keyframes countdown-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+}
+
+/* 选择中 - 呼吸 */
+.breathing-group { display: flex; gap: 12px; }
+.breath-item {
+    width: 64px; height: 64px; border-radius: 12px;
+    background: #232733; display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+}
+.breath-item.active {
+    background: linear-gradient(135deg, #22d3ee40, #a78bfa40);
+    border: 2px solid #22d3ee;
+    animation: breathe 2s infinite;
+}
+@keyframes breathe {
+    0%, 100% { box-shadow: 0 0 8px #22d3ee40; }
+    50% { box-shadow: 0 0 24px #22d3ee80; }
+}
+
+/* Reveal 3D flip */
+.flip-card {
+    width: 120px; height: 160px; perspective: 1000px;
+}
+.flip-inner {
+    width: 100%; height: 100%;
+    position: relative; transform-style: preserve-3d;
+    animation: flip-3d .8s ease-out forwards;
+}
+.flip-front, .flip-back {
+    position: absolute; inset: 0;
+    backface-visibility: hidden; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; font-size: 48px;
+}
+.flip-front { background: #232733; }
+.flip-back { background: linear-gradient(135deg, #22d3ee, #a78bfa); transform: rotateY(180deg); }
+@keyframes flip-3d {
+    0% { transform: rotateY(0); }
+    100% { transform: rotateY(180deg); }
+}
+
+/* 结算 */
+.result-wrap { display: flex; gap: 20px; }
+.result-card {
+    width: 120px; height: 100px; border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+}
+.result-win {
+    background: #16291f; border: 2px solid #27c93f;
+    animation: win-glow 1.5s ease-in-out infinite alternate;
+}
+.result-loss {
+    background: #232733; border: 2px solid #3d424c; opacity: .6;
+    transform: translateY(8px);
+}
+@keyframes win-glow {
+    from { box-shadow: 0 0 8px #27c93f40; }
+    to { box-shadow: 0 0 24px #27c93f80; }
+}
+
+/* =============================
+   【场景 5】列表三态
+============================= */
+.three-states { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.state-card { background: #181b24; border: 1px solid #2a2e3a; border-radius: 12px; padding: 20px; }
+.state-label { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #22d3ee; text-transform: uppercase; margin-bottom: 14px; }
+
+/* Empty */
+.empty-icon { font-size: 48px; text-align: center; margin: 16px 0; }
+.empty-text { text-align: center; color: #8b919e; font-size: 13px; margin-bottom: 14px; }
+.empty-btn {
+    display: block; margin: 0 auto; padding: 8px 20px;
+    background: #22d3ee; color: #0f1117; border: none; border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+}
+
+/* Skeleton */
+.skel-item { display: flex; gap: 12px; margin-bottom: 14px; }
+.skel-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(90deg, #232733 25%, #2a2e3a 50%, #232733 75%);
+    background-size: 200% 100%; animation: skel-shimmer 1.5s infinite;
+}
+.skel-lines { flex: 1; }
+.skel-line {
+    height: 12px; border-radius: 4px; margin-bottom: 8px;
+    background: linear-gradient(90deg, #232733 25%, #2a2e3a 50%, #232733 75%);
+    background-size: 200% 100%; animation: skel-shimmer 1.5s infinite;
+}
+.skel-line.short { width: 60%; }
+.skel-line.tiny { width: 30%; height: 10px; }
+@keyframes skel-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Error */
+.error-icon { font-size: 40px; text-align: center; margin: 10px 0; }
+.error-text { text-align: center; color: #f87171; font-size: 13px; margin-bottom: 6px; }
+.error-code { text-align: center; color: #8b919e; font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 14px; }
+.error-retry {
+    display: block; margin: 0 auto; padding: 8px 20px;
+    background: transparent; color: #f87171; border: 1px solid #dc2626;
+    border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.error-retry:hover { background: #2a1a1a; }
+
+/* =============================
+   Footer
+============================= */
+.footer {
+    text-align: center; margin-top: 48px;
+    font-size: 12px; color: #5c6270;
+}
+.footer a { color: #22d3ee; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="page-title">🎨 ChainRPS UI 预期效果预览</div>
+<div class="page-subtitle">基于《UI优化需求文档_v1.0》生成 · 2026-10-20 · 仅供参考，实际实现可能有出入</div>
+
+<!-- ===============================================
+     场景 1：Header 三级置顶
+=============================================== -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">📐 场景 1：Header 三级置顶（固定 48px）</div>
+        <span class="section-tag">C-03 · P2</span>
+    </div>
+    <div class="compare-row">
+        <div class="compare-cell before">
+            <div class="cell-label">❌ 当前效果</div>
+            <div class="device-frame">
+                <div class="device-bar"><span class="device-dot r"></span><span class="device-dot y"></span><span class="device-dot g"></span></div>
+                <div class="mock-header mock-header-before" style="background:#fff8f0;border-bottom:1px solid #ffd9b3;">
+                    <div class="h-left">
+                        <div class="h-logo h-logo-before">ChainRPS ✊✋✌️</div>
+                    </div>
+                    <div class="h-right" style="flex-wrap:wrap;gap:8px;">
+                        <button class="h-btn">🌙</button>
+                        <div class="h-chain" style="background:#d4f5e0;color:#059669;"><span class="h-chain-dot"></span> Polygon</div>
+                        <button class="btn-50 btn-idle" style="width:auto;height:32px;background:#ff6b35;color:#fff;">连接钱包</button>
+                    </div>
+                </div>
+            </div>
+            <div class="cell-desc">亮色主题，组件高度不一致，信息层级散，小屏可能换行</div>
+        </div>
+        <div class="compare-cell after">
+            <div class="cell-label">✅ 预期效果</div>
+            <div class="device-frame">
+                <div class="device-bar"><span class="device-dot r"></span><span class="device-dot y"></span><span class="device-dot g"></span></div>
+                <div class="mock-header">
+                    <div class="h-left">
+                        <div class="h-logo">ChainRPS</div>
+                    </div>
+                    <div class="h-center">
+                        <div class="h-chain"><span class="h-chain-dot"></span> Polygon · 210ms</div>
+                    </div>
+                    <div class="h-right">
+                        <button class="h-btn" title="主题">🌙</button>
+                        <div class="h-avatar">👤</div>
+                        <span class="h-balance">1,234.56 USDC</span>
+                        <span class="h-network-tag">Polygon</span>
+                    </div>
+                </div>
+            </div>
+            <div class="cell-desc">暗色主题，固定 48px 高度，三级信息单行排列，Balance 等宽数字</div>
+        </div>
+    </div>
+</div>
+
+<!-- ===============================================
+     场景 2：按钮 5 态状态机
+=============================================== -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">🔘 场景 2：主按钮 5 态状态机</div>
+        <span class="section-tag">B-01 · P1</span>
+    </div>
+    <div class="compare-row">
+        <div class="compare-cell before">
+            <div class="cell-label">❌ 当前效果（无统一状态机）</div>
+            <div class="btn-showcase">
+                <div class="btn-item"><span class="btn-label">Connect</span><button class="btn-50" style="background:#ff6b35;color:#fff;">连接钱包</button></div>
+                <div class="btn-item"><span class="btn-label">Loading</span><button class="btn-50" style="background:#ccc;color:#666;cursor:wait;">处理中...</button></div>
+                <div class="btn-item"><span class="btn-label">Approved</span><button class="btn-50" style="background:#888;color:#fff;">已授权</button></div>
+                <div class="btn-item"><span class="btn-label">Error</span><button class="btn-50" style="background:#dc2626;color:#fff;cursor:not-allowed;">余额不足</button></div>
+                <div class="btn-item"><span class="btn-label">Success</span><button class="btn-50" style="background:#059669;color:#fff;">✓ 成功</button></div>
+            </div>
+            <div class="cell-desc">各按钮颜色/文案随意，没有统一规范，状态和主题不联动</div>
+        </div>
+        <div class="compare-cell after">
+            <div class="cell-label">✅ 预期效果（5 态统一）</div>
+            <div class="btn-showcase">
+                <div class="btn-item"><span class="btn-label">idle</span><button class="btn-50 btn-idle">开始对局</button></div>
+                <div class="btn-item"><span class="btn-label">loading</span><button class="btn-50 btn-loading"><span class="spinner"></span>交易确认中</button></div>
+                <div class="btn-item"><span class="btn-label">approved</span><button class="btn-50 btn-approved">✓ 已授权 USDC</button></div>
+                <div class="btn-item"><span class="btn-label">error</span><button class="btn-50 btn-error">余额不足 · 需充值 50 USDC</button></div>
+                <div class="btn-item"><span class="btn-label">success</span><button class="btn-50 btn-success">✓ 交易已提交</button></div>
+            </div>
+            <div class="cell-desc">5 态统一语义：渐变主色（idle）、Spinner（loading）、次色（approved）、红框+提示（error）、绿框（success），自动适配主题</div>
+        </div>
+    </div>
+</div>
+
+<!-- ===============================================
+     场景 3：暗色主题重做
+=============================================== -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">🌑 场景 3：暗色主题重做（霓虹青 + 发光）</div>
+        <span class="section-tag">C-01 · P2</span>
+    </div>
+    <div class="compare-row">
+        <div class="compare-cell before">
+            <div class="cell-label">❌ 当前暗色主题（primary 降成灰）</div>
+            <div style="padding:20px;background:#1a1e28;border-radius:10px;">
+                <div class="room-card room-before">
+                    <div class="room-title">房间 #a1b2c3d4 · 等待中</div>
+                    <div class="room-bet room-bet-before">下注 10.00 USDC</div>
+                    <div class="room-meta"><span>👤 0xFFcf...409f0</span><span>⏱ 3min</span></div>
+                    <span class="tag before">等待对手加入</span>
+                </div>
+                <div style="height:12px"></div>
+                <div class="room-card room-before">
+                    <div class="room-title">房间 #e5f6a7b8 · 对局中</div>
+                    <div class="room-bet room-bet-before">下注 50.00 USDC</div>
+                    <div class="room-meta"><span>👤 两位玩家</span><span>✊✋✌️ Reveal 阶段</span></div>
+                    <span class="tag before">🔒 Commit 已锁定</span>
+                </div>
+            </div>
+            <div class="cell-desc">暗色主题把 primary=#ff6b35 降成 #6b7280 灰色，失去品牌识别度，背景无纹理</div>
+        </div>
+        <div class="compare-cell after">
+            <div class="cell-label">✅ 预期暗色主题（霓虹青 + 微网格 + hover 发光）</div>
+            <div class="grid-bg" style="padding:20px;border-radius:10px;">
+                <div class="room-card-new room-new">
+                    <div class="room-title">房间 #a1b2c3d4 · 等待中</div>
+                    <div class="room-bet">下注 10.00 USDC</div>
+                    <div class="room-meta"><span>👤 0xFFcf...409f0</span><span>⏱ 3min</span></div>
+                    <span class="tag new">等待对手加入</span>
+                </div>
+                <div style="height:12px"></div>
+                <div class="room-card-new room-new" style="border-color:#a78bfa;box-shadow:0 0 20px #a78bfa30;">
+                    <div class="room-title">房间 #e5f6a7b8 · 对局中</div>
+                    <div class="room-bet">下注 50.00 USDC</div>
+                    <div class="room-meta"><span>👤 两位玩家</span><span>✊✋✌️ Reveal 阶段</span></div>
+                    <span class="tag new">🔒 Commit 已锁定</span>
+                </div>
+            </div>
+            <div class="cell-desc">primary=#22d3ee 霓虹青，accent=#a78bfa 淡紫，背景微网格，hover 发光，保留品牌辨识度</div>
+        </div>
+    </div>
+</div>
+
+<!-- ===============================================
+     场景 4：游戏竞态动画
+=============================================== -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">🎬 场景 4：游戏竞态动画（倒计时 → 选择 → Reveal → 结算）</div>
+        <span class="section-tag">C-02 · P2</span>
+    </div>
+    <div class="device-frame">
+        <div class="device-bar"><span class="device-dot r"></span><span class="device-dot y"></span><span class="device-dot g"></span></div>
+        <div class="grid-bg" style="padding:28px 20px;border:none;">
+
+            <div class="game-stage">
+                <div class="stage-item">
+                    <div class="stage-title">① 倒计时</div>
+                    <div class="countdown-num">3</div>
+                </div>
+                <div class="stage-item">
+                    <div class="stage-title">② 选择中（呼吸）</div>
+                    <div class="breathing-group">
+                        <div class="breath-item">✊</div>
+                        <div class="breath-item active">✋</div>
+                        <div class="breath-item">✌️</div>
+                    </div>
+                </div>
+                <div class="stage-item">
+                    <div class="stage-title">③ Reveal（3D Flip）</div>
+                    <div class="flip-card">
+                        <div class="flip-inner">
+                            <div class="flip-front">?</div>
+                            <div class="flip-back">✊</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stage-item">
+                    <div class="stage-title">④ 结算</div>
+                    <div class="result-wrap">
+                        <div class="result-card result-win"><div style="font-size:28px;">✊</div><div style="color:#27c93f;font-family:'JetBrains Mono';font-weight:600;">+50 USDC</div></div>
+                        <div class="result-card result-loss"><div style="font-size:28px;">✋</div><div style="color:#8b919e;font-family:'JetBrains Mono';font-weight:600;">-10 USDC</div></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    <div class="cell-desc" style="margin-top:12px;text-align:center;">全部纯 CSS 实现，关键帧只改 transform/opacity，不阻塞交互</div>
+</div>
+
+<!-- ===============================================
+     场景 5：列表三态
+=============================================== -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">📋 场景 5：列表页面三态（Empty / Loading Skeleton / Error）</div>
+        <span class="section-tag">B-02 · P1</span>
+    </div>
+    <div class="three-states">
+        <div class="state-card">
+            <div class="state-label">· Empty（空状态）</div>
+            <div class="empty-icon">🏜️</div>
+            <div class="empty-text">暂无对局历史记录</div>
+            <div class="empty-text" style="font-size:12px;color:#5c6270;margin-bottom:18px;">去创建一个房间，开启你的第一场对战吧</div>
+            <button class="empty-btn">+ 创建房间</button>
+        </div>
+
+        <div class="state-card">
+            <div class="state-label">· Loading（骨架屏）</div>
+            <div class="skel-item">
+                <div class="skel-avatar"></div>
+                <div class="skel-lines">
+                    <div class="skel-line"></div>
+                    <div class="skel-line short"></div>
+                    <div class="skel-line tiny"></div>
+                </div>
+            </div>
+            <div class="skel-item">
+                <div class="skel-avatar"></div>
+                <div class="skel-lines">
+                    <div class="skel-line"></div>
+                    <div class="skel-line short"></div>
+                    <div class="skel-line tiny"></div>
+                </div>
+            </div>
+            <div class="skel-item">
+                <div class="skel-avatar"></div>
+                <div class="skel-lines">
+                    <div class="skel-line"></div>
+                    <div class="skel-line short"></div>
+                    <div class="skel-line tiny"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="state-card">
+            <div class="state-label">· Error（错误状态）</div>
+            <div class="error-icon">⚠️</div>
+            <div class="error-text">加载失败，请重试</div>
+            <div class="error-code">ERR_CONNECTION_TIMEOUT · 504</div>
+            <button class="error-retry">重新加载</button>
+        </div>
+    </div>
+    <div class="cell-desc" style="margin-top:12px;text-align:center;">骨架屏 shimmer 动画纯 CSS，列表复用同一套三态模板</div>
+</div>
+
+<div class="footer">
+    <p>本页 AI 生成预览 · 实现可能与预览有出入</p>
+    <p>对照文档：<code>docs/20261020/UI优化需求文档_v1.0.md</code></p>
+</div>
+
+</body>
+</html>

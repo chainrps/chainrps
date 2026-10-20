@@ -369,6 +369,8 @@ const UI = (function() {
     function setMyStatus(text) {
         if (elements.myStatus) {
             elements.myStatus.textContent = text;
+            // 🆕 出拳状态 → 红色高亮 + 脉冲
+            elements.myStatus.classList.toggle('punch-here', text.includes('该你出拳'));
         }
     }
 
@@ -433,12 +435,29 @@ const UI = (function() {
         }
     }
 
-    // 启用或禁用出拳按钮
-    function setChoiceButtonsEnabled(enabled) {
+    // 启用或禁用出拳按钮（含脉冲提示动画 + 🎯横幅）
+    function setChoiceButtonsEnabled(enabled, opts = {}) {
         const buttons = document.querySelectorAll('.choice-btn');
+        const banner = document.getElementById('punchBanner');
+        const hint = document.getElementById('punchBannerHint');
         buttons.forEach(btn => {
             btn.disabled = !enabled;
+            btn.classList.toggle('ready-to-punch', enabled);
+            btn.classList.remove('opponent-committed');
         });
+        if (banner) {
+            banner.classList.toggle('hidden', !enabled);
+            if (enabled && hint) {
+                // 根据对手状态定制提示语
+                hint.textContent = opts.opponentCommitted
+                    ? '⚡ 对手已提交！快出拳揭晓胜负！'
+                    : '3 种选择：石头 ✊ 布 ✋ 剪刀 ✌️';
+                // 对手已提交 → 按钮边框变催促感
+                if (opts.opponentCommitted) {
+                    buttons.forEach(btn => btn.classList.add('opponent-committed'));
+                }
+            }
+        }
     }
 
     // 设置选中的出拳

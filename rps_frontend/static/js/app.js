@@ -352,7 +352,7 @@ const App = (function () {
                     UI.showStage('stageGame');
                     UI.setGameId(`MOCK-${data.game_id}`);
                     UI.setGameStatus('选择你的出拳（MOCK模式）');
-                    UI.setMyStatus('等待出拳');
+                    UI.setMyStatus('🎯 该你出拳了');
                     UI.setOpponentStatus('等待出拳');
                     UI.setMyAddress(data.creator);
                     UI.setOpponentAddress(data.opponent || data.player2);
@@ -2011,33 +2011,57 @@ const App = (function () {
                             <div>合约地址: <code id="dialogTokenAddress" style="font-size: 11px; color: #6366f1; cursor: pointer;" title="点击复制">${initialInfo.isNative ? '原生币 (零地址)' : initialInfo.address}</code></div>
                             <div>Decimals: ${initialInfo.decimals}</div>
                         </div>
-                        <div style="margin-bottom: 16px;">
-                            <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">下注金额</div>
-                            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
-                                ${presetAmounts.map(a => `
-                                    <button class="dialog-amount-btn" data-amount="${a}" style="
-                                        padding: 6px 14px;
-                                        border: 1px solid ${a === selectedAmount ? '#6366f1' : '#e2e8f0'};
-                                        border-radius: 999px;
-                                        background: ${a === selectedAmount ? '#6366f1' : '#fff'};
-                                        color: ${a === selectedAmount ? '#fff' : '#0f172a'};
-                                        cursor: pointer;
-                                        font-size: 13px;
-                                        transition: all 0.15s ease;
-                                    ">${a}</button>
-                                `).join('')}
+                        <div style="margin-bottom: 12px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                                <span style="font-size:14px; font-weight:600; color:var(--text-heading);">下注金额</span>
+                                <span style="font-size:11px; color:var(--text-label);">可用余额: <b id="dialogBalanceText" class="number-mono">--</b> ${selectedToken}</span>
                             </div>
-                            <input id="dialogAmountInput" type="number" value="${selectedAmount}" min="1" step="1" style="
-                                width: 100%;
-                                padding: 10px 12px;
-                                border: 1px solid #e2e8f0;
-                                border-radius: 10px;
-                                font-size: 14px;
-                                color: #0f172a;
-                                background: #fff;
-                                box-sizing: border-box;
-                                outline: none;
-                            " />
+                            <div style="position:relative;">
+                                <input id="dialogAmountInput" type="number" value="${selectedAmount}" min="1" step="any" placeholder="输入金额" style="
+                                    width:100%; padding:12px 90px 12px 14px;
+                                    border:1px solid var(--card-border);
+                                    border-radius:var(--radius-md);
+                                    font-size:15px; font-weight:600;
+                                    color:var(--text-heading);
+                                    background:var(--bg-secondary);
+                                    box-sizing:border-box; outline:none;
+                                    font-family:JetBrains Mono, Consolas, monospace;
+                                    transition:all var(--transition-fast);
+                                " data-input-focus-outline="3px solid rgba(var(--primary-rgb),0.15)" data-input-focus-border="var(--primary-color)" />
+                                <!-- MAX 按钮（绝对定位到 input 内部右侧） -->
+                                <button id="dialogMaxBtn" type="button" style="
+                                    position:absolute; right:8px; top:50%; transform:translateY(-50%);
+                                    padding:4px 10px; font-size:11px; font-weight:700;
+                                    background:rgba(var(--primary-rgb),0.1); color:var(--primary-color);
+                                    border:none; border-radius:6px; cursor:pointer;
+                                    transition:all var(--transition-fast);
+                                ">MAX</button>
+                            </div>
+                            <!-- 百分比快速下注按钮（E-04） -->
+                            <div id="dialogPctBar" style="display:flex; gap:4px; margin-top:8px;">
+                                <button class="dialog-pct-btn" data-pct="25" type="button">25%</button>
+                                <button class="dialog-pct-btn" data-pct="50" type="button">50%</button>
+                                <button class="dialog-pct-btn" data-pct="75" type="button">75%</button>
+                                <button class="dialog-pct-btn" data-pct="100" type="button">100%</button>
+                                <button class="dialog-pct-btn" data-pct="custom" type="button" style="margin-left:auto;">自定义</button>
+                            </div>
+                            <!-- 四角信息：法币等值 + 赔率影响（E-01） -->
+                            <div id="dialogAmountInfo" style="
+                                margin-top:8px; padding:8px 12px;
+                                background:var(--bg-secondary); border-radius:8px;
+                                font-size:12px; color:var(--text-body);
+                                border:1px solid var(--card-border);
+                                display:none;
+                            ">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span>≈ 法币等值</span>
+                                    <span id="dialogFiatEstimate" class="number-mono" style="color:var(--text-label);">--</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; margin-top:4px;">
+                                    <span>预期赔率</span>
+                                    <span id="dialogOddsEstimate" class="number-mono" style="color:var(--primary-color); font-weight:600;">2.00x</span>
+                                </div>
+                            </div>
                         </div>
                     `;
                 },
@@ -2158,33 +2182,119 @@ const App = (function () {
                 });
             });
 
-            // 快捷金额
-            modal.element.querySelectorAll('.dialog-amount-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    selectedAmount = parseFloat(btn.dataset.amount);
-                    modal.element.querySelectorAll('.dialog-amount-btn').forEach(b => {
-                        const isActive = parseFloat(b.dataset.amount) === selectedAmount;
-                        b.style.borderColor = isActive ? '#6366f1' : '#e2e8f0';
-                        b.style.background = isActive ? '#6366f1' : '#fff';
-                        b.style.color = isActive ? '#fff' : '#0f172a';
-                    });
-                    const input = modal.element.querySelector('#dialogAmountInput');
-                    if (input) input.value = selectedAmount;
+            // ============ 初始余额加载 ============
+            let walletBalance = 0;
+            const balanceText = modal.element.querySelector('#dialogBalanceText');
+            const amountInfoEl = modal.element.querySelector('#dialogAmountInfo');
+            const fiatEl = modal.element.querySelector('#dialogFiatEstimate');
+            const oddsEl = modal.element.querySelector('#dialogOddsEstimate');
+
+            async function refreshBalance() {
+                if (!Wallet.isConnected()) {
+                    if (balanceText) balanceText.textContent = '未连接';
+                    return 0;
+                }
+                try {
+                    const info = getTokenAddressInfo(selectedToken);
+                    const bal = await Wallet.getBalance(info.isNative ? null : info.address);
+                    walletBalance = parseFloat(bal) || 0;
+                    if (balanceText) balanceText.textContent = walletBalance.toFixed(2);
+                    return walletBalance;
+                } catch {
+                    if (balanceText) balanceText.textContent = '--';
+                    return 0;
+                }
+            }
+            refreshBalance();
+
+            // ============ 动态更新法币等值 + 赔率（E-01） ============
+            function updateAmountInfo() {
+                const amt = parseFloat(selectedAmount) || 0;
+                if (amt > 0) {
+                    if (amountInfoEl) amountInfoEl.style.display = 'block';
+                    // 法币等值：简化版 — 1 USDC ≈ $1，其他走 CONFIG 或固定估算
+                    let fiat;
+                    if (selectedToken === 'USDC') fiat = `$${amt.toFixed(2)}`;
+                    else if (selectedToken === 'ETH') fiat = `$${(amt * 3000).toFixed(0)}`;
+                    else fiat = `${amt} ${selectedToken}`;
+                    if (fiatEl) fiatEl.textContent = fiat;
+                    // 赔率：简化 — 双方下注 1:1 所以 2.0x，未来可以更精确
+                    if (oddsEl) oddsEl.textContent = '2.00x';
+                } else {
+                    if (amountInfoEl) amountInfoEl.style.display = 'none';
+                }
+            }
+
+            // ============ MAX + 百分比按钮（E-04） ============
+            const maxBtn = modal.element.querySelector('#dialogMaxBtn');
+            if (maxBtn) {
+                maxBtn.addEventListener('click', async () => {
+                    await refreshBalance();
+                    const max = Math.max(0, walletBalance - 0.01); // 留 0.01 gas 余量
+                    selectedAmount = parseFloat(max.toFixed(4));
+                    if (amountInput) { amountInput.value = selectedAmount; amountInput.focus(); }
+                    updateAmountInfo();
+                });
+            }
+            modal.element.querySelectorAll('.dialog-pct-btn').forEach((btn) => {
+                btn.style.cssText = `
+                    padding:3px 10px; font-size:11px; font-weight:600;
+                    border:1px solid var(--card-border); background:none;
+                    color:var(--text-label); border-radius:6px; cursor:pointer;
+                    transition:all var(--transition-fast);
+                `;
+                btn.addEventListener('mouseenter', () => {
+                    btn.style.borderColor = 'var(--primary-color)';
+                    btn.style.color = 'var(--primary-color)';
+                });
+                btn.addEventListener('mouseleave', () => {
+                    btn.style.borderColor = 'var(--card-border)';
+                    btn.style.color = 'var(--text-label)';
+                });
+                btn.addEventListener('click', async () => {
+                    const pct = btn.dataset.pct;
+                    if (pct === 'custom') {
+                        amountInput && amountInput.focus();
+                        return;
+                    }
+                    await refreshBalance();
+                    const amt = parseFloat((walletBalance * parseInt(pct) / 100).toFixed(4));
+                    selectedAmount = amt;
+                    if (amountInput) amountInput.value = amt;
+                    updateAmountInfo();
                 });
             });
 
-            // 手动输入金额
+            // ============ 手动输入金额 ============
             const amountInput = modal.element.querySelector('#dialogAmountInput');
             if (amountInput) {
                 amountInput.addEventListener('input', () => {
                     selectedAmount = parseFloat(amountInput.value) || 0;
+                    updateAmountInfo();
+                });
+                // 聚焦 outline（用 data 属性，不用写死）
+                amountInput.addEventListener('focus', () => {
+                    amountInput.style.outline = amountInput.dataset.inputFocusOutline;
+                    amountInput.style.borderColor = amountInput.dataset.inputFocusBorder;
+                });
+                amountInput.addEventListener('blur', () => {
+                    amountInput.style.outline = 'none';
+                    amountInput.style.borderColor = '';
                 });
             }
 
-            // 确认/取消
-            modal.element.querySelector('[data-action="confirm"]').addEventListener('click', () => {
+            // ============ 确认/取消（E-02 余额检测 + 错误内嵌按钮） ============
+            const confirmBtn = modal.element.querySelector('[data-action="confirm"]');
+            confirmBtn.addEventListener('click', async () => {
                 if (!selectedAmount || selectedAmount <= 0) {
                     FWUI.Toast.warning('请输入有效的下注金额');
+                    return;
+                }
+                // 余额检测
+                if (walletBalance === 0) await refreshBalance();
+                if (selectedAmount > walletBalance) {
+                    const need = selectedAmount - walletBalance;
+                    FWUI.Toast.error(`⚠️ 余额不足 · 还需 ${need.toFixed(2)} ${selectedToken}`);
                     return;
                 }
                 modal.close();
@@ -3250,7 +3360,7 @@ const App = (function () {
                 currentGameId = Number(data.chain_game_id);
                 UI.setGameId(currentGameId);
                 UI.setGameStatus('等待对手加入');
-                UI.setMyStatus('等待出拳');
+                UI.setMyStatus('🎯 该你出拳了');
                 UI.setOpponentStatus('加入中...');
                 FWUI.Toast.info(data.message || '链上对局已创建，等待对手加入');
                 // 启动兜底轮询：若 chain_game_player_joined 事件丢失，仍能感知对手加入
@@ -3753,7 +3863,7 @@ const App = (function () {
                 currentGameId = existingChainGameId;
                 UI.setGameId(existingChainGameId);
                 UI.setGameStatus('等待对手加入');
-                UI.setMyStatus('等待出拳');
+                UI.setMyStatus('🎯 该你出拳了');
                 UI.setOpponentStatus('加入中...');
                 FWUI.Toast.info(`已恢复链上对局 #${existingChainGameId}，等待对手加入`);
                 pollChainGameUntilJoined();
@@ -3775,7 +3885,7 @@ const App = (function () {
                             currentGameId = chainGameId;
                             UI.setGameId(chainGameId);
                             UI.setGameStatus('等待对手加入');
-                            UI.setMyStatus('等待出拳');
+                            UI.setMyStatus('🎯 该你出拳了');
                             UI.setOpponentStatus('加入中...');
                             FWUI.Toast.success(`已恢复链上对局 #${chainGameId}，等待对手加入`);
                             pollChainGameUntilJoined();
@@ -3843,7 +3953,7 @@ const App = (function () {
                 currentGameId = existingId;
                 UI.setGameId(existingId);
                 UI.setGameStatus('等待对手加入');
-                UI.setMyStatus('等待出拳');
+                UI.setMyStatus('🎯 该你出拳了');
                 UI.setOpponentStatus('加入中...');
                 FWUI.Toast.info(`已恢复链上对局 #${existingId}，等待对手加入`);
                 pollChainGameUntilJoined();
@@ -3895,7 +4005,7 @@ const App = (function () {
             updateExitGameBtnState();
             const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
             UI.setGameStatus('等待对手加入 · ' + chainFrozenText);
-            UI.setMyStatus('等待出拳');
+            UI.setMyStatus('🎯 该你出拳了');
             UI.setOpponentStatus('加入中...');
 
             FWUI.Toast.success(`链上对局已创建: #${chainGameId}（资金已上链锁定）`);
@@ -4684,7 +4794,7 @@ const App = (function () {
         const chainFrozenText = UI.FUND_STAGE_TEXT ? UI.FUND_STAGE_TEXT['chain_frozen'] : '⛓️ 资金已链上锁定';
         UI.setGameStatus('提交阶段 · ' + chainFrozenText);
         // 关键修复：双方状态标签同时更新，不要遗漏 opponent
-        UI.setMyStatus('等待出拳');
+        UI.setMyStatus('🎯 该你出拳了');
         UI.setOpponentStatus('等待出拳');
         UI.setMyChoice(null);
         UI.setOpponentChoice(null);
