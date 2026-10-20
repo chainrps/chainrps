@@ -1714,7 +1714,8 @@ class BotInstance:
             self._log("INFO", f"commit 本地记录成功: choice={choice}")
             if game_data.get("chain_game_id"):
                 chain_gid = game_data["chain_game_id"]  # 🆕 用链上 gameId！
-                chain_ok = await self._submit_commit_via_relayer(chain_gid, commit_hash)
+                # Bot 自己有钱包，直接链上提交（绕过 Relayer 签名链），Relayer 留作前端玩家的 Gasless 方案
+                chain_ok = await self._submit_commit_direct(chain_gid, commit_hash)
                 if chain_ok:
                     self._log("INFO", "commit 链上代提交成功")
         else:
@@ -1737,7 +1738,7 @@ class BotInstance:
             self._log("INFO", f"reveal 本地记录成功: choice={choice}")
             if game_data.get("chain_game_id"):
                 chain_gid = game_data["chain_game_id"]  # 🆕 用链上 gameId！
-                chain_ok = await self._submit_reveal_via_relayer(chain_gid, choice, salt)
+                chain_ok = await self._submit_reveal_direct(chain_gid, choice, salt)
                 if chain_ok:
                     self._log("INFO", "reveal 链上代提交成功")
         else:

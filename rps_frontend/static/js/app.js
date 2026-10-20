@@ -76,6 +76,17 @@ const App = (function () {
 
         updateHistoryAndStats();
 
+        // 页面加载时先同步链配置（合约地址、结算币等），确保即使钱包未连接也能正确初始化
+        try {
+            const cfg = await fetchMainChainConfig();
+            if (cfg && cfg.success) {
+                if (cfg.contract_address) CONFIG.setContractAddress(cfg.contract_address);
+                if (cfg.settlement_token && cfg.settlement_token.address) {
+                    CONFIG.setSettlementTokenAddress(cfg.settlement_token.address);
+                }
+            }
+        } catch (e) { /* 后端不可用时静默跳过，钱包连接后会重试 */ }
+
         await autoConnectWallet();
 
         // 检查 MOCK 参数（调试用，优先于路由处理）

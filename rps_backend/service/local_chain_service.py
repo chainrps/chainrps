@@ -1620,8 +1620,10 @@ class LocalChainService:
             from_address = self._accounts[from_index]
             tx_params = {
                 "from": from_address,
+                "nonce": self._w3.eth.get_transaction_count(from_address),
                 "gas": 100000,
                 "gasPrice": self._w3.to_wei(20, 'gwei'),
+                "chainId": self._w3.eth.chain_id,
             }
             tx = rps_contract.functions.setTokenSupport(
                 Web3.to_checksum_address(token_address), True
