@@ -702,9 +702,12 @@ const UI = (function() {
         return isMobile ? 'card' : 'list';
     }
 
-    // 渲染房间列表
-    function renderRoomList(rooms) {
+    // 渲染房间列表（支持分页）
+    function renderRoomList(rooms, pagination) {
         if (!elements.roomList) return;
+
+        // 更新分页器（从第二页起才显示，或总数 > perPage 时）
+        renderRoomPagination(pagination);
 
         // 应用视图类
         elements.roomList.classList.toggle('view-list', roomListView === 'list');
@@ -801,6 +804,92 @@ const UI = (function() {
                 </div>
             `;
         }).join('');
+    }
+
+    // 渲染分页器
+    function renderRoomPagination(pagination) {
+        const pager = document.getElementById('roomPagination');
+        if (!pager) return;
+
+        const total = pagination?.total ?? 0;
+        const page = pagination?.page ?? 1;
+        const perPage = pagination?.perPage ?? 10;
+        const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+        // 只有 1 页或无数据时隐藏分页器
+        if (total <= perPage || total === 0) {
+            pager.classList.add('hidden');
+            return;
+        }
+        pager.classList.remove('hidden');
+
+        // 信息文案
+        const startIdx = (page - 1) * perPage + 1;
+        const endIdx = Math.min(page * perPage, total);
+        const infoText = document.getElementById('pageInfoText');
+        if (infoText) infoText.textContent = `${startIdx}-${endIdx} / ${total}`;
+
+        // per_page select 同步当前值
+        const perSelect = document.getElementById('perPageSelect');
+        if (perSelect && perSelect.value != perPage) {
+            perSelect.value = String(perPage);
+        }
+
+        // 页码按钮
+        const controls = document.getElementById('paginationControls');
+        if (!controls) return;
+        controls.innerHTML = '';
+
+        const btnCls = 'page-btn';
+        const prev = document.createElement('button');
+        prev.className = `${btnCls} ${page === 1 ? 'disabled' : ''}`;
+        prev.textContent = '‹';
+        prev.title = '上一页';
+        prev.disabled = page === 1;
+        prev.addEventListener('click', () => {
+            if (page > 1) { window.setRoomPage(page - 1); }
+        });
+        controls.appendChild(prev);
+
+        // 页码范围（最多 5 个，带省略）
+        const maxBtns = 5;
+        let startP = Math.max(1, page - 2);
+        let endP = Math.min(totalPages, startP + maxBtns - 1);
+        if (endP - startP < maxBtns - 1) startP = Math.max(1, endP - maxBtns + 1);
+
+        if (startP > 1) {
+            const b1 = document.createElement('button');
+            b1.className = btnCls; b1.textContent = '1';
+            b1.addEventListener('click', () => window.setRoomPage(1));
+            controls.appendChild(b1);
+            if (startP > 2) { const e = document.createElement('span'); e.className = 'page-ellipsis'; e.textContent = '…'; controls.appendChild(e); }
+        }
+
+        for (let i = startP; i <= endP; i++) {
+            const b = document.createElement('button');
+            b.className = `${btnCls} ${i === page ? 'active' : ''}`;
+            b.textContent = String(i);
+            b.addEventListener('click', () => window.setRoomPage(i));
+            controls.appendChild(b);
+        }
+
+        if (endP < totalPages) {
+            if (endP < totalPages - 1) { const e = document.createElement('span'); e.className = 'page-ellipsis'; e.textContent = '…'; controls.appendChild(e); }
+            const bn = document.createElement('button');
+            bn.className = btnCls; bn.textContent = String(totalPages);
+            bn.addEventListener('click', () => window.setRoomPage(totalPages));
+            controls.appendChild(bn);
+        }
+
+        const next = document.createElement('button');
+        next.className = `${btnCls} ${page === totalPages ? 'disabled' : ''}`;
+        next.textContent = '›';
+        next.title = '下一页';
+        next.disabled = page === totalPages;
+        next.addEventListener('click', () => {
+            if (page < totalPages) { window.setRoomPage(page + 1); }
+        });
+        controls.appendChild(next);
     }
 
     // 资金阶段 → 显示文案（中文，用户可理解的资金状态）

@@ -393,7 +393,7 @@
       "key": "bot_auto_chain_match",
       "category": "bot_strategy",
       "type": "boolean",
-      "default": true,
+      "default": false,
       "description": "Bot 自动链上匹配",
       "env_key": "BOT_AUTO_CHAIN_MATCH"
     },

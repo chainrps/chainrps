@@ -1917,6 +1917,33 @@ const App = (function () {
         }
     }
 
+    // 房间分页状态
+    let roomPage = 1;
+    let roomPerPage = parseInt(localStorage.getItem('rps_room_per_page') || '10', 10);
+
+    // 挂到 window 供 UI.renderRoomPagination 回调
+    window.setRoomPage = function(p) {
+        roomPage = Math.max(1, p);
+        loadRoomList();
+    };
+    window.setRoomPerPage = function(n) {
+        roomPerPage = Math.max(1, Math.min(100, n));
+        localStorage.setItem('rps_room_per_page', String(roomPerPage));
+        roomPage = 1;  // 重置到第一页
+        loadRoomList();
+    };
+
+    // perPage 下拉事件绑定（DOM ready 后执行一次）
+    document.addEventListener('DOMContentLoaded', () => {
+        const sel = document.getElementById('perPageSelect');
+        if (sel) {
+            sel.value = String(roomPerPage);
+            sel.addEventListener('change', (e) => {
+                window.setRoomPerPage(parseInt(e.target.value, 10));
+            });
+        }
+    });
+
     // 加载房间列表
     function loadRoomList() {
         if (!CONFIG.backendUrl) return;
@@ -1929,10 +1956,20 @@ const App = (function () {
 
         roomListLoading = true;
 
-        fetch(`${CONFIG.backendUrl}/api/game/room/list`)
+        // 用后端分页
+        const params = new URLSearchParams({
+            page: roomPage,
+            per_page: roomPerPage,
+        });
+
+        fetch(`${CONFIG.backendUrl}/api/game/room/list?${params}`)
             .then(response => response.json())
             .then(data => {
-                UI.renderRoomList(data.rooms || []);
+                UI.renderRoomList(data.rooms || [], {
+                    page: roomPage,
+                    perPage: roomPerPage,
+                    total: data.total || 0,
+                });
             })
             .catch(e => {
                 console.error('加载房间列表失败:', e);

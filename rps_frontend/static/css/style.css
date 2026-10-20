@@ -23,7 +23,7 @@
 .header-left, .header-center, .header-right {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 4px;
 }
 
 .logo {
@@ -83,84 +83,61 @@
     box-shadow: var(--shadow-sm);
 }
 
+/* 主题切换 — 纯图标，无边框融入背景 */
 .theme-toggle {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-color);
-    background: var(--bg-card);
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: transparent;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 18px;
+    color: var(--text-tertiary);
     transition: all var(--transition-fast);
 }
 
 .theme-toggle:hover {
-    background: var(--bg-hover);
-    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(var(--primary-rgb), 0.08);
 }
 
-/* 主链状态指示器 */
+/* 主链状态指示器 — 纯图标，无边框融入背景 */
 .chain-status-indicator {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-color);
-    background: var(--bg-card);
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: transparent;
     cursor: pointer;
     font-size: 12px;
     transition: all var(--transition-fast);
     user-select: none;
-    white-space: nowrap;
 }
 
 .chain-status-indicator:hover {
-    background: var(--bg-hover);
-    border-color: var(--primary-color);
+    background: rgba(var(--primary-rgb), 0.08);
 }
 
 .chain-status-dot {
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1;
 }
 
 .chain-status-text {
-    color: var(--text-secondary);
-    font-weight: 500;
+    display: none;  /* 状态文字隐藏，走 title tooltip */
 }
 
-/* 状态颜色变体 */
-.chain-status-indicator.status-ok {
-    border-color: #22c55e;
-    background: rgba(34, 197, 94, 0.08);
-}
-
-.chain-status-indicator.status-ok .chain-status-text {
-    color: #16a34a;
-}
-
-.chain-status-indicator.status-warning {
-    border-color: #f59e0b;
-    background: rgba(245, 158, 11, 0.08);
-}
-
-.chain-status-indicator.status-warning .chain-status-text {
-    color: #d97706;
-}
-
-.chain-status-indicator.status-error {
-    border-color: #ef4444;
-    background: rgba(239, 68, 68, 0.08);
-    animation: chainStatusPulse 1.6s ease-in-out infinite;
-}
-
-.chain-status-indicator.status-error .chain-status-text {
-    color: #dc2626;
-}
+/* 状态颜色变体 — 只改变 dot 的颜色，不给容器加背景/边框（融入 header） */
+.chain-status-indicator.status-ok .chain-status-dot { color: #22c55e; }
+.chain-status-indicator.status-warning .chain-status-dot { color: #f59e0b; }
+.chain-status-indicator.status-error .chain-status-dot { color: #ef4444; animation: chainStatusPulse 1.6s ease-in-out infinite; }
+.chain-status-indicator.status-loading .chain-status-dot { color: var(--text-tertiary); }
 
 @keyframes chainStatusPulse {
     0%, 100% { opacity: 1; }
@@ -283,12 +260,6 @@
 }
 
 @media (max-width: 768px) {
-    .chain-status-indicator .chain-status-text {
-        display: none;
-    }
-    .chain-status-indicator {
-        padding: 6px 8px;
-    }
     .chain-status-panel {
         top: 60px;
         right: 10px;
@@ -490,6 +461,23 @@
 .btn-ghost:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+}
+
+/* outline 按钮 — 实心主按钮的兄弟样式，区分"创建"vs"加入" */
+.btn-outline {
+    background: transparent;
+    color: var(--text-heading);
+    border: 1.5px solid var(--border-color);
+}
+
+.btn-outline:hover {
+    background: rgba(var(--primary-rgb), 0.06);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn-outline:active {
+    transform: translateY(0);
 }
 
 .btn-large {
@@ -1803,6 +1791,104 @@ input:checked + .slider:before {
 .stat-item + .stat-item {
     padding-left: 14px;
     border-left: 1px solid var(--border-color);
+}
+
+/* ==================== 大厅分页器 ==================== */
+.room-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 16px 0 8px;
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--card-border);
+    flex-wrap: wrap;
+}
+
+.pagination-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.pagination-info select {
+    padding: 4px 8px;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-heading);
+    font-size: 12px;
+    cursor: pointer;
+    outline: none;
+}
+
+.pagination-info select:focus {
+    border-color: var(--primary-color);
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.page-btn {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 8px;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.page-btn:hover:not(.disabled):not(.active) {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(var(--primary-rgb), 0.05);
+}
+
+.page-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.page-btn.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.page-ellipsis {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    padding: 0 4px;
+    user-select: none;
+}
+
+/* Mobile 分页器 */
+@media (max-width: 640px) {
+    .room-pagination {
+        padding: 8px 10px;
+        gap: 8px;
+        justify-content: center;
+    }
+    .pagination-controls { gap: 2px; }
+    .page-btn { min-width: 26px; height: 28px; padding: 0 6px; font-size: 11px; }
+    .pagination-info { font-size: 11px; }
+    .pagination-info select { padding: 3px 6px; font-size: 11px; }
 }
 
 .lobby-actions {

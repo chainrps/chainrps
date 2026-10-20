@@ -7,7 +7,7 @@
 """
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from rps_backend.models import (
     CancelMatchRequest,
@@ -310,17 +310,25 @@ async def reset_room_for_rematch(request: ResetRoomRequest):
 
 # 获取房间列表
 @router.get("/room/list", response_model=RoomListResponse)
-async def get_room_list():
-    """获取游戏大厅房间列表"""
+async def get_room_list(
+    page: int = Query(1, ge=1, description="页码（从1开始）"),
+    per_page: int = Query(0, ge=0, le=100, description="每页数量，0=不分页返回全量"),
+):
+    """获取游戏大厅房间列表（支持分页）"""
     rooms = room_manager.get_room_list()
 
-    room_responses = []
-    for room in rooms:
-        room_responses.append(_room_to_response(room))
+    room_responses = [_room_to_response(r) for r in rooms]
+    total = len(room_responses)
+
+    # 分页
+    if per_page > 0:
+        start = (page - 1) * per_page
+        end = start + per_page
+        room_responses = room_responses[start:end]
 
     return RoomListResponse(
         rooms=room_responses,
-        total=len(room_responses),
+        total=total,
     )
 
 

@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/theme.css?v=20261020e">
-    <link rel="stylesheet" href="../css/style.css?v=20261020e">
+    <link rel="stylesheet" href="../css/style.css?v=20261020i">
 </head>
 <body>
 <div id="app">
@@ -186,6 +186,20 @@
                                 <p>暂无可用房间</p>
                                 <p class="empty-hint">点击下方按钮创建第一个房间</p>
                             </div>
+                        </div>
+
+                        <!-- 分页器（JS 动态渲染） -->
+                        <div class="room-pagination hidden" id="roomPagination">
+                            <div class="pagination-info">
+                                <span id="pageInfoText">1-5 / 0</span>
+                                <select id="perPageSelect" title="每页显示数量">
+                                    <option value="5">5 / 页</option>
+                                    <option value="10" selected>10 / 页</option>
+                                    <option value="20">20 / 页</option>
+                                    <option value="50">50 / 页</option>
+                                </select>
+                            </div>
+                            <div class="pagination-controls" id="paginationControls"></div>
                         </div>
 
                         <div class="lobby-actions">
@@ -638,7 +652,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.34 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.35 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -663,10 +677,10 @@
 <script src="../js/contract.js?v=20261004p"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
 <script src="../js/p2p.js?v=20260729a"></script>
-<script src="../js/ui.js?v=20261004j"></script>
+<script src="../js/ui.js?v=20261020i"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261020e"></script>
+<script src="../js/app.js?v=20261020i"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">
