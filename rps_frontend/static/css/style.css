@@ -463,20 +463,21 @@
     color: var(--text-primary);
 }
 
-/* outline 按钮 — 实心主按钮的兄弟样式，区分"创建"vs"加入" */
-.btn-outline {
-    background: transparent;
-    color: var(--text-heading);
-    border: 1.5px solid var(--border-color);
+/* outline 按钮 — 透明底 + 边框，与实心主按钮形成强烈区分
+   用更高特异性避免被 .btn 基类或 FWUI 覆盖 */
+.btn.btn-outline {
+    background: transparent !important;
+    color: var(--primary-color);
+    border: 1.5px solid var(--primary-color) !important;
 }
 
-.btn-outline:hover {
-    background: rgba(var(--primary-rgb), 0.06);
-    border-color: var(--primary-color);
+.btn.btn-outline:hover {
+    background: rgba(var(--primary-rgb), 0.08) !important;
+    border-color: var(--primary-color) !important;
     color: var(--primary-color);
 }
 
-.btn-outline:active {
+.btn.btn-outline:active {
     transform: translateY(0);
 }
 
@@ -1007,6 +1008,21 @@
     opacity: 0.5;
     cursor: not-allowed;
     transform: none;
+}
+
+/* 🟢 localOnly 模式保护：游戏阶段为 commit 时，按钮始终可点 */
+body[data-local-only="true"][data-game-phase="commit"] .choice-btn,
+body[data-local-only="true"][data-game-phase="choose"] .choice-btn {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    opacity: 1 !important;
+}
+body[data-local-only="true"][data-game-phase="commit"] .choice-btn:disabled,
+body[data-local-only="true"][data-game-phase="choose"] .choice-btn:disabled {
+    /* 强制覆盖 disabled 属性 */
+    opacity: 1 !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
 }
 
 .choice-emoji {
@@ -1793,6 +1809,79 @@ input:checked + .slider:before {
     border-left: 1px solid var(--border-color);
 }
 
+/* ==================== 大厅筛选 Tab ==================== */
+.lobby-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.lobby-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.lobby-tab:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.lobby-tab.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.tab-count {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.2);
+}
+
+.lobby-tab:not(.active) .tab-count {
+    background: var(--bg-secondary);
+    color: var(--text-tertiary);
+}
+
+/* ==================== 列表视图表头 ==================== */
+.room-list-header {
+    display: none;
+    grid-template-columns: 120px 90px 1fr 1fr 100px 110px;
+    gap: 12px;
+    padding: 8px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--card-border);
+    margin-bottom: 8px;
+}
+
+.room-list-header.show { display: grid; }
+
+.col-id, .col-status, .col-creator, .col-player2, .col-bet, .col-action {
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.col-status { text-align: center; }
+.col-action { text-align: right; }
+
 /* ==================== 大厅分页器 ==================== */
 .room-pagination {
     display: flex;
@@ -1904,49 +1993,93 @@ input:checked + .slider:before {
     width: 100%;
 }
 
-/* 列表视图（默认） */
+/* 列表视图（默认）— 数据行必须和表头用相同列宽，确保对齐 */
 .room-list.view-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
 }
 
 .room-list.view-list .room-card {
-    display: flex;
+    display: grid;
+    grid-template-columns: 120px 90px 1fr 1fr 100px 110px;
+    gap: 12px;
     align-items: center;
     padding: 12px 16px;
-    gap: 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--card-border);
+    background: var(--bg-card);
+    transition: all var(--transition-fast);
 }
 
-.room-list.view-list .room-card-header {
-    flex-shrink: 0;
-    margin-bottom: 0;
-    min-width: 160px;
+.room-list.view-list .room-card:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-sm);
 }
 
+/* 列表视图下隐藏卡片视图专用的 header/body/player-info 包裹层 */
+.room-list.view-list .room-card-header,
 .room-list.view-list .room-card-body {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    margin-bottom: 0;
+    display: contents;  /* 让子元素直接参与 grid */
 }
 
 .room-list.view-list .room-player-info {
-    flex: 1;
     border-bottom: none;
     padding: 0;
+    display: contents;
+}
+
+/* 列表视图下各字段按列放置 */
+.room-list.view-list .room-id { grid-column: 1; }
+.room-list.view-list .room-status { grid-column: 2; }
+.room-list.view-list .room-creator { grid-column: 3; }
+.room-list.view-list .room-player2 { grid-column: 4; }
+.room-list.view-list .room-bet-info { grid-column: 5; }
+.room-list.view-list .room-card .btn-join-room { grid-column: 6; justify-self: end; }
+
+/* 列表视图：各列内部格式 */
+.room-list.view-list .room-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.room-list.view-list .room-status {
+    text-align: center;
+    justify-self: center;
 }
 
 .room-list.view-list .room-bet-info {
-    padding: 0;
-    min-width: 120px;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    justify-self: end;
 }
 
-.room-list.view-list .room-card .btn {
-    flex-shrink: 0;
+.room-list.view-list .room-creator,
+.room-list.view-list .room-player2 {
+    font-size: 12px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 列表视图下隐藏 player-label（列头已经说过了） */
+.room-list.view-list .player-label { display: none; }
+
+.room-list.view-list .room-empty { color: var(--text-tertiary); font-style: italic; }
+
+/* 卡片视图下 room-creator / room-player2 不需要新 class 样式，保持默认 */
+.room-creator .player-label,
+.room-player2 .player-label { /* 仅用于列表视图隐藏 */ }
+
+/* 列表视图：加入按钮尺寸 */
+.room-list.view-list .room-card .btn-join-room {
     width: auto;
     min-width: 100px;
+    padding: 6px 14px;
+    font-size: 13px;
 }
 
 /* 卡片视图 */

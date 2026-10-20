@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/theme.css?v=20261020e">
-    <link rel="stylesheet" href="../css/style.css?v=20261020i">
+    <link rel="stylesheet" href="../css/style.css?v=20261020l">
 </head>
 <body>
 <div id="app">
@@ -165,19 +165,26 @@
                             <p class="lobby-subtitle">创建房间或加入房间开始对局</p>
                         </div>
 
-                        <div class="lobby-stats" id="lobbyStats">
-                            <div class="stat-item">
-                                <span class="stat-label">总房间</span>
-                                <span class="stat-value" id="statTotal">0</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">可加入</span>
-                                <span class="stat-value" id="statAvailable">0</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">已开始</span>
-                                <span class="stat-value" id="statStarted">0</span>
-                            </div>
+                        <div class="lobby-tabs" id="lobbyTabs">
+                            <button class="lobby-tab active" data-filter="all" title="显示全部房间">
+                                全部 <span class="tab-count" id="tabAllCount">0</span>
+                            </button>
+                            <button class="lobby-tab" data-filter="available" title="只显示可加入的房间">
+                                可加入 <span class="tab-count" id="tabAvailableCount">0</span>
+                            </button>
+                            <button class="lobby-tab" data-filter="in_progress" title="只显示游戏中的房间">
+                                游戏中 <span class="tab-count" id="tabStartedCount">0</span>
+                            </button>
+                        </div>
+
+                        <!-- 列表视图表头（仅 view-list 时显示） -->
+                        <div class="room-list-header" id="roomListHeader">
+                            <span class="col-id">房间号</span>
+                            <span class="col-status">状态</span>
+                            <span class="col-creator">创建者</span>
+                            <span class="col-player2">对手</span>
+                            <span class="col-bet">下注</span>
+                            <span class="col-action"></span>
                         </div>
 
                         <div class="room-list" id="roomList">
@@ -652,7 +659,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.35 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.36 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -677,10 +684,10 @@
 <script src="../js/contract.js?v=20261004p"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
 <script src="../js/p2p.js?v=20260729a"></script>
-<script src="../js/ui.js?v=20261020i"></script>
+<script src="../js/ui.js?v=20261020m"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261020i"></script>
+<script src="../js/app.js?v=20261020t"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

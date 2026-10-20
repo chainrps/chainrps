@@ -1,4 +1,4 @@
-"""
+﻿"""
 房间管理服务模块
 
 负责 ChainRPS 的房间模式功能：
@@ -18,6 +18,7 @@ import uuid
 from datetime import datetime
 from typing import Dict, Optional, List
 
+from rps_backend.config import BOT_AUTO_CHAIN_MATCH
 from rps_backend.models import GameState, WSMessage
 from rps_backend.repository import create_game_record, update_game_record, get_system_config_value
 from rps_backend.utils.helpers import now_timestamp, calculate_deadline, deadline_to_iso
@@ -839,6 +840,7 @@ class RoomManager:
                     "commit_deadline": commit_deadline_ts,
                     "creator_is_bot": creator_is_bot,
                     "player2_is_bot": player2_is_bot,
+                    "local_only": not BOT_AUTO_CHAIN_MATCH,
                 },
             ))
 
@@ -856,6 +858,7 @@ class RoomManager:
                     "commit_deadline": commit_deadline_ts,
                     "creator_is_bot": creator_is_bot,
                     "player2_is_bot": player2_is_bot,
+                    "local_only": not BOT_AUTO_CHAIN_MATCH,
                 },
             ))
 
