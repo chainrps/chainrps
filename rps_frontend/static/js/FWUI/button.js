@@ -1,178 +1,200 @@
+/**
+ * FWUI Button v2 — 5 态状态机 + CSS 变量
+ *
+ * 5 态语义：
+ *   idle      主按钮默认状态，渐变主色
+ *   loading   网络请求中，Spinner + 禁用
+ *   approved  已完成前置操作（如 Approval），次色提示
+ *   error     错误，红框 + 错误文字直接内嵌按钮
+ *   success   成功，绿框，自动消失
+ *
+ * 使用：
+ *   FWUI.Button.create({ text: '开始对局', state: 'idle', onClick: ... })
+ *   btn.setState('loading')
+ *   btn.setState('error', '余额不足 · 需充值 50 USDC')
+ */
 (function() {
-    // 创建按钮
+    // 状态样式映射（全部引用 CSS 变量，主题切换自动适配）
+    const STATE_CSS = {
+        idle: {
+            background: 'var(--btn-bg-idle)',
+            color: 'var(--btn-text-idle)',
+            border: 'none',
+            cursor: 'pointer',
+            opacity: 1,
+            disabled: false,
+        },
+        loading: {
+            background: 'var(--btn-bg-loading)',
+            color: 'var(--btn-text-loading)',
+            border: 'none',
+            cursor: 'not-allowed',
+            opacity: 0.7,
+            disabled: true,
+            spinner: true,
+        },
+        approved: {
+            background: 'var(--btn-bg-approved)',
+            color: 'var(--btn-text-approved)',
+            border: '1px solid var(--btn-border-approved)',
+            cursor: 'default',
+            opacity: 1,
+            disabled: false,
+        },
+        error: {
+            background: 'var(--btn-bg-error)',
+            color: 'var(--btn-text-error)',
+            border: '1px solid var(--btn-border-error)',
+            cursor: 'pointer',
+            opacity: 1,
+            disabled: false,
+        },
+        success: {
+            background: 'var(--btn-bg-success)',
+            color: 'var(--btn-text-success)',
+            border: '1px solid var(--btn-border-success)',
+            cursor: 'default',
+            opacity: 1,
+            disabled: false,
+            autoReset: true,
+            resetAfter: 1500,
+        },
+    };
+
+    const SIZE_STYLES = {
+        small: 'padding: 6px 14px; font-size: 12px;',
+        medium: 'padding: 10px 20px; font-size: 14px;',
+        large: 'padding: 12px 28px; font-size: 16px;',
+    };
+
+    function applyState(btn, state, textOverride, originalText) {
+        const s = STATE_CSS[state] || STATE_CSS.idle;
+        btn.dataset.state = state;
+        btn.style.background = s.background;
+        btn.style.color = s.color;
+        btn.style.border = s.border;
+        btn.style.cursor = s.cursor;
+        btn.style.opacity = s.opacity;
+        btn.disabled = !!s.disabled;
+        btn.style.boxShadow = (state === 'idle') ? '0 4px 16px rgba(var(--primary-rgb), 0.25)' : 'none';
+
+        const displayText = textOverride !== undefined ? textOverride : originalText;
+
+        let inner = '';
+        if (s.spinner) {
+            inner += `<span style="width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:fwui-spin .7s linear infinite;display:inline-block;"></span>`;
+        }
+        if (state === 'success') {
+            inner += `<span style="font-weight:700;">✓</span> `;
+        }
+        inner += `<span>${displayText}</span>`;
+        btn.innerHTML = inner;
+
+        if (s.autoReset && s.resetAfter) {
+            setTimeout(() => {
+                applyState(btn, 'idle', undefined, originalText);
+            }, s.resetAfter);
+        }
+    }
+
     function createButton(options = {}) {
-        let {
+        const {
             text = '',
-            type = 'default',
             size = 'medium',
+            state = 'idle',
             block = false,
-            disabled = false,
-            loading = false,
             icon = '',
-            onClick = null
+            onClick = null,
+            onError = null,
         } = options;
 
         const btn = document.createElement('button');
-        btn.className = `fwui-btn fwui-btn-${type} fwui-btn-${size}`;
+        btn.className = 'fwui-btn';
         btn.type = 'button';
 
-        const typeStyles = {
-            primary: `
-                background: #6366f1;
-                color: #fff;
-                border: none;
-            `,
-            default: `
-                background: #fff;
-                color: #0f172a;
-                border: 1px solid #e2e8f0;
-            `,
-            success: `
-                background: #10b981;
-                color: #fff;
-                border: none;
-            `,
-            danger: `
-                background: #ef4444;
-                color: #fff;
-                border: none;
-            `,
-            ghost: `
-                background: transparent;
-                color: #0f172a;
-                border: none;
-            `,
-            link: `
-                background: transparent;
-                color: #6366f1;
-                border: none;
-                padding: 0;
-            `
-        };
-
-        const sizeStyles = {
-            small: 'padding: 6px 14px; font-size: 12px;',
-            medium: 'padding: 10px 20px; font-size: 14px;',
-            large: 'padding: 12px 28px; font-size: 16px;'
-        };
-
-        let style = `
-            ${typeStyles[type] || typeStyles.default}
-            ${sizeStyles[size] || sizeStyles.medium}
+        btn.style.cssText = `
             border-radius: 10px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.15s ease;
+            font-weight: 600;
+            transition: all var(--transition-fast);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
             white-space: nowrap;
-            ${block ? 'width: 100%;' : ''}
+            ${SIZE_STYLES[size] || SIZE_STYLES.medium}
+            ${block ? 'width:100%;' : ''}
         `;
 
-        btn.style.cssText = style;
+        btn.dataset.state = state;
+        btn.dataset.originalText = text;
 
-        // 更新按钮内容
-        function updateContent() {
-            let content = '';
-            if (loading) {
-                content += `<span class="fwui-btn-loading" style="
-                    width: 14px;
-                    height: 14px;
-                    border: 2px solid currentColor;
-                    border-top-color: transparent;
-                    border-radius: 50%;
-                    animation: fwui-spin 0.8s linear infinite;
-                    display: inline-block;
-                "></span>`;
-            } else if (icon) {
-                content += `<span class="fwui-btn-icon">${icon}</span>`;
-            }
-            content += `<span>${text}</span>`;
-            btn.innerHTML = content;
-        }
+        // 应用初始状态
+        applyState(btn, state, undefined, text);
 
-        updateContent();
-
-        if (disabled) {
-            btn.disabled = true;
-            btn.style.opacity = '0.5';
-            btn.style.cursor = 'not-allowed';
-        }
-
-        if (onClick && !disabled) {
-            btn.addEventListener('click', onClick);
-        }
-
-        // 鼠标移入事件处理
+        // hover 效果（仅 idle + error 态有）
         btn.addEventListener('mouseenter', () => {
-            if (!btn.disabled) {
-                if (type === 'primary') {
-                    btn.style.background = '#4f46e5';
-                } else if (type === 'default') {
-                    btn.style.background = '#f1f5f9';
-                }
+            const cur = btn.dataset.state;
+            if (cur === 'idle') {
+                btn.style.transform = 'translateY(-1px)';
+                btn.style.boxShadow = '0 6px 20px rgba(var(--primary-rgb), 0.35)';
             }
         });
-
-        // 鼠标移出事件处理
         btn.addEventListener('mouseleave', () => {
-            if (!btn.disabled) {
-                if (type === 'primary') {
-                    btn.style.background = '#6366f1';
-                } else if (type === 'default') {
-                    btn.style.background = '#fff';
-                }
+            const cur = btn.dataset.state;
+            if (cur === 'idle') {
+                btn.style.transform = 'translateY(0)';
+                btn.style.boxShadow = '0 4px 16px rgba(var(--primary-rgb), 0.25)';
             }
         });
 
-        // 设置按钮文本
+        // 点击事件（error 态触发 onError 回调）
+        btn.addEventListener('click', () => {
+            const cur = btn.dataset.state;
+            if (cur === 'error' && onError) {
+                onError();
+                return;
+            }
+            if (cur === 'idle' || cur === 'approved') {
+                if (onClick) onClick();
+            }
+        });
+
+        function setState(newState, textOverride) {
+            applyState(btn, newState, textOverride, btn.dataset.originalText);
+            return api;
+        }
         function setText(newText) {
-            text = newText;
-            updateContent();
+            btn.dataset.originalText = newText;
+            applyState(btn, btn.dataset.state, undefined, newText);
+            return api;
+        }
+        function loading(isLoading) {
+            setState(isLoading ? 'loading' : 'idle');
+            return api;
+        }
+        function success(textOverride) {
+            setState('success', textOverride);
+            return api;
+        }
+        function error(textOverride) {
+            setState('error', textOverride);
+            return api;
         }
 
-        // 设置加载状态
-        function setLoading(isLoading) {
-            loading = isLoading;
-            btn.disabled = isLoading;
-            updateContent();
-        }
-
-        // 设置禁用状态
-        function setDisabled(isDisabled) {
-            btn.disabled = isDisabled;
-            btn.style.opacity = isDisabled ? '0.5' : '1';
-            btn.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
-        }
-
-        return {
+        const api = {
             element: btn,
-            setText,
-            setLoading,
-            setDisabled
+            setState, setText, loading, success, error,
+            // 向后兼容
+            setDisabled: (v) => { btn.disabled = v; btn.style.opacity = v ? '0.5' : '1'; return api; },
+            setLoading: (v) => loading(v),
         };
+        return api;
     }
 
-    if (typeof FWUI !== 'undefined') {
-        FWUI.Button = { create: createButton };
-    } else {
-        window.FWUI = window.FWUI || {};
-        window.FWUI.Button = { create: createButton };
-    }
+    window.FWUI = window.FWUI || {};
+    window.FWUI.Button = { create: createButton };
 
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = { create: createButton };
     }
 })();
-
-if (typeof document !== 'undefined') {
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes fwui-spin {
-            to { transform: rotate(360deg); }
-        }
-    `;
-    document.head.appendChild(style);
-}

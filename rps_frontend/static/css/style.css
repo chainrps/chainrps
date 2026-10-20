@@ -1,4 +1,4 @@
-/* CSS变量定义已移至 theme.css，此处仅保留组件样式 */
+﻿/* CSS变量定义已移至 theme.css，此处仅保留组件样式 */
 /* theme.css 定义 :root（亮色主题）和 [data-theme="dark"]（暗色主题） */
 
 #app {
@@ -885,6 +885,14 @@
     font-size: 12px;
     color: var(--text-tertiary);
     margin-top: 4px;
+    transition: all 0.3s;
+}
+/* 🆕 出拳状态高亮 */
+.player-status.punch-here {
+    font-size: 13px;
+    font-weight: 800;
+    color: #ff4757;
+    animation: bannerPulse 1.2s ease-in-out infinite;
 }
 
 .player-choice {
@@ -949,6 +957,62 @@
 .choice-btn.selected {
     border-color: var(--primary-color);
     background: var(--primary-lighter);
+}
+
+/* 🆕 该你出拳了！— 出拳提示横幅 */
+.punch-banner {
+    text-align: center;
+    padding: 14px 24px;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 800;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(255, 71, 87, 0.4);
+    animation: bannerPulse 1.2s ease-in-out infinite;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+}
+.punch-banner.hidden { display: none; }
+@keyframes bannerPulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 4px 20px rgba(255, 71, 87, 0.4); }
+    50% { transform: scale(1.03); box-shadow: 0 6px 28px rgba(255, 71, 87, 0.65); }
+}
+.punch-banner .punch-hint {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 4px;
+    opacity: 0.9;
+}
+
+/* 🆕 出拳按钮脉冲发光动画 */
+.choice-btn.ready-to-punch {
+    animation: punchGlow 1.4s ease-in-out infinite;
+    border-color: #ff4757;
+}
+.choice-btn.ready-to-punch:hover {
+    animation-play-state: paused;
+}
+@keyframes punchGlow {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.45), 0 4px 12px rgba(0,0,0,0.1);
+        transform: translateY(0);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(255, 71, 87, 0), 0 8px 20px rgba(255, 71, 87, 0.3);
+        transform: translateY(-2px);
+    }
+}
+
+/* 🆕 对手已提交时，我的出拳按钮边框变色（催促感） */
+.choice-btn.opponent-committed {
+    border-color: #ffa502;
+    animation: punchUrgent 0.9s ease-in-out infinite;
+}
+@keyframes punchUrgent {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 165, 2, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(255, 165, 2, 0); }
 }
 
 .choice-btn:disabled {
@@ -1614,26 +1678,29 @@ input:checked + .slider:before {
 .lobby-toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 4px;
 }
 
-/* 私密模式开关 */
+/* 私密模式开关（纯图标，无边框无背景） */
 .private-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-full);
+    justify-content: center;
+    width: 32px;
+    height: 32px;
     cursor: pointer;
-    font-size: 13px;
-    color: var(--text-secondary);
+    font-size: 16px;
+    color: var(--text-tertiary);
     transition: all var(--transition-fast);
     user-select: none;
+    border: none;
+    background: none;
+    border-radius: var(--radius-sm);
 }
 
 .private-toggle:hover {
-    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(var(--primary-rgb), 0.08);
 }
 
 .private-toggle input {
@@ -1641,26 +1708,26 @@ input:checked + .slider:before {
 }
 
 .private-toggle-icon {
-    font-size: 14px;
+    font-size: 16px;
+    line-height: 1;
 }
 
 .private-toggle:has(input:checked) {
-    border-color: var(--primary-color);
-    background: rgba(var(--primary-rgb), 0.08);
     color: var(--primary-color);
+    background: rgba(var(--primary-rgb), 0.1);
 }
 
-/* 图标按钮 */
+/* 图标按钮（纯图标，无边框） */
 .btn-icon {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    background: var(--bg-card);
-    color: var(--text-secondary);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-tertiary);
     cursor: pointer;
     transition: all var(--transition-fast);
     font-size: 16px;
@@ -1668,9 +1735,8 @@ input:checked + .slider:before {
 }
 
 .btn-icon:hover {
-    border-color: var(--primary-color);
     color: var(--primary-color);
-    transform: rotate(0deg);
+    background: rgba(var(--primary-rgb), 0.08);
 }
 
 .btn-icon.refreshing span {
@@ -1682,27 +1748,29 @@ input:checked + .slider:before {
     to { transform: rotate(360deg); }
 }
 
-/* 视图切换（单个按钮，与 btn-icon 风格一致） */
+/* 视图切换（纯图标，与上面风格完全一致） */
 .view-switch-btn {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border: none;
-    background: var(--bg-card);
+    background: none;
     color: var(--text-tertiary);
     cursor: pointer;
     transition: all var(--transition-fast);
     font-size: 16px;
     padding: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-sm);
 }
 
 .view-switch-btn:hover {
     color: var(--primary-color);
     background: rgba(var(--primary-rgb), 0.08);
 }
+
+.view-switch-btn.view-list { color: var(--primary-color); }
 
 /* 房间统计 */
 .lobby-stats {
@@ -1889,7 +1957,7 @@ input:checked + .slider:before {
     font-weight: 600;
     line-height: 1.4;
     color: #fff;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: var(--gradient-primary);
     border-radius: 10px;
     vertical-align: middle;
     box-shadow: 0 1px 3px rgba(99, 102, 241, 0.3);
@@ -3885,7 +3953,7 @@ input:checked + .slider:before {
     justify-content: space-between;
     align-items: center;
     padding: 10px 12px;
-    background: #fff;
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     transition: all 0.3s ease;
@@ -3945,7 +4013,7 @@ input:checked + .slider:before {
     align-items: center;
     gap: 8px;
     padding: 14px;
-    background: #fff;
+    background: var(--card-bg);
     border: 2px solid var(--border-color);
     border-radius: 10px;
     transition: all 0.3s ease;
@@ -3958,7 +4026,7 @@ input:checked + .slider:before {
 .sd-player-avatar {
     width: 48px; height: 48px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: var(--gradient-primary);
     color: #fff;
     display: flex;
     align-items: center;
@@ -4031,7 +4099,7 @@ input:checked + .slider:before {
 .sd-choice-display {
     width: 88px; height: 88px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--card-bg);
     border: 3px solid var(--border-color);
     display: flex;
     align-items: center;
@@ -4045,7 +4113,7 @@ input:checked + .slider:before {
     background: rgba(245, 158, 11, 0.08);
 }
 .sd-choice-display.revealed {
-    border-color: #6366f1;
+    border-color: var(--primary-color);
     background: rgba(99, 102, 241, 0.1);
     transform: rotateY(360deg);
 }
@@ -4065,7 +4133,7 @@ input:checked + .slider:before {
     width: 56px; height: 56px;
     border-radius: 50%;
     border: 2px solid var(--border-color);
-    background: #fff;
+    background: var(--card-bg);
     font-size: 24px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -4118,7 +4186,7 @@ input:checked + .slider:before {
 }
 .sd-settle-item {
     padding: 8px 12px;
-    background: #fff;
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     text-align: center;
@@ -4217,7 +4285,7 @@ input:checked + .slider:before {
 }
 
 .pk-left .pk-fighter-name {
-    color: var(--primary, #6366f1);
+    color: var(--primary, var(--primary-color));
 }
 
 .pk-right .pk-fighter-name {

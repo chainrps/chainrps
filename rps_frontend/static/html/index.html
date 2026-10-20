@@ -14,8 +14,11 @@
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 
     <!--    样式-->
-    <link rel="stylesheet" href="../css/theme.css?v=20261004j">
-    <link rel="stylesheet" href="../css/style.css?v=20261004j">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/theme.css?v=20261020e">
+    <link rel="stylesheet" href="../css/style.css?v=20261020e">
 </head>
 <body>
 <div id="app">
@@ -147,12 +150,11 @@
                             <div class="lobby-title-row">
                                 <h2 class="lobby-title">🏠 游戏大厅</h2>
                                 <div class="lobby-toolbar">
-                                    <label class="private-toggle" title="不向服务器传输对局信息">
+                                    <label class="private-toggle" title="私密模式 · 不向服务器传输对局信息">
                                         <input type="checkbox" id="modePrivateCheckbox">
                                         <span class="private-toggle-icon">🔒</span>
-                                        <span class="private-toggle-text">私密</span>
                                     </label>
-                                    <button class="btn-icon" id="refreshRoomListBtn" title="刷新大厅">
+                                    <button class="btn-icon" id="refreshRoomListBtn" title="刷新大厅房间列表">
                                         <span>🔄</span>
                                     </button>
                                     <button class="view-switch-btn" id="viewSwitchBtn" title="切换列表/卡片视图">
@@ -342,6 +344,12 @@
                     </div>
 
                     <div class="game-actions" id="gameActions">
+                        <!-- 🆕 该你出拳了！提示横幅 -->
+                        <div class="punch-banner hidden" id="punchBanner">
+                            🎯 该你出拳了！点下方按钮出招
+                            <span class="punch-hint" id="punchBannerHint">3 种选择：石头 ✊ 布 ✋ 剪刀 ✌️</span>
+                        </div>
+
                         <div class="choice-buttons">
                             <button class="choice-btn choice-rock" data-choice="1">
                                 <span class="choice-emoji">✊</span>
@@ -630,7 +638,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.33 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.34 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -640,13 +648,17 @@
 
 <script src="../js/ethers.umd.min.js"></script>
 
-<script src="../js/FWUI/modal.js?v=20260726d"></script>
-<script src="../js/FWUI/toast.js?v=20260726d"></script>
-<script src="../js/FWUI/button.js?v=20260726d"></script>
-<script src="../js/FWUI/input.js?v=20260726d"></script>
+<script src="../js/FWUI/interactions.js?v=20261020c"></script>
+<script src="../js/FWUI/modal.js?v=20261020c"></script>
+<script src="../js/FWUI/toast.js?v=20261020c"></script>
+<script src="../js/FWUI/button.js?v=20261020c"></script>
+<script src="../js/FWUI/input.js?v=20261020c"></script>
+<script src="../js/FWUI/skeleton.js?v=20261020c"></script>
+<script src="../js/FWUI/card.js?v=20261020c"></script>
+<script src="../js/FWUI/tabs.js?v=20261020c"></script>
 
-<script src="../js/config.js?v=20260728a"></script>
-<script src="../js/wallet.js?v=20260728a"></script>
+<script src="../js/config.js?v=20261020c"></script>
+<script src="../js/wallet.js?v=20261020c"></script>
 <script src="../js/crypto.js?v=20260726d"></script>
 <script src="../js/contract.js?v=20261004p"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
@@ -654,7 +666,7 @@
 <script src="../js/ui.js?v=20261004j"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261004r"></script>
+<script src="../js/app.js?v=20261020e"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

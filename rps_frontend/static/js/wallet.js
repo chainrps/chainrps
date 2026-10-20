@@ -184,23 +184,85 @@ const Wallet = (function() {
         }
     }
 
-    // 连接调试钱包（仅用于预览模式）
-    function connectDebugWallet() {
+    // 连接调试钱包（真正可用：连接本地 Ganache RPC + 用私钥构造 ethers.Signer）
+    // 这样 Debug 钱包可以真正签发送交易，不是只有一个假地址
+    async function connectDebugWallet() {
         isDebugMode = true;
-        currentAddress = CONFIG.debugWalletAddress;
         walletType = 'debug';
-        currentChainId = CONFIG.getChainId ? CONFIG.getChainId() : 5208888;
 
-        emit('accountChanged', currentAddress);
-        emit('chainChanged', currentChainId);
+        try {
+            // 1. 先读 config 里的本地链 RPC
+            const rpcHost = CONFIG.RPC_HOST || '127.0.0.1';
+            const rpcPort = CONFIG.RPC_PORT || 8686;
+            const chainId = CONFIG.getChainId ? CONFIG.getChainId() : 5208888;
+            const rpcUrl = `http://${rpcHost}:${rpcPort}`;
 
-        FWUI.Toast.info('已连接调试钱包（仅用于预览）');
-        
-        return {
-            address: currentAddress,
-            chainId: currentChainId,
-            walletType: walletType
-        };
+            // 2. 如果浏览器在手机上（非 localhost），把 127.0.0.1 改成主机局域网 IP
+            //    这样手机浏览器也能连到你电脑上的 Ganache
+            let effectiveRpcUrl = rpcUrl;
+            if (rpcHost === '127.0.0.1' || rpcHost === 'localhost') {
+                // 手机浏览器的 localStorage 可以覆盖这个值
+                const stored = localStorage.getItem('rps_debug_rpc_url');
+                if (stored) {
+                    effectiveRpcUrl = stored;
+                }
+            }
+
+            // 3. 构造 ethers JsonRpcProvider（直连 Ganache）
+            provider = new ethers.JsonRpcProvider(effectiveRpcUrl);
+
+            // 4. 用第一个 Ganache 账户的私钥构造 signer
+            //    Ganache 默认前 10 个账户都预分配了 100 ETH
+            //    这里用 config 里配置的 debugWalletPrivateKey，如果没有就走 Ganache 第一个默认私钥
+            let privateKey = CONFIG.debugWalletPrivateKey;
+            if (!privateKey) {
+                // Ganache 启动时 generate available accounts 的第一个私钥（hardhat 默认值，我们的 ganache 也用这个）
+                // 优先从 ganache_accounts.json 里找（后端启动时会生成到本地）
+                try {
+                    const resp = await fetch('/rootfs/data/ganache_accounts.json');
+                    if (resp.ok) {
+                        const accounts = await resp.json();
+                        if (accounts && accounts.length > 0) {
+                            privateKey = accounts[0].privateKey || accounts[0].private_key;
+                        }
+                    }
+                } catch {}
+                // 还找不到就用 hardhat/ganache 默认第一个
+                if (!privateKey) {
+                    privateKey = '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318';
+                }
+            }
+
+            const wallet = new ethers.Wallet(privateKey, provider);
+            signer = wallet;
+            currentAddress = await wallet.getAddress();
+            currentChainId = Number(chainId);
+            rawProvider = null;  // 不是 EIP-1193 provider
+
+            // 检查 RPC 是否真的可达
+            try {
+                const blockNum = await provider.getBlockNumber();
+                emit('accountChanged', currentAddress);
+                emit('chainChanged', currentChainId);
+                FWUI.Toast.success(`✅ 调试钱包已连接 · ${effectiveRpcUrl} · block #${blockNum}`);
+            } catch (rpcErr) {
+                FWUI.Toast.warning(`⚠️ 调试钱包：RPC 不可达 (${effectiveRpcUrl})，可能需要先启动本地链`);
+                emit('accountChanged', currentAddress);
+                emit('chainChanged', currentChainId);
+            }
+
+            return { address: currentAddress, chainId: currentChainId, walletType };
+
+        } catch (e) {
+            console.error('connectDebugWallet error:', e);
+            // 降级：连不上 RPC 也给个地址显示（但发交易会失败）
+            currentAddress = CONFIG.debugWalletAddress || '0x0000000000000000000000000000000000000001';
+            currentChainId = CONFIG.getChainId ? CONFIG.getChainId() : 5208888;
+            emit('accountChanged', currentAddress);
+            emit('chainChanged', currentChainId);
+            FWUI.Toast.error('❌ 调试钱包连接失败: ' + e.message);
+            return { address: currentAddress, chainId: currentChainId, walletType };
+        }
     }
 
     // 自动连接钱包（无需用户手动点击）

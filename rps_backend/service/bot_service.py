@@ -1491,19 +1491,31 @@ class BotInstance:
                         gd_now = self._active_games.get(game_id)
                         chain_gid = gd_now.get("chain_game_id") if gd_now else None
                         if chain_gid:
-                            # 🆕 timeout=90s（合约 commitTimeout=66s，玩家需要 approve+join）
-                            # join 后 creator 必须立刻 commit——commitDeadline 从 createMatch 算，窗口极短！
-                            joined = await self._wait_for_opponent_chain_joined(chain_gid, timeout=90)
+                            # timeout=120s（合约 commitTimeout=600s，玩家 approve+join 窗口充足）
+                            joined = await self._wait_for_opponent_chain_joined(chain_gid, timeout=120)
                             if not joined:
                                 self._log("INFO", f"对手未加入链上对局，cancelMatch 撤销: chain_game_id={chain_gid}")
                                 await self._cancel_chain_match(chain_gid)
                                 return
-                            # 🆕 creator: join 后立刻 commit，不等 commit_delay（避免 commitDeadline 过期！）
+                            # creator: join 后立刻 commit，不等 commit_delay
                             await self._do_commit(game_id)
-                            # 🆕 creator: 等链上双方 commit（不等本地 state='reveal_phase'！链上才是真相）
-                            await self._wait_for_opponent_commit_on_chain(chain_gid, timeout=30)
+                            # creator: 等链上双方 commit（对手是 player2 → commit2）
+                            await self._wait_for_opponent_commit_on_chain(chain_gid, timeout=60, bot_is_creator=True)
+                            # creator: 立刻 reveal
+                            await self._do_reveal(game_id)
+                            await self._wait_for_game_result(game_id)
+                            return
 
-                            # 🆕 creator: 不等 reveal_delay（合约 revealTimeout 很紧！）
+                    elif role == "player2":
+                        gd_now = self._active_games.get(game_id)
+                        chain_gid = gd_now.get("chain_game_id") if gd_now else None
+                        if chain_gid:
+                            # player2 链上路径：joinMatch 已在 _chain_match_phase 完成
+                            # 立刻 commit
+                            await self._do_commit(game_id)
+                            # player2: 等链上双方 commit（对手是 creator → commit1）
+                            await self._wait_for_opponent_commit_on_chain(chain_gid, timeout=60, bot_is_creator=False)
+                            # 立刻 reveal
                             await self._do_reveal(game_id)
                             await self._wait_for_game_result(game_id)
                             return
@@ -1605,8 +1617,10 @@ class BotInstance:
             elapsed += 1
         return False
 
-    # 🆕 等链上对手 commit（查 games(chain_gid).commit2 非全零）
-    async def _wait_for_opponent_commit_on_chain(self, chain_gid: int, timeout: int = 30) -> None:
+    # 🆕 等链上对手 commit（Bot 是 creator → 查 commit2；Bot 是 player2 → 查 commit1）
+    async def _wait_for_opponent_commit_on_chain(self, chain_gid: int, timeout: int = 30,
+                                                  bot_is_creator: bool = True) -> None:
+        commit_idx = 5 if bot_is_creator else 4  # [4]=commit1(creator), [5]=commit2(player2)
         elapsed = 0
         while elapsed < timeout and self._is_running and self._contract:
             try:
@@ -1614,16 +1628,15 @@ class BotInstance:
                     return self._contract.functions.games(int(chain_gid)).call()
                 data = await _run_sync(_read)
                 if data:
-                    # games struct: [4]=commit1(creator), [5]=commit2(player2)
-                    commit2 = data[5]
-                    if any(b != 0 for b in commit2):
-                        self._log("INFO", f"对手链上 commit 检测到: chain_game_id={chain_gid}")
+                    opponent_commit = data[commit_idx]
+                    if any(b != 0 for b in opponent_commit):
+                        self._log("INFO", f"对手链上 commit 检测到(commit{'2' if bot_is_creator else '1'}): chain_game_id={chain_gid}")
                         return
             except Exception:
                 pass
             await asyncio.sleep(1)
             elapsed += 1
-        self._log("WARN", f"等对手链上 commit 超时: chain_game_id={chain_gid}")
+        self._log("WARN", f"等对手链上 commit 超时: chain_game_id={chain_gid}, bot_is_creator={bot_is_creator}")
 
     # 撤销 Waiting 阶段的链上对局，回收资金（cancelMatch）
     async def _cancel_chain_match(self, chain_game_id: int) -> bool:

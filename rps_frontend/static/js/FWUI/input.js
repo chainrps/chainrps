@@ -1,8 +1,19 @@
+/**
+ * FWUI Input v2 — CSS 变量
+ *
+ * 变体：type="text"（普通）、type="amount"（等宽+右对齐）、type="address"（长地址）
+ */
 (function() {
-    // 创建输入框
+    const SIZE_STYLES = {
+        small: 'padding: 6px 12px; font-size: 12px;',
+        medium: 'padding: 10px 14px; font-size: 14px;',
+        large: 'padding: 12px 16px; font-size: 16px;',
+    };
+
     function createInput(options = {}) {
         const {
             type = 'text',
+            inputType = 'text',
             placeholder = '',
             value = '',
             size = 'medium',
@@ -13,40 +24,38 @@
             onChange = null,
             onInput = null,
             onFocus = null,
-            onBlur = null
+            onBlur = null,
         } = options;
 
         const wrapper = document.createElement('div');
-        wrapper.className = 'fwui-input-wrapper';
         wrapper.style.cssText = `
-            display: flex;
-            align-items: center;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            background: #fff;
-            transition: all 0.15s ease;
-            position: relative;
+            display:flex; align-items:center;
+            border:1px solid var(--fwui-border-input);
+            border-radius:10px;
+            background:var(--fwui-bg-input);
+            transition:all var(--transition-fast);
+            position:relative;
         `;
 
-        const sizeStyles = {
-            small: 'padding: 6px 12px; font-size: 12px;',
-            medium: 'padding: 10px 14px; font-size: 14px;',
-            large: 'padding: 12px 16px; font-size: 16px;'
-        };
-
         const input = document.createElement('input');
-        input.type = type;
+        input.type = inputType;
         input.className = 'fwui-input';
         input.placeholder = placeholder;
         input.value = value;
+
+        let extra = '';
+        if (type === 'amount') {
+            extra = 'font-family:var(--fwui-font-mono, JetBrains Mono, Consolas, monospace); font-variant-numeric:tabular-nums; text-align:right;';
+        } else if (type === 'address') {
+            extra = 'font-family:var(--fwui-font-mono, JetBrains Mono, Consolas, monospace);';
+        }
+
         input.style.cssText = `
-            flex: 1;
-            border: none;
-            outline: none;
-            background: transparent;
-            color: #0f172a;
-            ${sizeStyles[size] || sizeStyles.medium}
-            min-width: 0;
+            flex:1; border:none; outline:none; background:transparent;
+            color:var(--text-heading);
+            ${SIZE_STYLES[size] || SIZE_STYLES.medium}
+            min-width:0;
+            ${extra}
         `;
 
         if (disabled) {
@@ -54,107 +63,53 @@
             wrapper.style.opacity = '0.5';
             wrapper.style.cursor = 'not-allowed';
         }
-
-        if (maxLength) {
-            input.maxLength = maxLength;
-        }
+        if (maxLength) input.maxLength = maxLength;
 
         if (prefix) {
-            const prefixEl = document.createElement('span');
-            prefixEl.className = 'fwui-input-prefix';
-            prefixEl.style.cssText = `
-                padding-left: 14px;
-                color: #94a3b8;
-                display: flex;
-                align-items: center;
-                flex-shrink: 0;
-            `;
-            prefixEl.innerHTML = prefix;
-            wrapper.appendChild(prefixEl);
+            const p = document.createElement('span');
+            p.style.cssText = 'padding-left:14px; color:var(--text-label); display:flex; align-items:center; flex-shrink:0;';
+            p.innerHTML = prefix;
+            wrapper.appendChild(p);
         }
 
         wrapper.appendChild(input);
 
         if (suffix) {
-            const suffixEl = document.createElement('span');
-            suffixEl.className = 'fwui-input-suffix';
-            suffixEl.style.cssText = `
-                padding-right: 14px;
-                color: #94a3b8;
-                display: flex;
-                align-items: center;
-                flex-shrink: 0;
-            `;
-            suffixEl.innerHTML = suffix;
-            wrapper.appendChild(suffixEl);
+            const s = document.createElement('span');
+            s.style.cssText = 'padding-right:14px; color:var(--text-label); display:flex; align-items:center; flex-shrink:0;';
+            s.innerHTML = suffix;
+            wrapper.appendChild(s);
         }
 
-        // 输入框聚焦事件处理
         input.addEventListener('focus', () => {
-            wrapper.style.borderColor = '#6366f1';
-            wrapper.style.boxShadow = '0 0 0 3px #e0e7ff';
+            wrapper.style.borderColor = 'var(--fwui-border-input-focus)';
+            wrapper.style.boxShadow = '0 0 0 3px rgba(var(--primary-rgb), 0.15)';
             if (onFocus) onFocus();
         });
-
-        // 输入框失焦事件处理
         input.addEventListener('blur', () => {
-            wrapper.style.borderColor = '#e2e8f0';
+            wrapper.style.borderColor = 'var(--fwui-border-input)';
             wrapper.style.boxShadow = 'none';
             if (onBlur) onBlur();
         });
-
-        if (onChange) {
-            input.addEventListener('change', (e) => onChange(e.target.value, e));
-        }
-
-        if (onInput) {
-            input.addEventListener('input', (e) => onInput(e.target.value, e));
-        }
-
-        // 获取输入框的值
-        function getValue() {
-            return input.value;
-        }
-
-        // 设置输入框的值
-        function setValue(val) {
-            input.value = val;
-        }
-
-        // 设置禁用状态
-        function setDisabled(isDisabled) {
-            input.disabled = isDisabled;
-            wrapper.style.opacity = isDisabled ? '0.5' : '1';
-            wrapper.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
-        }
-
-        // 聚焦输入框
-        function focus() {
-            input.focus();
-        }
-
-        // 失焦输入框
-        function blur() {
-            input.blur();
-        }
+        if (onChange) input.addEventListener('change', (e) => onChange(e.target.value, e));
+        if (onInput) input.addEventListener('input', (e) => onInput(e.target.value, e));
 
         return {
-            element: wrapper,
-            input,
-            getValue,
-            setValue,
-            setDisabled,
-            focus,
-            blur
+            element: wrapper, input,
+            getValue: () => input.value,
+            setValue: (v) => { input.value = v; },
+            setDisabled: (d) => {
+                input.disabled = d;
+                wrapper.style.opacity = d ? '0.5' : '1';
+                wrapper.style.cursor = d ? 'not-allowed' : 'pointer';
+            },
+            focus: () => input.focus(),
+            blur: () => input.blur(),
         };
     }
 
-    if (typeof FWUI !== 'undefined') {
-        FWUI.Input = { create: createInput };
-    } else {
-        window.FWUI = window.FWUI || {};
-        window.FWUI.Input = { create: createInput };
-    }
+    window.FWUI = window.FWUI || {};
+    window.FWUI.Input = { create: createInput };
 
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = { create: createInput };
