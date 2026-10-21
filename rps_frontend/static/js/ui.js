@@ -490,6 +490,14 @@ const UI = (function() {
     function showResult(result) {
         if (!elements.resultTitle) return;
         
+        // 🆕 防重复触发标记（结算动画只播一次）
+        if (window._gameResultShown) {
+            console.warn('[showResult] 已触发过，跳过重复调用');
+            return;
+        }
+        window._gameResultShown = true;
+        console.log('[showResult] 首次触发，播放结算动画');
+        
         // 🆕 PK 动画模式
         const myFist = document.getElementById('pkMyFist');
         const oppFist = document.getElementById('pkOppFist');
@@ -1009,8 +1017,8 @@ const UI = (function() {
 
     // 资金阶段 → 显示文案（中文，用户可理解的资金状态）
     const FUND_STAGE_TEXT = {
-        'local_frozen': '🔒 资金：本地冻结（准备阶段，未上链）',
-        'chain_frozen': '⛓️ 资金：链上冻结（已通过 createMatch/joinMatch 锁定）',
+        'local_frozen': '🔒 资金：本地阶段（未上链，可随时退出）',
+        'chain_frozen': '⛓️ 资金：链上已锁定（createMatch/joinMatch 后彻底锁定，只能出拳或超时强制结算）',
         'revealing':   '🔓 资金：揭晓中（出拳已提交，等待结算）',
         'settled':     '✅ 资金：已结算',
         'cancelled':   '❌ 资金：已解冻（房间关闭，本地冻结解除）',

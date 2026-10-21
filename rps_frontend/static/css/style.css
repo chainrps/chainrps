@@ -1213,6 +1213,41 @@ body[data-local-only="true"][data-game-phase="choose"] .choice-btn:disabled {
     margin-top: 16px;
 }
 
+/* 🆕 自动揭晓标签（非按钮，纯提示用） */
+.auto-reveal-label {
+    max-width: 300px;
+    margin: 0 auto;
+    padding: 14px 20px;
+    background: rgba(99, 102, 241, 0.15);
+    border: 1.5px dashed rgba(99, 102, 241, 0.5);
+    border-radius: 12px;
+    color: #818cf8;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: default;
+    user-select: none;
+    animation: autoRevealPulse 2s ease-in-out infinite;
+}
+.auto-reveal-label .auto-reveal-icon {
+    font-size: 18px;
+    animation: autoRevealSpin 2s linear infinite;
+}
+.auto-reveal-label.hidden { display: none; }
+
+@keyframes autoRevealPulse {
+    0%, 100% { opacity: 0.85; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.02); }
+}
+@keyframes autoRevealSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .btn-reveal, .btn-claim-timeout {
     max-width: 300px;
     margin: 0 auto;
@@ -2154,14 +2189,6 @@ input:checked + .slider:before {
     .pagination-info select { padding: 3px 6px; font-size: 11px; }
 }
 
-.lobby-actions {
-    display: flex;
-    justify-content: center;
-    gap: 16px;
-    margin-top: 24px;
-    margin-bottom: 32px;
-}
-
 /* ==================== 房间列表（支持列表/卡片两种视图） ==================== */
 .room-list {
     width: 100%;
@@ -2400,7 +2427,9 @@ input:checked + .slider:before {
 
     .lobby-toolbar {
         width: 100%;
-        justify-content: space-between;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 2px;
     }
 
     .lobby-stats {
@@ -2410,14 +2439,6 @@ input:checked + .slider:before {
 
     .stat-item + .stat-item {
         padding-left: 10px;
-    }
-
-    .lobby-actions {
-        flex-direction: column;
-    }
-
-    .lobby-actions .btn {
-        width: 100%;
     }
 }
 
