@@ -114,14 +114,40 @@ class ContractService:
                 print(f"⚠️  无效的合约地址格式: {self._contract_address}")
                 return
 
-            # 验证 RPC 连接（使用带超时的 provider，避免永久阻塞）
-            self.w3 = _create_web3_with_timeout()
-            if not self.w3.is_connected():
-                print(f"ℹ️  无法连接到 RPC 节点: {RPC_URL}，正在自动启动本地链...")
+            # 验证 RPC 连接（带重试 —— Ganache 可能还没起来）
+            w3_instance = None
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    w3_instance = _create_web3_with_timeout()
+                    if w3_instance.is_connected():
+                        break
+                    w3_instance = None
+                except Exception as e:
+                    print(f"ℹ️  RPC 连接尝试 {attempt+1}/{max_retries} 失败: {e}")
+                import time as _t
+                _t.sleep(1)
+
+            if w3_instance is None or not w3_instance.is_connected():
+                print(f"ℹ️  无法连接到 RPC 节点: {RPC_URL}（已重试 {max_retries} 次），正在自动启动本地链...")
                 self._auto_start_local_chain()
-                self.w3 = None
+                # 启动后再等 3 秒让 Ganache 就绪
+                import time as _t
+                for _ in range(3):
+                    _t.sleep(1)
+                    try:
+                        w3_instance = _create_web3_with_timeout()
+                        if w3_instance.is_connected():
+                            break
+                        w3_instance = None
+                    except Exception:
+                        pass
+
+            if w3_instance is None or not w3_instance.is_connected():
+                print(f"⚠️  无法连接到 RPC 节点: {RPC_URL}，跳过合约初始化")
                 return
 
+            self.w3 = w3_instance
             self.contract = self.w3.eth.contract(
                 address=self._contract_address,
                 abi=CONTRACT_ABI,
