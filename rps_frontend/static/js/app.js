@@ -810,15 +810,11 @@ const App = (function () {
 
                 const now = Math.floor(Date.now() / 1000);
 
-                if (game.status === STATUS_WAITING || game.status === STATUS_COMMIT) {
-                    // 等待阶段或 Commit 阶段 → 可 cancelMatch
-                    // 但 Commit 阶段需要双方都没 commit 才行（合约会校验）
-                    const isWaiting = game.status === STATUS_WAITING;
+                if (game.status === STATUS_WAITING) {
+                    // Waiting 阶段（仅 player1 资金上链，等待对手 join）→ 创建者可 cancelMatch 退款
                     FWUI.Modal.confirm({
                         title: '取消对局并退出',
-                        content: isWaiting
-                            ? '对局尚未开始出拳，取消后双方资金将自动退回钱包。确定取消吗？'
-                            : '对局在出拳阶段，如果双方都还没提交出拳哈希，取消后资金自动退回。确定取消吗？',
+                        content: '对局还在等待对手加入，取消后双方资金将自动退回钱包。确定取消吗？',
                         okText: '调用 cancelMatch 取消',
                         cancelText: '继续等待',
                         onOk: async () => {
@@ -830,12 +826,9 @@ const App = (function () {
                                 FWUI.Toast.success('✓ 链上对局已取消，资金已退回');
                                 await safeExitRoom(currentRoomId, myAddress);
                             } catch (txErr) {
-                                // 对方已 commit → cancelMatch 会 revert
                                 FWUI.Modal.alert({
                                     title: '无法取消',
-                                    content: txErr.message?.includes('Commit submitted')
-                                        ? '对手已经提交出拳哈希，此时无法取消对局。<br>可以等到揭晓超时后申请超时退款。'
-                                        : '取消失败：' + (txErr.message || '未知错误'),
+                                    content: '取消失败：' + (txErr.message || '未知错误'),
                                     okText: '我知道了',
                                 });
                             }
@@ -844,8 +837,42 @@ const App = (function () {
                     return;
                 }
 
+                if (game.status === STATUS_COMMIT) {
+                    // v1.4.0：CommitPhase 资金已彻底锁定，无法取消，只能走 commit→reveal→结算 或 超时强制结算
+                    const commitDeadline = Number(game.commitDeadline);
+                    const commitLeft = commitDeadline - now;
+                    if (commitLeft > 0) {
+                        const mins = Math.floor(commitLeft / 60);
+                        const secs = commitLeft % 60;
+                        FWUI.Modal.alert({
+                            title: '对局进行中',
+                            content: `资金已在链上彻底锁定，无法取消或退出。<br>请在 ${mins}分${secs}秒 内提交出拳，或等待超时后由系统强制随机出拳结算。`,
+                            okText: '我知道了',
+                        });
+                        return;
+                    }
+                    // Commit 超时 → claimTimeout（合约内部自动随机出拳+正常结算，GameSettled 事件会自动触发结果显示）
+                    FWUI.Modal.confirm({
+                        title: '超时强制结算',
+                        content: '双方提交时间已过，可以触发超时结算。系统将对未操作方自动随机出拳，然后正常结算（赢方拿走奖金池 - 手续费）。',
+                        okText: '申请超时结算',
+                        cancelText: '取消',
+                        onOk: async () => {
+                            try {
+                                FWUI.Toast.info('正在申请超时强制结算...');
+                                const contract = Contract.getContract();
+                                await (await contract.claimTimeout(currentGameId)).wait();
+                                FWUI.Toast.success('✓ 超时结算已触发，结果将自动显示');
+                            } catch (txErr) {
+                                FWUI.Toast.error('超时结算失败：' + (txErr.message || '未知错误'));
+                            }
+                        },
+                    });
+                    return;
+                }
+
                 if (game.status === STATUS_REVEAL) {
-                    // Reveal 阶段 → 等 revealDeadline 超时后 claimTimeout + handleDraw
+                    // Reveal 阶段 → 资金仍锁定，revealDeadline 超时后可 claimTimeout 强制结算
                     const revealDeadline = Number(game.revealDeadline);
                     const revealLeft = revealDeadline - now;
                     if (revealLeft > 0) {
@@ -853,28 +880,25 @@ const App = (function () {
                         const secs = revealLeft % 60;
                         FWUI.Modal.alert({
                             title: '对手正在揭晓中',
-                            content: `资金已锁定在链上，无法直接退出。<br>如果对手 ${mins}分${secs}秒 内不揭晓，你可以申请超时退款。<br><br>链上超时机制会保护你的资金安全。`,
+                            content: `资金已在链上锁定，无法取消或退出。<br>请等待对手揭晓（剩余 ${mins}分${secs}秒），或超时后由系统强制随机出拳结算。`,
                             okText: '等待揭晓',
                         });
                         return;
                     }
-                    // Reveal 超时 → claimTimeout + handleDraw
+                    // Reveal 超时 → claimTimeout（合约内部自动随机出拳+正常结算）
                     FWUI.Modal.confirm({
-                        title: '超时退款并退出',
-                        content: '对手揭晓时间已过，可以申请超时退款。双方押金将原路退回（零手续费）。',
-                        okText: '申请超时退款',
+                        title: '超时强制结算',
+                        content: '揭晓时间已过，可以触发超时结算。系统将对未揭晓方自动随机出拳，然后正常结算。',
+                        okText: '申请超时结算',
                         cancelText: '取消',
                         onOk: async () => {
                             try {
-                                FWUI.Toast.info('正在申请超时退款...');
+                                FWUI.Toast.info('正在申请超时强制结算...');
                                 const contract = Contract.getContract();
                                 await (await contract.claimTimeout(currentGameId)).wait();
-                                FWUI.Toast.info('✓ 超时已确认，正在领取退款...');
-                                await (await contract.handleDraw(currentGameId)).wait();
-                                FWUI.Toast.success('✓ 退款已到账，正在退出房间');
-                                await safeExitRoom(currentRoomId, myAddress);
+                                FWUI.Toast.success('✓ 超时结算已触发，结果将自动显示');
                             } catch (txErr) {
-                                FWUI.Toast.error('退款失败：' + (txErr.message || '未知错误'));
+                                FWUI.Toast.error('超时结算失败：' + (txErr.message || '未知错误'));
                             }
                         },
                     });
@@ -887,38 +911,7 @@ const App = (function () {
                     return;
                 }
 
-                // CommitPhase 还在等 → 等 commitDeadline
-                const commitDeadline = Number(game.commitDeadline);
-                const commitLeft = commitDeadline - now;
-                if (commitLeft > 0) {
-                    const mins = Math.floor(commitLeft / 60);
-                    const secs = commitLeft % 60;
-                    FWUI.Modal.alert({
-                        title: '对局进行中',
-                        content: `资金已锁定在链上，无法直接退出。<br>如果对手 ${mins}分${secs}秒 内不提交出拳，你可以申请超时退款。`,
-                        okText: '等待超时',
-                    });
-                    return;
-                }
-                // Commit 超时 → claimTimeout + handleDraw
-                FWUI.Modal.confirm({
-                    title: '超时退款并退出',
-                    content: '对手迟迟不提交出拳，可以申请超时退款。双方押金将原路退回。',
-                    okText: '申请超时退款',
-                    cancelText: '取消',
-                    onOk: async () => {
-                        try {
-                            FWUI.Toast.info('正在申请超时退款...');
-                            const contract = Contract.getContract();
-                            await (await contract.claimTimeout(currentGameId)).wait();
-                            await (await contract.handleDraw(currentGameId)).wait();
-                            FWUI.Toast.success('✓ 退款已到账，正在退出房间');
-                            await safeExitRoom(currentRoomId, myAddress);
-                        } catch (txErr) {
-                            FWUI.Toast.error('退款失败：' + (txErr.message || '未知错误'));
-                        }
-                    },
-                });
+                // 不应到达这里（已在 Wait/Commit/Reveal/Finished/Cancelled 全部 return）
 
             } catch (e) {
                 console.error('[Exit] 读取链上状态失败:', e);
@@ -928,7 +921,7 @@ const App = (function () {
                              `资金安全提示：<br>` +
                              `• 如果资金<b>尚未上链</b>（本地冻结），强制退出不会有任何损失。<br>` +
                              `• 如果资金<b>已在链上锁定</b>，强制退出只能清本地 UI 状态，资金不受影响——<br>` +
-                             `　重连链后可以再回来处理（取消/超时退款）。<br><br>` +
+                             `　重连链后可以再回来处理（Waiting 阶段可取消 / 超时可强制结算）。<br><br>` +
                              `要<b>强制退出并清本地状态</b>返回大厅吗？`,
                     okText: '强制退出',
                     cancelText: '再等等',
@@ -1018,7 +1011,7 @@ const App = (function () {
                             FWUI.Modal.confirm({
                                 title: '无法安全退出',
                                 content: `后端拒绝退出：<br><b>${msg}</b><br><br>` +
-                                         `通常意味着链上资金已锁定，需先走链上取消/超时退款。<br>` +
+                                         `通常意味着链上资金已锁定，需等待对局自然结算或触发超时强制结算。<br>` +
                                          `若链不可用，可以<b>强制清理本地 UI 状态</b>返回大厅——资金安全不受影响。`,
                                 okText: '强制清理本地状态',
                                 cancelText: '知道了',
@@ -1509,10 +1502,10 @@ const App = (function () {
 
         Contract.on('TimeoutClaimed', (event, args) => {
             if (currentGameId && Number(event.args.gameId) === currentGameId) {
-                // 合约 v1.1.0：超时统一全额退款（平局处理），不判超时方负
-                // TimeoutClaimed 之后会紧跟 DrawHandled 事件，由 handleDrawSettled 展示结果
+                // 合约 v1.4.0：超时后自动随机出拳并正常结算（赢方+手续费）
+                // TimeoutClaimed 之后会 emit ChoiceRevealed（随机出拳）和 GameSettled（正常结算）
                 stopGameTimer();
-                FWUI.Toast.info('对局超时，将退款给双方');
+                FWUI.Toast.info('对局超时，系统将自动随机出拳并结算...');
             }
         });
 
@@ -5528,11 +5521,38 @@ const App = (function () {
         }
     }
 
+    // 🆕 显示自动揭晓标签（隐藏按钮）
+    function showAutoRevealLabel(seconds) {
+        const btn = UI.elements.revealBtn;
+        const label = document.getElementById('autoRevealLabel');
+        if (btn) btn.classList.add('hidden');
+        if (label) {
+            label.classList.remove('hidden');
+            const textEl = label.querySelector('.auto-reveal-text');
+            if (textEl && seconds != null) textEl.textContent = `自动揭晓（${seconds}s）`;
+            else if (textEl) textEl.textContent = '自动揭晓中';
+        }
+    }
+
+    // 🆕 显示手动揭晓按钮（隐藏标签）
+    function showManualRevealBtn() {
+        const btn = UI.elements.revealBtn;
+        const label = document.getElementById('autoRevealLabel');
+        if (btn) {
+            btn.classList.remove('hidden');
+            btn.disabled = false;
+            btn.textContent = '揭晓出拳';
+        }
+        if (label) label.classList.add('hidden');
+    }
+
     // 启动自动揭示倒计时（seconds 秒后自动调用 revealChoice）
     function startAutoReveal(seconds = 5) {
         stopAutoReveal();
         let remaining = seconds;
-        const btn = UI.elements.revealBtn;
+
+        // 🆕 显示标签而非按钮
+        showAutoRevealLabel(remaining);
 
         const tick = () => {
             // 已揭示，或不再需要揭示（状态变更），直接停止
@@ -5540,28 +5560,27 @@ const App = (function () {
                 stopAutoReveal();
                 return;
             }
-            if (btn) {
-                if (remaining <= 0) {
-                    stopAutoReveal();
-                    // 优先使用本地保存的盐+出拳（用户可能未点击选择但之前已经提交过 commit，因为 submitChoice 时已存盐）
-                    const stored = RPSCrypto.getSalt(currentGameId);
-                    if (!selectedChoice && stored && stored.choice) {
-                        selectedChoice = stored.choice;
-                    }
-                    if (!currentSalt && stored && stored.salt) {
-                        currentSalt = stored.salt;
-                    }
-                    if (selectedChoice && currentSalt && myCommitSubmitted && !myRevealed) {
-                        btn.disabled = true;
-                        btn.textContent = '自动揭晓中...';
-                        revealChoice();
-                    } else {
-                        btn.disabled = false;
-                        btn.textContent = '揭晓出拳';
-                    }
-                    return;
+            if (remaining <= 0) {
+                stopAutoReveal();
+                // 优先使用本地保存的盐+出拳
+                const stored = RPSCrypto.getSalt(currentGameId);
+                if (!selectedChoice && stored && stored.choice) {
+                    selectedChoice = stored.choice;
                 }
-                btn.textContent = `自动揭晓（${remaining}s）`;
+                if (!currentSalt && stored && stored.salt) {
+                    currentSalt = stored.salt;
+                }
+                if (selectedChoice && currentSalt && myCommitSubmitted && !myRevealed) {
+                    showAutoRevealLabel();  // 显示 "自动揭晓中"
+                    revealChoice();
+                }
+                return;
+            }
+            // 更新标签倒计时
+            const label = document.getElementById('autoRevealLabel');
+            if (label) {
+                const textEl = label.querySelector('.auto-reveal-text');
+                if (textEl) textEl.textContent = `自动揭晓（${remaining}s）`;
             }
             remaining--;
         };
@@ -5576,6 +5595,9 @@ const App = (function () {
             clearInterval(autoRevealTimer);
             autoRevealTimer = null;
         }
+        // 🆕 隐藏自动揭晓标签
+        const label = document.getElementById('autoRevealLabel');
+        if (label) label.classList.add('hidden');
     }
 
     // 超时索赔
@@ -5802,6 +5824,8 @@ const App = (function () {
         opponentCommitSubmitted = false;
         myRevealed = false;
         opponentRevealed = false;
+        // 🆕 清结算防重复标记（下一局可以重新播动画）
+        window._gameResultShown = false;
         setGamePhase('idle');
         // 🔥 isLocalOnlyGame 不在 resetGameState 里清！
         // 因为 handleRoomGameStarted 里先调 resetGameState 再根据 local_only 字段设 true，

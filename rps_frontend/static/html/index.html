@@ -16,7 +16,7 @@
     <!--    样式-->
     <!-- 🔥 去掉 Google Fonts 外链（国内被墙导致 ERR_CONNECTION_CLOSED），改用系统等宽字体 -->
     <link rel="stylesheet" href="../css/theme.css?v=20261020e">
-    <link rel="stylesheet" href="../css/style.css?v=20261022d">
+    <link rel="stylesheet" href="../css/style.css?v=20261023a">
 </head>
 <body>
 <div id="app">
@@ -158,6 +158,12 @@
                                     <button class="view-switch-btn" id="viewSwitchBtn" title="切换列表/卡片视图">
                                         <span class="view-icon">▦</span>
                                     </button>
+                                    <button class="btn-icon" id="createRoomBtn" title="创建房间">
+                                        <span>➕</span>
+                                    </button>
+                                    <button class="btn-icon" id="joinRoomBtn" title="输入房间ID加入">
+                                        <span>🔗</span>
+                                    </button>
                                 </div>
                             </div>
                             <p class="lobby-subtitle">创建房间或加入房间开始对局</p>
@@ -189,7 +195,7 @@
                             <div class="empty-state">
                                 <span class="empty-icon">🏠</span>
                                 <p>暂无可用房间</p>
-                                <p class="empty-hint">点击下方按钮创建第一个房间</p>
+                                <p class="empty-hint">点击右上角 ➕ 按钮创建第一个房间</p>
                             </div>
                         </div>
 
@@ -205,15 +211,6 @@
                                 </select>
                             </div>
                             <div class="pagination-controls" id="paginationControls"></div>
-                        </div>
-
-                        <div class="lobby-actions">
-                            <button class="btn btn-primary btn-large" id="createRoomBtn">
-                                <span>➕ 创建房间</span>
-                            </button>
-                            <button class="btn btn-outline btn-large" id="joinRoomBtn">
-                                <span>🔗 输入房间ID</span>
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -398,6 +395,11 @@
                             <button class="btn btn-success btn-large btn-block btn-reveal" id="revealBtn">
                                 揭晓出拳
                             </button>
+                            <!-- 🆕 自动揭晓标签（非按钮，纯提示用） -->
+                            <div class="auto-reveal-label hidden" id="autoRevealLabel">
+                                <span class="auto-reveal-icon">⏱</span>
+                                <span class="auto-reveal-text">自动揭晓中</span>
+                            </div>
                         </div>
 
                         <div class="action-buttons hidden" id="timeoutSection">
@@ -660,7 +662,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.37 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.38 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -685,10 +687,10 @@
 <script src="../js/contract.js?v=20261004p"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
 <script src="../js/p2p.js?v=20260729a"></script>
-<script src="../js/ui.js?v=20261022c"></script>
+<script src="../js/ui.js?v=20261023b"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261022i"></script>
+<script src="../js/app.js?v=20261023b"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

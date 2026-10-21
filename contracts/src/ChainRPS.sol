@@ -13,17 +13,19 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  * @dev 使用 keccak256 哈希承诺机制确保出拳公平性
  *      防仿标识：官方开发者地址、部署时间戳、版本号硬编码
  *
- *      锁定机制（v1.1.0 引入）：
- *      - 平台锁定（假锁定）：Waiting 与 CommitPhase（双方都未提交 commit）状态，
- *        用户可自主撤销退款；
- *      - 真正锁定：任一方提交 commit 后进入 RevealPhase，资金真正锁定，
- *        任何人（含 Owner）都无权撤销或全额退款。
+ *      锁定机制（v1.4.0 调整）：
+ *      - Waiting（仅 player1 资金上链，等待对手加入）：player1 可自主撤销，全额退款；
+ *      - CommitPhase（双方资金均已上链锁定）：禁止撤销，只能 commit→reveal 或超时强制结算；
+ *      - RevealPhase 及之后：资金真正锁定，任何人（含 Owner）都无权撤销。
  *
- *      超时机制（v1.1.0 调整）：
- *      - 提交/揭晓阶段默认 5 分钟超时；
- *      - 超时后无论双方都未操作或仅一方操作，统一全额退款，不判超时方负。
+ *      超时机制（v1.4.0 重写）：
+ *      - 提交/揭晓阶段超时后，不再退款，对未操作方自动随机出拳（blockhash+gameId），
+ *        然后正常走 _settleGame 结算：赢方拿走奖金池 - 2% 手续费。
+ *      - Reveal 阶段若一方已正常 reveal，另一方超时则超时方被判成随机出拳，
+ *        正常结算（已 reveal 方大概率获胜）。
+ *      - 双方都超时未操作则双方都随机出拳后正常结算。
  *
- *      平局机制：零手续费，原路退回。
+ *      平局机制：零手续费，原路退回。（仅出拳平局或超时随机出拳后平局才触发）
  *
  *      签名代提交机制（v1.2.0 引入）：
  *      - 方案A（每局一次签名）：玩家对 commit/reveal 数据做 EIP-712 链下签名，
@@ -43,13 +45,21 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  *      - EIP-712 域分隔符动态链 ID 绑定（S1-01）：切链后自动刷新域分隔符，防跨链重放。
  *      - 所有 *WithSig 签名结构体新增 deadline 字段（S1-03），过期签名拒绝。
  *      - Relayer 白名单（S1-05）：只有白名单 relayer 可调用 *WithSig 函数。
+ *
+ *      v1.4.0 升级（强制结算 + 彻底锁定）：
+ *      - 移除 CommitPhase 阶段的 cancelMatch 权限：joinMatch 后双方资金均已上链，
+ *        状态进入 CommitPhase，资金从此彻底锁定，只能走 commit→reveal→结算 或 超时强制结算。
+ *      - 新增 _randomChoice：用 blockhash 混合 gameId/player 生成确定性伪随机出拳。
+ *      - 重写 claimTimeout：超时不再退款，对未操作方自动随机出拳后正常结算
+ *        （赢方拿走奖金池 - 2% 手续费）。双方都没操作则双方都随机出拳后结算。
+ *      - 方案A/B 的 claimTimeoutWithSig / claimTimeoutViaRelayer 同步新逻辑。
  */
 // 链上公平猜拳游戏合约 - 基于哈希承诺的石头剪刀布
 contract chainrps is Ownable, ReentrancyGuard, Pausable {
     // ==================== 常量与防仿标识 ====================
 
     // 版本号
-    string public constant VERSION = "v1.3.0";
+    string public constant VERSION = "v1.4.0";
     // 合约部署时间戳
     uint256 public immutable deployTimestamp;
     // 官方开发者地址
@@ -67,13 +77,13 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
     // 出拳选择：None(0)-无, Rock(1)-石头, Paper(2)-布, Scissors(3)-剪刀
     enum Choice {None, Rock, Paper, Scissors}
 
-    // 游戏状态枚举
+    // 游戏状态枚举（v1.4.0 锁定语义）
     enum GameStatus {
-        Waiting,        // 等待玩家加入（平台锁定，player1 可自主撤销）
-        CommitPhase,    // 双方已加入，提交承诺阶段（任一方未提交前可自主撤销）
-        RevealPhase,    // 揭晓阶段（资金真正锁定，不可撤销）
-        Finished,       // 已结束
-        Cancelled       // 已取消
+        Waiting,        // 等待玩家加入（仅 player1 资金上链锁定，player1 可自主撤销全额退款）
+        CommitPhase,    // 双方已加入、资金均已上链彻底锁定，只能 commit→reveal→结算 或 超时强制结算
+        RevealPhase,    // 揭晓阶段（任一方 commit 后进入，双方资金仍锁定，只能 reveal 或超时强制结算）
+        Finished,       // 已结束（胜负或平局）
+        Cancelled       // 已取消（仅 Waiting 阶段 cancelMatch 可触发）
     }
 
     // ==================== 数据结构 ====================
@@ -606,10 +616,12 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         return _domainSeparatorV4();
     }
 
-    // 超时处理 - 提交/揭晓阶段超时后，统一全额退款，不判超时方负
+    // v1.4.0：超时强制结算 — 不再退款，对未操作方自动随机出拳后正常结算
     /**
-     * @notice 超时处理 - 提交/揭晓阶段超时后，统一全额退款，不判超时方负
-     * @dev 无论是双方都未操作、还是仅一方操作，超时后都全额退款给双方
+     * @notice 超时强制结算（v1.4.0） - 超时后对未操作方自动随机出拳，正常走结算
+     * @dev CommitPhase 超时 → 双方都随机出拳；RevealPhase 超时 → 未 reveal 方随机出拳
+     *      然后调用 _settleGame：赢方拿走奖金池 - 2% 手续费，无平局退款
+     *      随机源：blockhash(block.number-1) 混合 gameId/player/playerIndex，确定性伪随机
      * @param gameId 对局ID
      */
     function claimTimeout(uint256 gameId) external nonReentrant whenNotPaused {
@@ -627,12 +639,9 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
             require(block.timestamp > game.revealDeadline, "Reveal phase not ended");
         }
 
-        // 统一标记为平局式退款，等待双方调用 handleDraw 领取
-        game.status = GameStatus.Finished;
-        game.isDraw = true;
+        emit TimeoutClaimed(gameId, msg.sender, false);
 
-        emit TimeoutClaimed(gameId, msg.sender, true);
-        emit DrawHandled(gameId);
+        _forceSettleOnTimeout(gameId);
     }
 
     // 平局退款 - 双方分别领取退款（零手续费）
@@ -645,28 +654,20 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         _handleDrawForPlayer(gameId, msg.sender);
     }
 
-    // 玩家自主撤销对局 - 仅在"平台锁定"阶段可用
+    // 玩家自主撤销对局 - 仅在 Waiting 阶段可用（v1.4.0 调整）
     /**
-     * @notice 玩家自主撤销对局 - 仅在"平台锁定"阶段可用
-     * @dev Waiting 状态：仅 player1 可撤销
-     *      CommitPhase 状态：双方都未提交 commit 时任一方可撤销
-     *      RevealPhase 及之后：资金已真正锁定，任何人（含 Owner）都无权撤销
+     * @notice 玩家自主撤销对局 - 仅在 Waiting 阶段可用
+     * @dev v1.4.0：移除 CommitPhase 撤销权限。joinMatch 后双方资金均已上链，
+     *      从此彻底锁定，只能走 commit→reveal→结算 或 超时强制结算。
+     *      Waiting 状态（仅 player1 资金上链，player2 尚未 join）：仅 player1 可撤销。
+     *      CommitPhase / RevealPhase / Finished：禁止撤销。
      * @param gameId 对局ID
      */
     function cancelMatch(uint256 gameId) external nonReentrant whenNotPaused {
         Game storage game = games[gameId];
         require(msg.sender == game.player1 || msg.sender == game.player2, "Not a player");
-
-        if (game.status == GameStatus.Waiting) {
-            require(msg.sender == game.player1, "Only creator can cancel");
-        } else if (game.status == GameStatus.CommitPhase) {
-            require(
-                game.commit1 == bytes32(0) && game.commit2 == bytes32(0),
-                "Commit submitted, cannot cancel"
-            );
-        } else {
-            revert("Cannot cancel after reveal phase");
-        }
+        require(game.status == GameStatus.Waiting, "Can only cancel in Waiting phase");
+        require(msg.sender == game.player1, "Only creator can cancel");
 
         game.status = GameStatus.Cancelled;
 
@@ -884,14 +885,12 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
             require(block.timestamp > game.revealDeadline, "Reveal phase not ended");
         }
 
-        game.status = GameStatus.Finished;
-        game.isDraw = true;
-
         nonces[player] = nonce + 1;
 
-        emit TimeoutClaimed(gameId, player, true);
+        emit TimeoutClaimed(gameId, player, false);
         emit TimeoutClaimedWithSig(gameId, player, msg.sender);
-        emit DrawHandled(gameId);
+
+        _forceSettleOnTimeout(gameId);
     }
 
     // ==================== 方案B 真正可用（F1-03）：*ViaRelayer 函数 ====================
@@ -1018,9 +1017,9 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         emit HandleDrawViaRelayer(gameId, player, msg.sender);
     }
 
-    // 方案B：relayer 代超时处理（无需签名，凭长期授权）
+    // 方案B：relayer 代超时强制结算（无需签名，凭长期授权，v1.4.0）
     /**
-     * @notice relayer 代超时处理（方案B） - relayer 凭玩家长期授权代为触发超时退款
+     * @notice relayer 代超时强制结算（方案B, v1.4.0） - 自动随机出拳后正常结算
      * @param gameId 对局ID
      * @param player 玩家地址
      */
@@ -1044,12 +1043,10 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
             require(block.timestamp > game.revealDeadline, "Reveal phase not ended");
         }
 
-        game.status = GameStatus.Finished;
-        game.isDraw = true;
-
-        emit TimeoutClaimed(gameId, player, true);
+        emit TimeoutClaimed(gameId, player, false);
         emit TimeoutClaimedViaRelayer(gameId, player, msg.sender);
-        emit DrawHandled(gameId);
+
+        _forceSettleOnTimeout(gameId);
     }
 
     // ==================== ERC20 Permit 存款（F1-04） ====================
@@ -1168,6 +1165,42 @@ contract chainrps is Ownable, ReentrancyGuard, Pausable {
         RelayerAuthorization storage auth = relayerAuthorizations[player];
         require(auth.relayer == msg.sender, "Not authorized relayer");
         require(block.timestamp <= auth.deadline, "Authorization expired");
+    }
+
+    // v1.4.0：超时强制结算的随机出拳 — 用 blockhash 混合 gameId + player + playerIndex
+    // 返回 1=石头 / 2=布 / 3=剪刀（None=0 不会被返回）
+    function _randomChoice(uint256 gameId, address player, uint256 playerIndex) internal view returns (uint8) {
+        // 用当前区块的 blockhash（或 parenthash）混合 gameId + player + playerIndex 得到确定性伪随机
+        bytes32 seed = keccak256(abi.encodePacked(blockhash(block.number - 1), gameId, player, playerIndex));
+        // keccak256 返回 32 字节，取最低 32 bit 模 3 得到 0/1/2，+1 映射到 1=石头/2=布/3=剪刀
+        uint256 r = uint256(seed);
+        return uint8((r % 3) + 1);
+    }
+
+    // v1.4.0：超时强制结算内部逻辑 — 对未操作方自动随机出拳后正常走 _settleGame
+    function _forceSettleOnTimeout(uint256 gameId) internal {
+        Game storage game = games[gameId];
+
+        if (game.status == GameStatus.CommitPhase) {
+            // CommitPhase 超时：双方都还没 reveal choice → 双方都随机出拳
+            game.choice1 = _randomChoice(gameId, game.player1, 1);
+            game.choice2 = _randomChoice(gameId, game.player2, 2);
+            emit ChoiceRevealed(gameId, game.player1, game.choice1);
+            emit ChoiceRevealed(gameId, game.player2, game.choice2);
+        } else {
+            // RevealPhase 超时：只给未 reveal 的那方随机出拳
+            if (game.choice1 == 0) {
+                game.choice1 = _randomChoice(gameId, game.player1, 1);
+                emit ChoiceRevealed(gameId, game.player1, game.choice1);
+            }
+            if (game.choice2 == 0) {
+                game.choice2 = _randomChoice(gameId, game.player2, 2);
+                emit ChoiceRevealed(gameId, game.player2, game.choice2);
+            }
+        }
+
+        // 走正常结算路径（不会平局退款，赢方+手续费正常分发）
+        _settleGame(gameId);
     }
 
     // 优先使用预存款，不足时走 transferFrom
