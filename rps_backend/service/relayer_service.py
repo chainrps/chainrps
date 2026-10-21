@@ -620,7 +620,7 @@ class RelayerService:
             }
 
     async def _wait_and_untrack(self, tx_hash_hex: str, timeout: int = 120) -> bool:
-        """等待交易确认，确认后从 pending 列表移除"""
+        """等待交易确认，确认后从 pending 列表移除；若交易 revert 则抛异常"""
         try:
             receipt = await _run_sync(
                 lambda: self.w3.eth.wait_for_transaction_receipt(
@@ -628,6 +628,10 @@ class RelayerService:
                     timeout=timeout,
                 )
             )
+            # 检查交易是否成功（revert 时 status=0）
+            if receipt is None or receipt.get("status") != 1:
+                tx_h = tx_hash_hex if isinstance(tx_hash_hex, str) else tx_hash_hex.hex()
+                raise Exception(f"Transaction reverted: {tx_h}")
             return True
         finally:
             async with self._pending_lock:
