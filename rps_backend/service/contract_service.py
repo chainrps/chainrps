@@ -152,9 +152,10 @@ class ContractService:
                 address=self._contract_address,
                 abi=CONTRACT_ABI,
             )
-            # 初始化为当前区块号
-            self._last_block = self.w3.eth.block_number
-            print(f"✅ Web3 初始化成功，合约:[{self._contract_address}] 链 ID: {self.w3.eth.chain_id}")
+            # 初始化为当前区块号 - 回扫 500 块保证不漏事件（宕机恢复场景）
+            _cur_block = self.w3.eth.block_number
+            self._last_block = max(0, _cur_block - 500)
+            print(f"✅ Web3 初始化成功，合约:[{self._contract_address}] 链 ID: {self.w3.eth.chain_id} (回扫至 block {self._last_block})")
         except Exception as e:
             print(f"⚠️  Web3 初始化失败: {e}")
             self.w3 = None
