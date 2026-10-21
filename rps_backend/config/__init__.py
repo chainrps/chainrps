@@ -92,7 +92,7 @@ BOT_WALLET_INITIAL_USDC = config_manager.get("BOT_WALLET_INITIAL_USDC", 1000000.
 
 # Bot 默认策略配置
 BOT_DEFAULT_STRATEGY = config_manager.get("BOT_DEFAULT_STRATEGY", "random")
-BOT_AUTO_CHAIN_MATCH = config_manager.get("BOT_AUTO_CHAIN_MATCH", True)
+BOT_AUTO_CHAIN_MATCH = config_manager.get("BOT_AUTO_CHAIN_MATCH", False)
 
 # 部署配置
 FEE_COLLECTOR = config_manager.get("FEE_COLLECTOR", "")

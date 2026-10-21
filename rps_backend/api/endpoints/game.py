@@ -1,4 +1,4 @@
-"""
+﻿"""
 游戏相关 API 端点
 
 定义 ChainRPS 后端的游戏匹配、对局查询、提交承诺、揭晓出拳、
@@ -7,7 +7,7 @@
 """
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from rps_backend.models import (
     CancelMatchRequest,
@@ -37,6 +37,7 @@ from rps_backend.models import (
     # 方案B：Relayer 长期授权
     AuthorizeRelayerRequest,
 )
+from rps_backend.config import BOT_AUTO_CHAIN_MATCH
 from rps_backend.repository import get_game_record, get_player_stats, get_leaderboard
 from rps_backend.service import game_manager, match_manager, room_manager
 from rps_backend.service.relayer_service import relayer_service
@@ -85,6 +86,7 @@ def _room_to_response(room: dict) -> RoomResponse:
         creator_is_bot=bool(creator_is_bot),
         player2_is_bot=bool(player2_is_bot),
         deadlines=deadlines,
+        local_only=not BOT_AUTO_CHAIN_MATCH,
     )
 
 
@@ -107,6 +109,12 @@ def _build_game_response(game: dict) -> GameResponse:
         reveal_deadline=datetime.fromisoformat(game["reveal_deadline"]) if game.get("reveal_deadline") else None,
         winner=game.get("winner"),
         is_draw=bool(game.get("is_draw")),
+        # 🆕 完整状态（前端恢复用）
+        commit1=game.get("commit1"),
+        commit2=game.get("commit2"),
+        choice1=game.get("choice1"),
+        choice2=game.get("choice2"),
+        chain_game_id=game.get("chain_game_id"),
     )
 
 
@@ -310,17 +318,25 @@ async def reset_room_for_rematch(request: ResetRoomRequest):
 
 # 获取房间列表
 @router.get("/room/list", response_model=RoomListResponse)
-async def get_room_list():
-    """获取游戏大厅房间列表"""
+async def get_room_list(
+    page: int = Query(1, ge=1, description="页码（从1开始）"),
+    per_page: int = Query(0, ge=0, le=100, description="每页数量，0=不分页返回全量"),
+):
+    """获取游戏大厅房间列表（支持分页）"""
     rooms = room_manager.get_room_list()
 
-    room_responses = []
-    for room in rooms:
-        room_responses.append(_room_to_response(room))
+    room_responses = [_room_to_response(r) for r in rooms]
+    total = len(room_responses)
+
+    # 分页
+    if per_page > 0:
+        start = (page - 1) * per_page
+        end = start + per_page
+        room_responses = room_responses[start:end]
 
     return RoomListResponse(
         rooms=room_responses,
-        total=len(room_responses),
+        total=total,
     )
 
 

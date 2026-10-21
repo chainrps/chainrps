@@ -437,6 +437,7 @@ const UI = (function() {
 
     // 启用或禁用出拳按钮（含脉冲提示动画 + 🎯横幅）
     function setChoiceButtonsEnabled(enabled, opts = {}) {
+        console.log('[UI] setChoiceButtonsEnabled', enabled, new Error().stack.split('\n').slice(1,4).join('\n'));
         const buttons = document.querySelectorAll('.choice-btn');
         const banner = document.getElementById('punchBanner');
         const hint = document.getElementById('punchBannerHint');
@@ -702,18 +703,44 @@ const UI = (function() {
         return isMobile ? 'card' : 'list';
     }
 
-    // 渲染房间列表
-    function renderRoomList(rooms) {
+    // 全局房间筛选状态
+    let _lobbyFilter = 'all';  // all | available | in_progress
+    let _allRoomsCache = [];
+
+    // 渲染房间列表（支持分页 + 筛选）
+    function renderRoomList(rooms, pagination) {
         if (!elements.roomList) return;
+
+        // 缓存全量 + 更新 Tab 计数
+        _allRoomsCache = rooms || [];
+        updateLobbyTabCounts(_allRoomsCache);
+
+        // 应用筛选
+        let filtered = _allRoomsCache;
+        if (_lobbyFilter === 'available') {
+            filtered = _allRoomsCache.filter(r => r.status === 'created');
+        } else if (_lobbyFilter === 'in_progress') {
+            filtered = _allRoomsCache.filter(r => r.status === 'game_started' || r.status === 'countdown' || r.status === 'joined');
+        }
+
+        // 更新 Tab 激活态
+        document.querySelectorAll('.lobby-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.filter === _lobbyFilter);
+        });
+
+        // 表头显隐：只在 view-list 时显示
+        const header = document.getElementById('roomListHeader');
+        if (header) header.classList.toggle('show', roomListView === 'list');
 
         // 应用视图类
         elements.roomList.classList.toggle('view-list', roomListView === 'list');
         elements.roomList.classList.toggle('view-card', roomListView === 'card');
 
-        // 更新统计
-        const total = rooms.length;
-        const available = rooms.filter(r => r.status === 'created').length;
-        const started = rooms.filter(r => r.status === 'game_started').length;
+        // 更新统计（筛选后数量）
+        const total = filtered.length;
+        const available = filtered.filter(r => r.status === 'created').length;
+        const started = filtered.filter(r => ['game_started','countdown','joined'].includes(r.status)).length;
+        // 旧 stat 元素兼容（虽然 HTML 已换成 Tab）
         const statTotalEl = document.getElementById('statTotal');
         const statAvailableEl = document.getElementById('statAvailable');
         const statStartedEl = document.getElementById('statStarted');
@@ -721,14 +748,17 @@ const UI = (function() {
         if (statAvailableEl) statAvailableEl.textContent = available;
         if (statStartedEl) statStartedEl.textContent = started;
 
-        if (!rooms || rooms.length === 0) {
+        if (!filtered || filtered.length === 0) {
+            const filterHint = _lobbyFilter !== 'all' ? `（"${_lobbyFilter === 'available' ? '可加入' : '游戏中'}"筛选下无房间）` : '';
             elements.roomList.innerHTML = `
                 <div class="empty-state">
                     <span class="empty-icon">🏠</span>
-                    <p>暂无可用房间</p>
+                    <p>暂无可用房间 ${filterHint}</p>
                     <p class="empty-hint">点击下方按钮创建第一个房间</p>
                 </div>
             `;
+            // 分页器也需要更新总数
+            renderRoomPagination({ ...pagination, total: _allRoomsCache.length });
             return;
         }
 
@@ -756,7 +786,7 @@ const UI = (function() {
             return map[status] || 'status-joined';
         };
 
-        elements.roomList.innerHTML = rooms.map(room => {
+        elements.roomList.innerHTML = filtered.map(room => {
             const isAvailable = room.status === 'created';
             const inProgress = room.status === 'game_started' || room.status === 'countdown';
             const creatorBadge = room.creator_is_bot ? '<span class="ai-badge" title="AI 机器人">🤖 AI</span>' : '';
@@ -770,24 +800,28 @@ const UI = (function() {
                         </span>
                     </div>
                     <div class="room-card-body">
-                        <div class="room-player-info">
+                        <div class="room-player-info room-creator">
                             <span class="player-label">创建者</span>
                             <span class="player-value">${formatAddress(room.creator)}${creatorBadge}</span>
                         </div>
                         ${room.player2 ? `
-                            <div class="room-player-info">
+                            <div class="room-player-info room-player2">
                                 <span class="player-label">对手</span>
                                 <span class="player-value">${formatAddress(room.player2)}${player2Badge}</span>
                             </div>
-                        ` : ''}
+                        ` : `
+                            <div class="room-player-info room-player2 room-empty">
+                                <span class="player-value">— 等待加入 —</span>
+                            </div>
+                        `}
                         <div class="room-bet-info">
                             <span class="bet-token">${room.token}</span>
                             <span class="bet-amount">${room.bet_amount}</span>
                         </div>
                     </div>
                     ${isAvailable ? `
-                        <button class="btn btn-primary btn-block btn-join-room" data-room-id="${room.room_id}">
-                            加入房间
+                        <button class="btn btn-outline btn-block btn-join-room" data-room-id="${room.room_id}">
+                            🎯 加入房间
                         </button>
                     ` : inProgress ? `
                         <button class="btn btn-outline btn-block btn-enter-room" data-room-id="${room.room_id}">
@@ -801,6 +835,134 @@ const UI = (function() {
                 </div>
             `;
         }).join('');
+    }
+
+    // 渲染分页器
+    function renderRoomPagination(pagination) {
+        const pager = document.getElementById('roomPagination');
+        if (!pager) return;
+
+        const total = pagination?.total ?? 0;
+        const page = pagination?.page ?? 1;
+        const perPage = pagination?.perPage ?? 10;
+        const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+        // 分页器始终显示（per_page 下拉是用户设置入口，不能藏）
+        pager.classList.remove('hidden');
+
+        // 房间总数 ≤ 1 时，分页按钮区清空，只保留 info + perPageSelect
+        if (total <= 1) {
+            const controls = document.getElementById('paginationControls');
+            if (controls) controls.innerHTML = '';
+            // 设置 info 文案友好
+            const infoText = document.getElementById('pageInfoText');
+            if (infoText) infoText.textContent = `${total} 个房间`;
+            return;
+        }
+
+        // 信息文案
+        const startIdx = (page - 1) * perPage + 1;
+        const endIdx = Math.min(page * perPage, total);
+        const infoText = document.getElementById('pageInfoText');
+        if (infoText) infoText.textContent = `${startIdx}-${endIdx} / ${total}`;
+
+        // per_page select 同步当前值
+        const perSelect = document.getElementById('perPageSelect');
+        if (perSelect && perSelect.value != perPage) {
+            perSelect.value = String(perPage);
+        }
+
+        // 页码按钮
+        const controls = document.getElementById('paginationControls');
+        if (!controls) return;
+        controls.innerHTML = '';
+
+        const btnCls = 'page-btn';
+        const prev = document.createElement('button');
+        prev.className = `${btnCls} ${page === 1 ? 'disabled' : ''}`;
+        prev.textContent = '‹';
+        prev.title = '上一页';
+        prev.disabled = page === 1;
+        prev.addEventListener('click', () => {
+            if (page > 1) { window.setRoomPage(page - 1); }
+        });
+        controls.appendChild(prev);
+
+        // 页码范围（最多 5 个，带省略）
+        const maxBtns = 5;
+        let startP = Math.max(1, page - 2);
+        let endP = Math.min(totalPages, startP + maxBtns - 1);
+        if (endP - startP < maxBtns - 1) startP = Math.max(1, endP - maxBtns + 1);
+
+        if (startP > 1) {
+            const b1 = document.createElement('button');
+            b1.className = btnCls; b1.textContent = '1';
+            b1.addEventListener('click', () => window.setRoomPage(1));
+            controls.appendChild(b1);
+            if (startP > 2) { const e = document.createElement('span'); e.className = 'page-ellipsis'; e.textContent = '…'; controls.appendChild(e); }
+        }
+
+        for (let i = startP; i <= endP; i++) {
+            const b = document.createElement('button');
+            b.className = `${btnCls} ${i === page ? 'active' : ''}`;
+            b.textContent = String(i);
+            b.addEventListener('click', () => window.setRoomPage(i));
+            controls.appendChild(b);
+        }
+
+        if (endP < totalPages) {
+            if (endP < totalPages - 1) { const e = document.createElement('span'); e.className = 'page-ellipsis'; e.textContent = '…'; controls.appendChild(e); }
+            const bn = document.createElement('button');
+            bn.className = btnCls; bn.textContent = String(totalPages);
+            bn.addEventListener('click', () => window.setRoomPage(totalPages));
+            controls.appendChild(bn);
+        }
+
+        const next = document.createElement('button');
+        next.className = `${btnCls} ${page === totalPages ? 'disabled' : ''}`;
+        next.textContent = '›';
+        next.title = '下一页';
+        next.disabled = page === totalPages;
+        next.addEventListener('click', () => {
+            if (page < totalPages) { window.setRoomPage(page + 1); }
+        });
+        controls.appendChild(next);
+    }
+
+    // 更新大厅 Tab 计数徽章
+    function updateLobbyTabCounts(rooms) {
+        const all = rooms.length;
+        const avail = rooms.filter(r => r.status === 'created').length;
+        const started = rooms.filter(r => ['game_started','countdown','joined'].includes(r.status)).length;
+        const elAll = document.getElementById('tabAllCount');
+        const elAvail = document.getElementById('tabAvailableCount');
+        const elStarted = document.getElementById('tabStartedCount');
+        if (elAll) elAll.textContent = all;
+        if (elAvail) elAvail.textContent = avail;
+        if (elStarted) elStarted.textContent = started;
+    }
+
+    // 初始化大厅 Tab 点击事件（只绑一次）
+    let _lobbyTabBound = false;
+    function bindLobbyTabs() {
+        if (_lobbyTabBound) return;
+        _lobbyTabBound = true;
+        document.addEventListener('click', (e) => {
+            const tab = e.target.closest('.lobby-tab');
+            if (!tab) return;
+            e.preventDefault();
+            const filter = tab.dataset.filter;
+            if (!filter || filter === _lobbyFilter) return;
+            _lobbyFilter = filter;
+            // 重新渲染（用缓存）
+            renderRoomList(_allRoomsCache, { page: 1, perPage: 10, total: _allRoomsCache.length });
+        });
+    }
+    // DOM ready 后绑定
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bindLobbyTabs);
+    } else {
+        bindLobbyTabs();
     }
 
     // 资金阶段 → 显示文案（中文，用户可理解的资金状态）

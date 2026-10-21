@@ -199,6 +199,7 @@ class RoomResponse(BaseModel):
     creator_is_bot: bool = False
     player2_is_bot: bool = False
     deadlines: Optional[dict] = None  # 各阶段超时 deadline 时间戳 + 超时常量
+    local_only: Optional[bool] = None  # auto_chain_match=False 时为 True，前端跳过链上流程
 
 
 class SetSeatModeRequest(BaseModel):
@@ -243,6 +244,12 @@ class GameResponse(BaseModel):
     reveal_deadline: Optional[datetime] = None
     winner: Optional[str] = None
     is_draw: bool
+    # 🆕 localOnly / 恢复用的完整状态
+    commit1: Optional[str] = None
+    commit2: Optional[str] = None
+    choice1: Optional[str] = None
+    choice2: Optional[str] = None
+    chain_game_id: Optional[int] = None
 
 
 class MatchStatusResponse(BaseModel):

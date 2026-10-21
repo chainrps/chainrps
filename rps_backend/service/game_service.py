@@ -32,6 +32,21 @@ _CHOICE_NAME_TO_INT = {
 }
 
 
+def _determine_rps_result(c1: int, c2: int, p1_addr: str = None, p2_addr: str = None) -> dict:
+    """本地 RPS 胜负判定（仅 localOnly 模式使用）
+
+    规则：Rock(1) > Scissors(3) > Paper(2) > Rock(1)
+    """
+    if c1 == c2:
+        return {"is_draw": True, "winner": None}
+    # c1 赢的情况：1>3, 3>2, 2>1
+    p1_wins = (c1 == 1 and c2 == 3) or (c1 == 3 and c2 == 2) or (c1 == 2 and c2 == 1)
+    return {
+        "is_draw": False,
+        "winner": p1_addr if p1_wins else p2_addr,
+    }
+
+
 # 校验承诺哈希（F1-16 修复：与合约 keccak256(abi.encodePacked(choice, salt, player)) 一致）
 def _verify_commit(choice, salt: str, address: str, commit_hash: str) -> bool:
     """
@@ -285,7 +300,47 @@ class GameManager:
                 }
             ))
 
-        # 胜负结果由链上合约事件同步（contract_service 监听 GameSettled / DrawHandled）
+        # 🆕 localOnly 模式：双方都 reveal 后本地算胜负 + 广播 game_result
+        # 链上模式：胜负由合约事件同步，后端不处理
+        latest_game = get_game_record(game_id)
+        if latest_game:
+            c1 = latest_game.get("choice1")
+            c2 = latest_game.get("choice2")
+            chain_id = latest_game.get("chain_game_id")
+            if c1 is not None and c2 is not None and not chain_id:
+                # = localOnly 模式，双方都已揭晓
+                result = _determine_rps_result(c1, c2, latest_game.get("player1"), latest_game.get("player2"))
+                update_game_record(game_id, {
+                    "winner": result.get("winner"),
+                    "is_draw": result.get("is_draw", False),
+                })
+                # 广播 game_result 给双方
+                p1 = latest_game.get("player1")
+                p2 = latest_game.get("player2")
+                # 给 player1 广播（含我是赢/输/平 + 对手出拳）
+                if p1:
+                    await ws_manager.send_to_player(p1, WSMessage(
+                        type="game_result",
+                        data={
+                            "game_id": game_id,
+                            "winner": result.get("winner"),
+                            "is_draw": result.get("is_draw", False),
+                            "my_choice": c1,
+                            "opponent_choice": c2,
+                        }
+                    ))
+                if p2:
+                    await ws_manager.send_to_player(p2, WSMessage(
+                        type="game_result",
+                        data={
+                            "game_id": game_id,
+                            "winner": result.get("winner"),
+                            "is_draw": result.get("is_draw", False),
+                            "my_choice": c2,
+                            "opponent_choice": c1,
+                        }
+                    ))
+
         return {"success": True, "game_id": game_id}
 
     # 处理平局

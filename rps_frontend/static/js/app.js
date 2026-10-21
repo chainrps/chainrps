@@ -19,6 +19,7 @@ const App = (function () {
     let matchingTimer = null;
     let gameTimerInterval = null;
     let gamePhase = 'idle';
+    let isLocalOnlyGame = false;  // 🆕 auto_chain_match=False 时为 true，commit/reveal 走后端 API 不走链上
     let autoRevealTimer = null; // 自动揭示计时器
     let resultCountdownTimer = null; // 结果界面倒计时计时器
 
@@ -536,6 +537,9 @@ const App = (function () {
                     bet_amount: room.bet_amount,
                     commit_deadline: null,
                     chain_game_id: room.chain_game_id, // 关键：已有则跳过 createMatch 签名
+                    local_only: !!room.local_only,  // auto_chain_match=False 时跳过所有链上
+                    creator_is_bot: !!room.creator_is_bot,
+                    player2_is_bot: !!room.player2_is_bot,
                 });
             } else if (room.status === 'countdown') {
                 // 倒计时中，回到房间等待界面
@@ -1917,6 +1921,33 @@ const App = (function () {
         }
     }
 
+    // 房间分页状态
+    let roomPage = 1;
+    let roomPerPage = parseInt(localStorage.getItem('rps_room_per_page') || '10', 10);
+
+    // 挂到 window 供 UI.renderRoomPagination 回调
+    window.setRoomPage = function(p) {
+        roomPage = Math.max(1, p);
+        loadRoomList();
+    };
+    window.setRoomPerPage = function(n) {
+        roomPerPage = Math.max(1, Math.min(100, n));
+        localStorage.setItem('rps_room_per_page', String(roomPerPage));
+        roomPage = 1;  // 重置到第一页
+        loadRoomList();
+    };
+
+    // perPage 下拉事件绑定（DOM ready 后执行一次）
+    document.addEventListener('DOMContentLoaded', () => {
+        const sel = document.getElementById('perPageSelect');
+        if (sel) {
+            sel.value = String(roomPerPage);
+            sel.addEventListener('change', (e) => {
+                window.setRoomPerPage(parseInt(e.target.value, 10));
+            });
+        }
+    });
+
     // 加载房间列表
     function loadRoomList() {
         if (!CONFIG.backendUrl) return;
@@ -1929,10 +1960,20 @@ const App = (function () {
 
         roomListLoading = true;
 
-        fetch(`${CONFIG.backendUrl}/api/game/room/list`)
+        // 用后端分页
+        const params = new URLSearchParams({
+            page: roomPage,
+            per_page: roomPerPage,
+        });
+
+        fetch(`${CONFIG.backendUrl}/api/game/room/list?${params}`)
             .then(response => response.json())
             .then(data => {
-                UI.renderRoomList(data.rooms || []);
+                UI.renderRoomList(data.rooms || [], {
+                    page: roomPage,
+                    perPage: roomPerPage,
+                    total: data.total || 0,
+                });
             })
             .catch(e => {
                 console.error('加载房间列表失败:', e);
@@ -3390,8 +3431,15 @@ const App = (function () {
                 opponentCommitSubmitted = true;
                 UI.setOpponentStatus('已提交');
                 if (myCommitSubmitted) {
-                    // 双方都已提交，等待揭晓
-                    FWUI.Toast.info('双方都已提交，准备揭晓');
+                    // 双方都已提交 → 进入揭晓阶段（本地也直接推进，不依赖后端 reveal_start 广播）
+                    gamePhase = 'reveal';
+                    if (currentRoom) currentRoom.fund_stage = 'revealing';
+                    UI.setFundStage('revealing');
+                    UI.setGameStatus('揭晓阶段 · 即将自动揭晓');
+                    UI.showRevealButton(true);
+                    startGameTimer('reveal');
+                    startAutoReveal(5);
+                    FWUI.Toast.success('双方都已提交，准备揭晓');
                 } else {
                     FWUI.Toast.info('对手已提交出拳，请尽快提交');
                 }
@@ -3465,22 +3513,42 @@ const App = (function () {
             }
         });
 
-        // 对局结果（双方收到，链上结算完成）
+        // 对局结果（双方收到，链上结算完成 或 localOnly 后端本地结算）
         GameSocket.on('game_result', (data) => {
             if (currentGameId && Number(data.game_id) === currentGameId) {
                 stopGameTimer();
+                stopAutoReveal();
                 stopGamePhaseFallbackPolling();
+                stopLocalOnlyButtonGuard();
+                clearInterval(_localOnlyGuardTimer);
+                _localOnlyGuardTimer = null;
+
                 const myAddress = Wallet.getAddress();
+                let resultType = 'draw';
                 let resultText = '平局';
                 if (data.is_draw) {
+                    resultType = 'draw';
                     resultText = '平局';
                 } else if (data.winner && data.winner.toLowerCase() === myAddress.toLowerCase()) {
+                    resultType = 'win';
                     resultText = '胜利';
                 } else {
+                    resultType = 'lose';
                     resultText = '失败';
                 }
+
                 UI.setGameStatus(`对局已结算 · ${resultText}`);
                 FWUI.Toast.success(`对局结束：${resultText}`);
+
+                // 🆕 切到结算界面 + PK 动画
+                showResult({
+                    type: resultType,
+                    myChoice: data.my_choice ?? selectedChoice,
+                    opponentChoice: data.opponent_choice,
+                });
+
+                // 游戏结束，清理 localOnly 状态
+                document.body.dataset.localOnly = '';
             }
         });
 
@@ -3652,6 +3720,9 @@ const App = (function () {
                     token: currentRoom.token,
                     bet_amount: currentRoom.bet_amount,
                     commit_deadline: null,
+                    local_only: !!currentRoom.local_only,
+                    creator_is_bot: !!currentRoom.creator_is_bot,
+                    player2_is_bot: !!currentRoom.player2_is_bot,
                 });
             }
         } else {
@@ -3770,6 +3841,117 @@ const App = (function () {
     // 4. player2 调用合约 joinMatch(chain_game_id) 加入链上对局
     // 5. 双方使用 chain_game_id 进入提交/揭晓阶段
 
+    // 🔥 localOnly 模式按钮守护：持续监视任何试图在 commit 前禁用按钮的行为并立即覆盖
+    let _localOnlyGuardTimer = null;
+    function _startLocalOnlyButtonGuard() {
+        if (_localOnlyGuardTimer) clearInterval(_localOnlyGuardTimer);
+        _localOnlyGuardTimer = setInterval(() => {
+            if (!document.body.dataset.localOnly || document.body.dataset.localOnly !== 'true') {
+                clearInterval(_localOnlyGuardTimer);
+                _localOnlyGuardTimer = null;
+                return;
+            }
+            if (myCommitSubmitted) {
+                clearInterval(_localOnlyGuardTimer);
+                _localOnlyGuardTimer = null;
+                return;
+            }
+            const buttons = document.querySelectorAll('.choice-btn');
+            buttons.forEach(btn => {
+                if (btn.disabled) {
+                    btn.disabled = false;
+                    btn.classList.add('ready-to-punch');
+                }
+            });
+        }, 300);
+    }
+
+    function stopLocalOnlyButtonGuard() {
+        if (_localOnlyGuardTimer) {
+            clearInterval(_localOnlyGuardTimer);
+            _localOnlyGuardTimer = null;
+        }
+    }
+
+    // 🔥 localOnly 模式状态恢复：主动从后端拉取游戏状态，补偿 WS 时序竞态
+    //    场景：Bot 已 commit 但玩家 WS 刚连上（刷新页面）→ 玩家不知道对手已提交
+    async function _restoreGameStateFromBackend() {
+        if (!currentGameId) return;
+        const targetGameId = currentGameId;  // 防止中途切换游戏导致恢复 stale 数据
+        try {
+            const res = await fetch(`${CONFIG.backendUrl}/api/game/${targetGameId}`);
+            if (!res.ok) return;
+            const g = await res.json();
+            if (g.game_id !== targetGameId) return;  // 🆕 游戏已切换，丢弃
+
+            const myAddr = (Wallet.getAddress() || '').toLowerCase();
+            const isPlayer1 = (g.player1 || '').toLowerCase() === myAddr;
+            const myCommitField = isPlayer1 ? 'commit1' : 'commit2';
+            const oppCommitField = isPlayer1 ? 'commit2' : 'commit1';
+
+            // 恢复 commit 状态（Bot 可能已经 commit 了，WS 广播错过了）
+            if (g[myCommitField]) {
+                myCommitSubmitted = true;
+                UI.setMyStatus('已提交');
+                UI.setChoiceButtonsEnabled(false);
+                stopLocalOnlyButtonGuard();
+                clearInterval(_localOnlyGuardTimer);
+                _localOnlyGuardTimer = null;
+            }
+            if (g[oppCommitField]) {
+                opponentCommitSubmitted = true;
+                UI.setOpponentStatus('已提交');
+            }
+
+            // 恢复 reveal 状态
+            const myChoiceField = isPlayer1 ? 'choice1' : 'choice2';
+            const oppChoiceField = isPlayer1 ? 'choice2' : 'choice1';
+            if (g[myChoiceField]) {
+                myRevealed = true;
+                selectedChoice = g[myChoiceField];
+                UI.setMyChoice(selectedChoice, true);
+                UI.setMyStatus('已揭晓');
+            }
+            if (g[oppChoiceField]) {
+                opponentRevealed = true;
+                UI.setOpponentChoice(g[oppChoiceField]);
+                UI.setOpponentStatus('已揭晓');
+            }
+
+            // 根据 state 推进阶段
+            if (g.state === 'reveal') {
+                gamePhase = 'reveal';
+                if (currentRoom) currentRoom.fund_stage = 'revealing';
+                UI.setFundStage('revealing');
+                UI.showRevealButton(true);
+
+                // 如果双方都 commit 了但我还没 reveal，等对手 reveal
+                if (!myCommitSubmitted || !opponentCommitSubmitted) {
+                    // 还在 commit 阶段等双方提交，继续守护
+                } else {
+                    UI.setGameStatus('揭晓阶段 · 即将自动揭晓');
+                    startGameTimer('reveal');
+                    startAutoReveal(5);
+                }
+            }
+
+            if (g.state === 'finished' && g.winner) {
+                // 游戏已结束，直接显示结果
+                gamePhase = 'finished';
+                showResult({
+                    type: g.is_draw ? 'draw' : (g.winner.toLowerCase() === myAddr ? 'win' : 'lose'),
+                    myChoice: g[myChoiceField] ?? selectedChoice,
+                    opponentChoice: g[oppChoiceField],
+                });
+            }
+
+            console.log('[LocalOnly Restore] state=%s myCommit=%s oppCommit=%s myChoice=%s oppChoice=%s',
+                g.state, !!g[myCommitField], !!g[oppCommitField], g[myChoiceField], g[oppChoiceField]);
+        } catch (e) {
+            console.warn('[LocalOnly Restore] 恢复失败:', e.message);
+        }
+    }
+
     // 处理房间游戏开始事件
     // data.chain_game_id 可选：若已有（如刷新页面恢复），创建者会跳过 createMatch 签名
     async function handleRoomGameStarted(data) {
@@ -3810,6 +3992,7 @@ const App = (function () {
 
         // 使用后端传来的 is_creator 字段，比自己比较更可靠
         const amICreator = !!data.is_creator;
+        const localOnly = !!data.local_only;  // auto_chain_match=False → 跳过所有链上流程
         // 是否已有链上对局 ID（刷新恢复 / 上报过 / 事件携带）
         const existingChainGameId = data.chain_game_id ? Number(data.chain_game_id) : null;
         // 关键：链上 ID 是否已确认（不能用 currentGameId 判断——它还会被赋成本地 game_id）
@@ -3856,6 +4039,24 @@ const App = (function () {
             UI.setMyStatus('创建对局');
             UI.setOpponentStatus('等待加入');
             UI.setOpponentAddress(data.opponent, !!currentRoom.player2_is_bot);
+
+            // 🟢 localOnly 模式：跳过所有链上流程，直接进入出拳
+            if (localOnly) {
+                isLocalOnlyGame = true;
+                gamePhase = 'commit';  // 🆕 关键！selectChoice 第一行就检查 gamePhase !== 'commit'
+                currentGameId = data.game_id;
+                chainGameIdResolved = true;
+                document.body.dataset.localOnly = 'true';
+                document.body.dataset.gamePhase = 'commit';
+                UI.setGameStatus('🎯 本地对局模式，请出拳');
+                UI.setMyStatus('🎯 该你出拳了');
+                UI.setOpponentStatus('等待对手出拳...');
+                UI.setChoiceButtonsEnabled(true);
+                _startLocalOnlyButtonGuard();
+                FWUI.Toast.info('本地对局模式：无需链上签名，直接开始出拳');
+                _restoreGameStateFromBackend();  // 🆕 主动拉后端状态（Bot 可能已经 commit 了）
+                return;
+            }
 
             // 幂等性：如果已有 chain_game_id（例如刷新页面恢复），跳过 createMatch 签名
             // 直接进入"等待对手加入"阶段，避免重复签名
@@ -3904,6 +4105,24 @@ const App = (function () {
             UI.setMyStatus('等待中');
             UI.setOpponentStatus('创建对局中');
             UI.setOpponentAddress(data.opponent, !!currentRoom.creator_is_bot);
+
+            // 🟢 localOnly 模式：跳过等待链上，直接进入出拳
+            if (localOnly) {
+                isLocalOnlyGame = true;
+                gamePhase = 'commit';  // 🆕 关键！selectChoice 第一行就检查 gamePhase !== 'commit'
+                currentGameId = data.game_id;
+                chainGameIdResolved = true;
+                document.body.dataset.localOnly = 'true';
+                document.body.dataset.gamePhase = 'commit';
+                UI.setGameStatus('🎯 本地对局模式，请出拳');
+                UI.setMyStatus('🎯 该你出拳了');
+                UI.setOpponentStatus('等待对手出拳...');
+                UI.setChoiceButtonsEnabled(true);
+                _startLocalOnlyButtonGuard();
+                FWUI.Toast.info('本地对局模式：无需链上签名，直接开始出拳');
+                _restoreGameStateFromBackend();  // 🆕 主动拉后端状态（Bot 可能已经 commit 了）
+                return;
+            }
 
             // 幂等性：如果已有 chain_game_id（例如刷新页面恢复），直接进入加入流程
             // handleChainGameCreated 内部会先检查链上是否已 join，避免重复签名
@@ -4921,10 +5140,47 @@ const App = (function () {
         const confirmSection = document.getElementById('choiceConfirmSection');
         if (confirmSection) confirmSection.classList.add('hidden');
 
+        // 🟢 localOnly 模式：不走任何链上流程，直接 POST 到后端 API
         try {
             currentSalt = RPSCrypto.generateSalt();
             const myAddress = Wallet.getAddress();
             const commitHash = RPSCrypto.computeCommit(choice, currentSalt, myAddress);
+
+            if (isLocalOnlyGame) {
+                UI.setMyStatus('提交中...');
+                const res = await fetch(`${CONFIG.backendUrl}/api/game/commit`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        game_id: currentGameId,
+                        player_address: myAddress,
+                        commit_hash: commitHash,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.detail || data.message || '提交失败');
+                }
+
+                myCommitSubmitted = true;
+                UI.setMyStatus('已提交');
+                UI.setChoiceButtonsEnabled(false);
+                RPSCrypto.storeSalt(currentGameId, currentSalt, choice);
+                FWUI.Toast.success('出拳已提交');
+
+                // 后端 game_manager 会广播 opponent_commit / reveal_start
+                // 如果后端已通知，前端状态可能已更新；否则等 WS 事件
+                if (opponentCommitSubmitted) {
+                    gamePhase = 'reveal';
+                    if (currentRoom) currentRoom.fund_stage = 'revealing';
+                    UI.setFundStage('revealing');
+                    UI.setGameStatus('揭晓阶段 · 即将自动揭晓');
+                    UI.showRevealButton(true);
+                    startGameTimer('reveal');
+                    startAutoReveal(5);
+                }
+                return;
+            }
 
             UI.setMyStatus('签名中...');
 
@@ -5001,7 +5257,7 @@ const App = (function () {
         }
     }
 
-    // 揭晓出拳（方案A：EIP-712 链下签名 + 后端 relayer 代提交；失败回退方案B：直接上链）
+    // 揭晓出拳（localOnly 走后端 API；链上模式走方案A/B）
     async function revealChoice() {
         if (!selectedChoice || !currentSalt || !myCommitSubmitted || myRevealed) return;
 
@@ -5010,10 +5266,41 @@ const App = (function () {
             stopAutoReveal();
             if (revealBtn) {
                 revealBtn.disabled = true;
-                revealBtn.textContent = '签名中...';
+                revealBtn.textContent = '揭晓中...';
             }
 
             const myAddress = Wallet.getAddress();
+
+            // 🟢 localOnly 模式：不走任何链上流程，直接 POST 到后端 API
+            if (isLocalOnlyGame) {
+                // 数字 choice (1/2/3) → 后端 Choice 枚举字符串 (rock/paper/scissors)
+                const choiceName = {1: 'rock', 2: 'paper', 3: 'scissors'}[selectedChoice] || String(selectedChoice);
+                const res = await fetch(`${CONFIG.backendUrl}/api/game/reveal`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        game_id: currentGameId,
+                        player_address: myAddress,
+                        choice: choiceName,  // 🆕 必须是字符串枚举值
+                        salt: currentSalt,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.detail || data.message || '揭晓失败');
+                }
+
+                myRevealed = true;
+                UI.showRevealButton(false);
+                UI.setMyStatus('已揭晓');
+                UI.setMyChoice(selectedChoice, true);
+                RPSCrypto.clearSalt(currentGameId);
+                FWUI.Toast.success('揭晓成功');
+
+                // 后端会处理双方都 reveal 后的胜负判定 + 广播 game_result
+                // 等待 opponent_reveal / game_result 事件
+                return;
+            }
 
             let revealed = false;
             // 方案A：玩家对 reveal 数据做 EIP-712 链下签名（无 gas 费）
@@ -5359,6 +5646,9 @@ const App = (function () {
         myRevealed = false;
         opponentRevealed = false;
         gamePhase = 'idle';
+        isLocalOnlyGame = false;  // 🆕 清除 localOnly 标记
+        document.body.dataset.localOnly = '';
+        document.body.dataset.gamePhase = '';
 
         stopGameTimer();
         stopAutoReveal();
