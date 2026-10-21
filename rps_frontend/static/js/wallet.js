@@ -11,6 +11,9 @@ const Wallet = (function() {
     let currentChainId = null;
     let walletType = null;
     let isDebugMode = false;
+    let isWalletConnect = false;
+    // WalletConnect provider 引用（断开时需要 cleanup）
+    let wcProvider = null;
     // 保存原始 EIP-1193 provider 引用，用于断开时撤销权限
     let rawProvider = null;
     // 保存事件处理函数引用，用于断开时移除监听
@@ -49,10 +52,27 @@ const Wallet = (function() {
         }
     }
 
-    // 获取可用钱包列表
+    // 判断是否移动端（Deep Link 仅在移动端有意义）
+    function isMobileDevice() {
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    }
+
+    // Deep Link URL 映射
+    const DEEP_LINK_MAP = {
+        deeplink_metamask: 'https://metamask.app.link/dapp/',
+        deeplink_okx: 'https://www.okx.com/web3/dapp/',
+        deeplink_tokenpocket: 'https://www.tokenpocket.pro/en/dapp?url=',
+        deeplink_trust: 'https://link.trustwallet.com/open_url?coin_id=60&url=',
+        deeplink_coinbase: 'https://coinbase.com/wallet/deeplink/connect?url='
+    };
+
+    // 获取可用钱包列表（按优先级排序：Injected → Deep Link → WalletConnect → Debug）
     function getAvailableWallets() {
         const wallets = [];
-        
+        const isMobile = isMobileDevice();
+        const hasInject = typeof window.ethereum !== 'undefined' || window.okxwallet || window.trustwallet || window.coinbaseWallet;
+
+        // ===== 第1层：浏览器注入的钱包（最高优先级） =====
         if (typeof window.ethereum !== 'undefined') {
             if (window.ethereum.isMetaMask) {
                 wallets.push({ id: 'metamask', name: 'MetaMask', icon: '🦊' });
@@ -64,23 +84,30 @@ const Wallet = (function() {
                 wallets.push({ id: 'injected', name: 'Injected Wallet', icon: '💼' });
             }
         }
-
-        if (window.okxwallet) {
-            if (!wallets.find(w => w.id === 'okx')) {
-                wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷' });
-            }
+        if (window.okxwallet && !wallets.find(w => w.id === 'okx')) {
+            wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷' });
         }
-
-        if (window.trustwallet) {
-            if (!wallets.find(w => w.id === 'trust')) {
-                wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙' });
-            }
+        if (window.trustwallet && !wallets.find(w => w.id === 'trust')) {
+            wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙' });
         }
-
         if (window.coinbaseWallet) {
             wallets.push({ id: 'coinbase', name: 'Coinbase Wallet', icon: '🔵' });
         }
 
+        // ===== 第2层：Deep Link — 跳转手机钱包 App（仅移动端，且无注入钱包时） =====
+        if (isMobile && !hasInject && typeof CONFIG !== 'undefined' && CONFIG.enableDeepLink) {
+            wallets.push({ id: 'deeplink_metamask', name: 'MetaMask App', icon: '🦊' });
+            wallets.push({ id: 'deeplink_okx', name: 'OKX App', icon: '🔷' });
+            wallets.push({ id: 'deeplink_tokenpocket', name: 'TokenPocket', icon: '🟡' });
+            wallets.push({ id: 'deeplink_trust', name: 'Trust Wallet App', icon: '💙' });
+        }
+
+        // ===== 第3层：WalletConnect 扫码（通用，桌面 + 无注入的移动端） =====
+        if (typeof CONFIG !== 'undefined' && CONFIG.enableWalletConnect) {
+            wallets.push({ id: 'walletconnect', name: '扫码 WalletConnect', icon: '📱' });
+        }
+
+        // ===== 第4层：Debug Mock（本地开发 fallback） =====
         if (typeof CONFIG !== 'undefined' && CONFIG.enableDebugMode) {
             wallets.push({ id: 'debug', name: 'Debug Wallet', icon: '🐛' });
         }
@@ -90,6 +117,9 @@ const Wallet = (function() {
 
     // 根据钱包类型获取对应的Provider对象
     function getProviderByType(type) {
+        if (type === 'walletconnect') {
+            return wcProvider || rawProvider;
+        }
         switch (type) {
             case 'metamask':
             case 'injected':
@@ -107,14 +137,265 @@ const Wallet = (function() {
 
     let isConnecting = false;
 
+    // ==================== 钱包选择器 Modal ====================
+    // 当有多个钱包可选时（特别是移动端无注入钱包时），弹出选择器
+    function showWalletPicker(wallets) {
+        return new Promise((resolve, reject) => {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+
+            const picker = document.createElement('div');
+            picker.style.cssText = 'background:#fff;border-radius:12px;padding:20px;min-width:280px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
+
+            let html = '<div style="font-size:18px;font-weight:600;margin-bottom:16px;text-align:center;">选择钱包</div>';
+
+            wallets.forEach(w => {
+                const isNew = w.id.startsWith('deeplink_');
+                const isQR = w.id === 'walletconnect';
+                const tag = isNew ? '<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:4px;margin-left:6px;">新</span>' :
+                            isQR ? '<span style="font-size:10px;background:#fef3c7;color:#b45309;padding:2px 6px;border-radius:4px;margin-left:6px;">扫码</span>' : '';
+                html += `<button data-wid="${w.id}" style="display:flex;align-items:center;width:100%;padding:12px 16px;margin-bottom:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;cursor:pointer;font-size:14px;text-align:left;transition:all 0.15s;">
+                    <span style="font-size:20px;margin-right:10px;">${w.icon}</span>
+                    <span style="flex:1;">${w.name}</span>${tag}
+                </button>`;
+            });
+
+            const closeBtn = '<button data-close style="width:100%;padding:10px;border:none;background:transparent;cursor:pointer;color:#6b7280;font-size:13px;">取消</button>';
+            picker.innerHTML = html + closeBtn;
+
+            overlay.appendChild(picker);
+            document.body.appendChild(overlay);
+
+            const cleanup = () => {
+                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            };
+
+            picker.addEventListener('click', (e) => {
+                const btn = e.target.closest('button');
+                if (!btn) return;
+                if (btn.dataset.wid) {
+                    const wid = btn.dataset.wid;
+                    cleanup();
+                    resolve(wid);
+                } else if (btn.dataset.close) {
+                    cleanup();
+                    reject(new Error('用户取消'));
+                }
+            });
+
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    cleanup();
+                    reject(new Error('用户取消'));
+                }
+            });
+        });
+    }
+
+    // ==================== Deep Link 连接 ====================
+    async function connectDeepLink(walletId) {
+        const base = DEEP_LINK_MAP[walletId];
+        if (!base) throw new Error('不支持的 Deep Link 钱包');
+
+        const dappUrl = window.location.origin + window.location.pathname;
+        const targetUrl = base + encodeURIComponent(dappUrl);
+
+        const walletNames = {
+            deeplink_metamask: 'MetaMask',
+            deeplink_okx: 'OKX',
+            deeplink_tokenpocket: 'TokenPocket',
+            deeplink_trust: 'Trust Wallet'
+        };
+        const name = walletNames[walletId] || '钱包';
+
+        if (typeof FWUI !== 'undefined' && FWUI.Modal) {
+            FWUI.Modal.confirm({
+                title: `打开 ${name} App`,
+                content: `<div style="line-height:2;">
+                    <p>即将打开 <b>${name}</b> App。</p>
+                    <p>在 App 中授权连接后，会自动打开 dApp。</p>
+                    <p style="color:#888;font-size:12px;">如果没有自动打开，请确认已安装 ${name} App。</p>
+                </div>`,
+                okText: '打开',
+                cancelText: '取消',
+                onOk: () => {
+                    window.location.href = targetUrl;
+                }
+            });
+        } else {
+            // 直接跳转
+            window.location.href = targetUrl;
+        }
+        return null;
+    }
+
+    // ==================== WalletConnect V2 连接 ====================
+    // 动态懒加载 SDK（避免首屏加载 ~200KB）
+    // 注意：UMD 包的全局名是 "@walletconnect/ethereum-provider"（带斜杠），不是 WalletConnectEthereumProvider
+    function loadWalletConnectSDK() {
+        // 尝试多个可能的全局名（UMD 模式导出）
+        const GLOBAL_KEYS = [
+            '@walletconnect/ethereum-provider',   // v2.x UMD 实际导出名
+            'WalletConnectEthereumProvider',        // 旧版本/其他打包方式
+            'WalletConnect'                         // 备选
+        ];
+
+        // 先检查是否已加载过
+        for (const key of GLOBAL_KEYS) {
+            if (window[key]) {
+                const mod = window[key];
+                const resolved = mod.__esModule && mod.default ? mod.default : mod;
+                // 可能导出是空对象（UMD factory 执行失败），检查是否有用
+                if (typeof resolved.init === 'function' || typeof resolved === 'function') {
+                    return Promise.resolve(resolved);
+                }
+            }
+        }
+        if (window.__wcLoadingPromise) {
+            return window.__wcLoadingPromise;
+        }
+
+        // 使用 jsdelivr CDN（比 unpkg 更稳定，且支持 .min.js）
+        const CDN_PATHS = [
+            'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.0/dist/index.umd.js',
+            'https://unpkg.com/@walletconnect/ethereum-provider@2.13.0/dist/index.umd.js'
+        ];
+
+        window.__wcLoadingPromise = new Promise((resolve, reject) => {
+            let scriptLoaded = false;
+            let currentIndex = 0;
+            let timeoutId = null;
+
+            const tryResolve = () => {
+                for (const key of GLOBAL_KEYS) {
+                    if (window[key]) {
+                        const mod = window[key];
+                        const resolved = mod.__esModule && mod.default ? mod.default : mod;
+                        if (typeof resolved.init === 'function' || typeof resolved === 'function') {
+                            if (timeoutId) clearTimeout(timeoutId);
+                            resolve(resolved);
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            const loadScript = (index) => {
+                if (index >= CDN_PATHS.length) {
+                    if (timeoutId) clearTimeout(timeoutId);
+                    reject(new Error('WalletConnect SDK 加载失败：所有 CDN 路径都无法正常导出模块'));
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = CDN_PATHS[index];
+                script.async = true;
+
+                script.onload = () => {
+                    // 给 UMD factory 一点时间执行（某些环境 script.onload 早于 factory 完成）
+                    setTimeout(() => {
+                        if (tryResolve()) return;
+                        // 导出为空对象 → 尝试下一个 CDN
+                        console.warn(`WalletConnect SDK from ${CDN_PATHS[index]} 导出为空，尝试下一个...`);
+                        loadScript(index + 1);
+                    }, 100);
+                };
+
+                script.onerror = () => {
+                    console.warn(`WalletConnect SDK CDN ${CDN_PATHS[index]} 加载失败`);
+                    loadScript(index + 1);
+                };
+
+                document.head.appendChild(script);
+            };
+
+            // 总超时 20s
+            timeoutId = setTimeout(() => {
+                reject(new Error('WalletConnect SDK 加载超时（20 秒），请检查网络'));
+            }, 20000);
+
+            loadScript(currentIndex);
+        });
+
+        return window.__wcLoadingPromise;
+    }
+
+    async function connectWalletConnect() {
+        if (typeof FWUI !== 'undefined' && FWUI.Toast) {
+            FWUI.Toast.info('正在加载 WalletConnect...');
+        }
+
+        let WCEP;
+        try {
+            WCEP = await loadWalletConnectSDK();
+        } catch (e) {
+            if (typeof FWUI !== 'undefined' && FWUI.Toast) FWUI.Toast.error(e.message);
+            throw e;
+        }
+
+        const projectId = (typeof CONFIG !== 'undefined' && CONFIG.walletConnectProjectId) || '046737702b5a6cf128b6411e93d87d8b';
+        const chainId = (typeof CONFIG !== 'undefined' && CONFIG.getChainId && CONFIG.getChainId()) || 5208888;
+        const network = (typeof CONFIG !== 'undefined' && CONFIG.getNetwork && CONFIG.getNetwork(chainId)) || null;
+        const rpcUrl = network ? network.rpcUrl : 'http://127.0.0.1:8686';
+
+        // 创建 WalletConnect provider
+        // showQrModal: WalletConnect 自带二维码弹窗，用户扫码授权
+        const provider = await WCEP.init({
+            projectId: projectId,
+            chains: [chainId],
+            rpcMap: { [chainId]: rpcUrl },
+            showQrModal: true,
+            metadata: {
+                name: 'ChainRPS',
+                description: '链上公平猜拳（石头剪刀布）',
+                url: window.location.origin,
+                icons: [window.location.origin + '/img/ChainRPS.png']
+            }
+        });
+
+        // 等待用户扫码并授权（阻塞直到成功）
+        await provider.enable();
+
+        // WalletConnect provider 完全兼容 EIP-1193 接口
+        // 直接复用现有 connect() 后半段逻辑
+        wcProvider = provider;
+        rawProvider = provider;
+        isWalletConnect = true;
+
+        const accounts = await provider.request({ method: 'eth_accounts' });
+        if (!accounts || accounts.length === 0) {
+            throw new Error('WalletConnect 连接失败：未获取到账户');
+        }
+
+        currentAddress = accounts[0];
+        walletType = 'walletconnect';
+
+        if (typeof window.ethers === 'undefined') {
+            throw new Error('ethers.js 未加载');
+        }
+
+        provider = new ethers.BrowserProvider(provider);
+        signer = await provider.getSigner();
+
+        const net = await provider.getNetwork();
+        currentChainId = Number(net.chainId);
+
+        setupEventListeners(rawProvider);
+
+        emit('accountChanged', currentAddress);
+        emit('chainChanged', currentChainId);
+
+        if (typeof FWUI !== 'undefined' && FWUI.Toast) {
+            FWUI.Toast.success('WalletConnect 连接成功！');
+        }
+
+        return { address: currentAddress, chainId: currentChainId, walletType: 'walletconnect' };
+    }
+
     // 连接钱包
     async function connect(type = null) {
         if (isConnecting) {
-            return {
-                address: currentAddress,
-                chainId: currentChainId,
-                walletType: walletType
-            };
+            return { address: currentAddress, chainId: currentChainId, walletType: walletType };
         }
         isConnecting = true;
 
@@ -122,63 +403,86 @@ const Wallet = (function() {
         try { localStorage.removeItem(DISCONNECT_FLAG_KEY); } catch (e) {}
 
         try {
-        const availableWallets = getAvailableWallets();
-        
-        if (availableWallets.length === 0) {
-            throw new Error('未检测到 Web3 钱包，请先安装 MetaMask 或其他钱包');
-        }
+            const availableWallets = getAvailableWallets();
 
-        if (!type) {
-            type = availableWallets[0].id;
-        }
-
-        if (type === 'debug' && typeof CONFIG !== 'undefined' && CONFIG.enableDebugMode) {
-            return connectDebugWallet();
-        }
-
-        if (typeof window.ethers === 'undefined') {
-            throw new Error('ethers.js 未加载');
-        }
-
-        const providerObj = getProviderByType(type);
-        
-        if (!providerObj) {
-            throw new Error('指定的钱包未安装');
-        }
-
-        try {
-            const accounts = await providerObj.request({ method: 'eth_requestAccounts' });
-            
-            if (accounts.length === 0) {
-                throw new Error('用户拒绝连接');
+            if (availableWallets.length === 0) {
+                throw new Error('未检测到 Web3 钱包，请先安装 MetaMask 或其他钱包');
             }
 
-            currentAddress = accounts[0];
-            walletType = type;
-            rawProvider = providerObj;
+            // ===== 决定连接哪个钱包 =====
+            let resolvedType = type;
 
-            provider = new ethers.BrowserProvider(providerObj);
-            signer = await provider.getSigner();
-            
-            const network = await provider.getNetwork();
-            currentChainId = Number(network.chainId);
-
-            setupEventListeners(providerObj);
-
-            emit('accountChanged', currentAddress);
-            emit('chainChanged', currentChainId);
-
-            return {
-                address: currentAddress,
-                chainId: currentChainId,
-                walletType: walletType
-            };
-        } catch (error) {
-            if (error.code === 4001) {
-                throw new Error('用户拒绝连接钱包');
+            if (!resolvedType) {
+                const injectWallets = availableWallets.filter(w => !w.id.startsWith('deeplink_') && w.id !== 'walletconnect' && w.id !== 'debug');
+                // 只有 1 个注入钱包 → 直接用（最常见的桌面 MetaMask 场景）
+                if (injectWallets.length === 1 && !isMobileDevice()) {
+                    resolvedType = injectWallets[0].id;
+                }
+                // 只有 debug 一个 → 直接用
+                else if (availableWallets.length === 1 && availableWallets[0].id === 'debug') {
+                    resolvedType = 'debug';
+                }
+                // 其他情况（多钱包可选，或移动端）→ 弹出选择器
+                else {
+                    try {
+                        resolvedType = await showWalletPicker(availableWallets);
+                    } catch (pickerErr) {
+                        throw pickerErr; // 用户取消
+                    }
+                }
             }
-            throw error;
-        }
+
+            // ===== 分派到对应连接逻辑 =====
+            if (resolvedType === 'debug' && typeof CONFIG !== 'undefined' && CONFIG.enableDebugMode) {
+                return connectDebugWallet();
+            }
+
+            if (resolvedType === 'walletconnect') {
+                return await connectWalletConnect();
+            }
+
+            if (resolvedType.startsWith('deeplink_')) {
+                return await connectDeepLink(resolvedType);
+            }
+
+            // === 以下为注入钱包（MetaMask/OKX/Trust 等）原有逻辑，不变 ===
+            if (typeof window.ethers === 'undefined') {
+                throw new Error('ethers.js 未加载');
+            }
+
+            const providerObj = getProviderByType(resolvedType);
+            if (!providerObj) {
+                throw new Error('指定的钱包未安装');
+            }
+
+            try {
+                const accounts = await providerObj.request({ method: 'eth_requestAccounts' });
+                if (accounts.length === 0) {
+                    throw new Error('用户拒绝连接');
+                }
+
+                currentAddress = accounts[0];
+                walletType = resolvedType;
+                rawProvider = providerObj;
+
+                provider = new ethers.BrowserProvider(providerObj);
+                signer = await provider.getSigner();
+
+                const network = await provider.getNetwork();
+                currentChainId = Number(network.chainId);
+
+                setupEventListeners(providerObj);
+
+                emit('accountChanged', currentAddress);
+                emit('chainChanged', currentChainId);
+
+                return { address: currentAddress, chainId: currentChainId, walletType: walletType };
+            } catch (error) {
+                if (error.code === 4001) {
+                    throw new Error('用户拒绝连接钱包');
+                }
+                throw error;
+            }
         } finally {
             isConnecting = false;
         }
@@ -402,9 +706,9 @@ const Wallet = (function() {
 
     // 断开钱包连接
     async function disconnect() {
-        // 先清除本地状态
         const wasConnected = currentAddress !== null;
         const providerObj = rawProvider;
+        const wasWalletConnect = isWalletConnect;
 
         currentAddress = null;
         currentChainId = null;
@@ -412,25 +716,34 @@ const Wallet = (function() {
         provider = null;
         walletType = null;
         isDebugMode = false;
+        isWalletConnect = false;
 
         // 移除事件监听器
         removeEventListeners(providerObj);
 
         // 设置"已主动断开"标记：刷新页面后 autoConnect 检查此标记跳过自动重连
-        // 必须在调用 wallet_revokePermissions 之前设置，确保即使钱包不支持 revoke 也能阻止重连
         try { localStorage.setItem(DISCONNECT_FLAG_KEY, '1'); } catch (e) {}
 
-        // 真正与钱包断开：撤销 EIP-1193 权限（MetaMask 等支持 wallet_revokePermissions）
+        // 真正与钱包断开
         if (wasConnected && providerObj && providerObj.request) {
-            try {
-                await providerObj.request({
-                    method: 'wallet_revokePermissions',
-                    params: [{ eth_accounts: {} }]
-                });
-            } catch (e) {
-                // 部分钱包不支持 wallet_revokePermissions，仅清理本地状态
-                // 因为已设置 DISCONNECT_FLAG_KEY，刷新后不会自动重连
-                console.warn('钱包不支持 wallet_revokePermissions，已设置本地断开标记');
+            // WalletConnect 有自己的断开方法
+            if (wasWalletConnect && wcProvider) {
+                try {
+                    await wcProvider.disconnect();
+                } catch (e) {
+                    console.warn('WalletConnect 断开异常：', e.message);
+                }
+                wcProvider = null;
+            } else {
+                // 传统 EIP-1193：撤销权限
+                try {
+                    await providerObj.request({
+                        method: 'wallet_revokePermissions',
+                        params: [{ eth_accounts: {} }]
+                    });
+                } catch (e) {
+                    console.warn('钱包不支持 wallet_revokePermissions，已设置本地断开标记');
+                }
             }
         }
 

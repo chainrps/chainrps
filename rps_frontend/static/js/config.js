@@ -98,6 +98,14 @@ const CONFIG = {
     debugWalletAddress: '0x1234567890abcdef1234567890abcdef12345678',
     debugBalance: 100000,      // 每个账户的默认原生代币余额
 
+    // WalletConnect V2 — 扫码连接手机钱包
+    // 免费注册: https://cloud.walletconnect.com (获取自己的 projectId 替换下面的)
+    walletConnectProjectId: '046737702b5a6cf128b6411e93d87d8b', // 公共 Demo ID
+    enableWalletConnect: true,
+
+    // 移动端 Deep Link — 直接跳转钱包 App
+    enableDeepLink: true,
+
     // 根据链ID获取网络配置
     getNetwork(chainId) {
         for (const [key, network] of Object.entries(this.networks)) {
