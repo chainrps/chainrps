@@ -343,10 +343,16 @@ const UI = (function() {
             elements.myChoice.innerHTML = `<span>${RPSCrypto.getChoiceEmoji(choice)}</span>`;
             if (revealed) {
                 elements.myChoice.classList.add('revealed');
+                elements.myChoice.classList.remove('submitted');
+            } else {
+                // 已提交但未揭晓 → 金色脉冲提示
+                elements.myChoice.classList.add('submitted');
+                elements.myChoice.classList.remove('revealed');
             }
         } else {
             elements.myChoice.innerHTML = `<span class="choice-hidden">❓</span>`;
             elements.myChoice.classList.remove('revealed');
+            elements.myChoice.classList.remove('submitted');
         }
     }
 
@@ -356,12 +362,16 @@ const UI = (function() {
         if (choice && revealed) {
             elements.opponentChoice.innerHTML = `<span>${RPSCrypto.getChoiceEmoji(choice)}</span>`;
             elements.opponentChoice.classList.add('revealed');
+            elements.opponentChoice.classList.remove('submitted');
         } else if (choice) {
+            // 对手已提交但未揭晓 → 金色脉冲提示
             elements.opponentChoice.innerHTML = `<span>🔒</span>`;
+            elements.opponentChoice.classList.add('submitted');
             elements.opponentChoice.classList.remove('revealed');
         } else {
             elements.opponentChoice.innerHTML = `<span class="choice-hidden">❓</span>`;
             elements.opponentChoice.classList.remove('revealed');
+            elements.opponentChoice.classList.remove('submitted');
         }
     }
 
@@ -446,6 +456,12 @@ const UI = (function() {
             btn.classList.toggle('ready-to-punch', enabled);
             btn.classList.remove('opponent-committed');
         });
+        // 🎯 重新启用时解锁按钮
+        if (enabled) {
+            const buttonsWrap = document.querySelector('.choice-buttons');
+            if (buttonsWrap) buttonsWrap.classList.remove('locked');
+            buttons.forEach(btn => btn.classList.remove('selected'));
+        }
         if (banner) {
             banner.classList.toggle('hidden', !enabled);
             if (enabled && hint) {
@@ -480,12 +496,14 @@ const UI = (function() {
         const pkLeft = document.getElementById('pkLeft');
         const pkRight = document.getElementById('pkRight');
         const resultReveal = document.getElementById('resultReveal');
+        const pkProcess = document.getElementById('pkProcess');
         
         // 重置 PK 样式
         [pkLeft, pkRight].forEach(el => {
             el.classList.remove('winner', 'loser', 'draw');
         });
         if (resultReveal) resultReveal.classList.add('hidden');
+        if (pkProcess) pkProcess.classList.add('hidden');
         
         // 设置双方出拳 emoji
         if (myFist && result.myChoice !== undefined) {
@@ -495,7 +513,24 @@ const UI = (function() {
             oppFist.textContent = RPSCrypto.getChoiceEmoji(result.opponentChoice);
         }
         
-        // 🆕 触发 PK 对决结果（延迟 0.9s 后标记胜方，1.5s 后显示结算详情）
+        // 🆕 生成对决过程文字（如 "✊ 石头 打败 ✌️ 剪刀！"）
+        if (pkProcess && result.myChoice !== undefined && result.opponentChoice !== undefined) {
+            const myName = RPSCrypto.getChoiceName(result.myChoice);
+            const oppName = RPSCrypto.getChoiceName(result.opponentChoice);
+            const myEmoji = RPSCrypto.getChoiceEmoji(result.myChoice);
+            const oppEmoji = RPSCrypto.getChoiceEmoji(result.opponentChoice);
+            let processText = '';
+            if (result.type === 'draw') {
+                processText = `${myEmoji} ${myName} 对 ${oppEmoji} ${oppName} — 不分胜负！`;
+            } else if (result.type === 'win') {
+                processText = `${myEmoji} ${myName} 打败 ${oppEmoji} ${oppName}！`;
+            } else {
+                processText = `${oppEmoji} ${oppName} 打败 ${myEmoji} ${myName}！`;
+            }
+            pkProcess.textContent = processText;
+        }
+        
+        // 🆕 触发 PK 对决结果（延迟 0.9s 后标记胜方 + 显示过程文字，1.5s 后显示结算详情）
         setTimeout(() => {
             if (result.type === 'win') {
                 pkLeft?.classList.add('winner');
@@ -506,6 +541,13 @@ const UI = (function() {
             } else {
                 pkLeft?.classList.add('draw');
                 pkRight?.classList.add('draw');
+            }
+            // 🆕 显示过程文字（先 reset 动画才能重放）
+            if (pkProcess) {
+                pkProcess.style.animation = 'none';
+                void pkProcess.offsetWidth;
+                pkProcess.style.animation = '';
+                pkProcess.classList.remove('hidden');
             }
         }, 900);
         

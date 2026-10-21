@@ -5,7 +5,10 @@
 处理平局等接口。所有接口路径以 /game 为前缀，最终通过 main.py
 挂载到 /api 前缀下，形成 /api/game/... 的完整路径。
 """
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -931,3 +934,44 @@ async def get_game(match_id: int):
         raise HTTPException(status_code=404, detail="Game not found")
 
     return _build_game_response(game)
+# ==================== 真实链上余额 API ====================
+
+@router.get("/balance/{address}")
+async def get_chain_balance(address: str, token: str = "USDC"):
+    """查询真实本地链 USDC + ETH 余额"""
+    addr = address.strip()
+    if not addr.startswith("0x"):
+        raise HTTPException(status_code=400, detail="Invalid address")
+    usdc_bal = 0.0
+    eth_bal = 0.0
+    try:
+        from web3 import Web3
+        w3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8686"))
+        chk = w3.to_checksum_address(addr)
+        eth_wei = w3.eth.get_balance(chk)
+        eth_bal = float(w3.from_wei(eth_wei, 'ether'))
+        # 找 USDC 合约
+        try:
+            from rps_backend.repository import list_contracts
+            for c in list_contracts(network="localhost"):
+                if 'USDC' in c.get('name', '') and len(c.get('address', '')) == 42:
+                    usdc_addr = c['address']
+                    usdc = w3.eth.contract(address=w3.to_checksum_address(usdc_addr), abi=[
+                        {"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"},
+                        {"constant":True,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"},
+                    ])
+                    usdc_wei = usdc.functions.balanceOf(chk).call()
+                    dec = usdc.functions.decimals().call()
+                    usdc_bal = float(usdc_wei) / (10 ** dec)
+                    break
+        except Exception as e:
+            logger.warning(f"USDC balanceOf failed: {e}")
+    except Exception as e:
+        logger.warning(f"Chain balance query failed: {e}")
+    return {
+        "success": True,
+        "address": addr,
+        "token": token,
+        "balance": usdc_bal,
+        "native_balance": eth_bal,
+    }

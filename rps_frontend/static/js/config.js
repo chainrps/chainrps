@@ -31,13 +31,13 @@ const CONFIG = {
             get supportedTokens() {
                 return [
                     {symbol: CONFIG.RPC_NATIVE_SYMBOL, name: CONFIG.RPC_NATIVE_NAME, decimals: 18, address: '0x0000000000000000000000000000000000000000'},
-                    {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'}
+                    {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0xC89Ce4735882C9F0f0FE26686c53074E09B0D550'}
                 ];
             },
             get tokenAddresses() {
                 return {
                     [CONFIG.RPC_NATIVE_SYMBOL]: '0x0000000000000000000000000000000000000000',
-                    'USDC': '0x0fa8781a83e46826621b3bc094ea2a0212e71b23'
+                    'USDC': '0xC89Ce4735882C9F0f0FE26686c53074E09B0D550'
                 };
             }
         },

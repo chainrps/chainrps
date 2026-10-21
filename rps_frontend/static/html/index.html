@@ -14,11 +14,9 @@
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 
     <!--    样式-->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- 🔥 去掉 Google Fonts 外链（国内被墙导致 ERR_CONNECTION_CLOSED），改用系统等宽字体 -->
     <link rel="stylesheet" href="../css/theme.css?v=20261020e">
-    <link rel="stylesheet" href="../css/style.css?v=20261020l">
+    <link rel="stylesheet" href="../css/style.css?v=20261022d">
 </head>
 <body>
 <div id="app">
@@ -442,6 +440,9 @@
                             </div>
                         </div>
 
+                        <!-- 🆕 PK 对决过程提示（0.9s 后弹出） -->
+                        <div class="pk-process hidden" id="pkProcess"></div>
+
                         <!-- 结果区（PK 动画后渐入） -->
                         <div class="result-reveal hidden" id="resultReveal">
                             <div class="result-icon" id="resultIcon">🏆</div>
@@ -659,7 +660,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.36 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.37 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -678,16 +679,16 @@
 <script src="../js/FWUI/card.js?v=20261020c"></script>
 <script src="../js/FWUI/tabs.js?v=20261020c"></script>
 
-<script src="../js/config.js?v=20261020c"></script>
+<script src="../js/config.js?v=20261022a"></script>
 <script src="../js/wallet.js?v=20261020c"></script>
-<script src="../js/crypto.js?v=20260726d"></script>
+<script src="../js/crypto.js?v=20261022a"></script>
 <script src="../js/contract.js?v=20261004p"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
 <script src="../js/p2p.js?v=20260729a"></script>
-<script src="../js/ui.js?v=20261020m"></script>
+<script src="../js/ui.js?v=20261022c"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261020t"></script>
+<script src="../js/app.js?v=20261022i"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

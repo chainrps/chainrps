@@ -235,6 +235,7 @@ class RoomManager:
         room["status"] = ROOM_STATUS["JOINED"]
 
         self._rooms[room_id] = room
+        print(f"[Room] ✅ join_room #{room_id}: status={room['status']} p2={player_address[:10]}")
 
         # 有玩家加入了，停止空房间清理计时器
         self._stop_empty_room_timer(room_id)
@@ -284,6 +285,13 @@ class RoomManager:
 
         if not (is_creator or is_player2):
             return {"success": False, "message": "你不是这个房间的玩家"}
+
+        # 🔥 游戏已结束（FINISHED/GAME_STARTED）→ 自动重置为再来一局
+        if room["status"] in [ROOM_STATUS["FINISHED"], ROOM_STATUS["GAME_STARTED"]]:
+            reset_result = self.reset_room_for_rematch(room_id, player_address)
+            if not reset_result["success"]:
+                return reset_result
+            room = reset_result["room"]  # 拿重置后的 room 继续走下面的 ready 流程
 
         if room["status"] not in [ROOM_STATUS["CREATED"], ROOM_STATUS["JOINED"], ROOM_STATUS["COUNTDOWN"]]:
             return {"success": False, "message": "当前阶段不能准备"}
@@ -1184,8 +1192,14 @@ class RoomManager:
         # - GAME_STARTED 但 player2 自己尚未 join 链上对局（其资金还没锁）→ 允许退出
         # - GAME_STARTED 但资金仍为 local_frozen（链上对局创建失败/取消）→ 允许退出
         # - GAME_STARTED 且 fund_stage=settled（已结算）→ 允许退出
-        # - COUNTDOWN/JOINED/CREATED/FINISHED → 均允许退出
+        # - FINISHED 状态 → 无条件允许退出（已结算完毕）
+        # - COUNTDOWN/JOINED/CREATED → 均允许退出
         #   * COUNTDOWN 退出时自动取消倒计时，重置准备状态
+        if room["status"] == ROOM_STATUS["FINISHED"]:
+            # 🆕 FINISHED 状态无条件允许退出 — 不管 fund_stage 是什么
+            self._close_room(room_id, "game_finished", "对局已结束，房间已关闭")
+            return {"success": True, "action": "dissolved", "message": "对局已结束，房间已关闭"}
+
         if room["status"] == ROOM_STATUS["GAME_STARTED"]:
             fund_stage = room.get("fund_stage", "local_frozen")
             # 资金未上链（createMatch 失败/取消）→ 允许安全退出
@@ -1362,6 +1376,7 @@ class RoomManager:
             return
 
         # 若创建者在线但 player2 断开且房间在 JOINED/COUNTDOWN → 重置为 CREATED
+        print(f"[Room] _handle_player_disconnect #{room_id}: creator_online={creator_online} p2_online={player2_online} status={room['status']}")
         if creator_online and not player2_online and player2:
             if room["status"] in [ROOM_STATUS["JOINED"], ROOM_STATUS["COUNTDOWN"]]:
                 room["player2"] = None
@@ -1428,6 +1443,10 @@ class RoomManager:
         room["creator_ready"] = False
         room["player2_ready"] = False
         room["countdown_start"] = None
+        # 🆕 重置 fund_stage！后端 reveal 完成后设了 settled，但 reset 必须回到 local_frozen
+        room["fund_stage"] = "local_frozen"
+        room["close_reason"] = None
+        room["closed_at"] = None
         # 回到对应状态
         if room.get("player2"):
             room["status"] = ROOM_STATUS["JOINED"]

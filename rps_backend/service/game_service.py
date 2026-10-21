@@ -10,6 +10,9 @@
 """
 from datetime import datetime
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 from rps_backend.config import REVEAL_TIMEOUT
 from rps_backend.models import GameState, Choice, WSMessage
@@ -19,6 +22,7 @@ from rps_backend.repository import (
     update_player_stats,
 )
 from rps_backend.service.room_service import room_manager, ROOM_STATUS
+from rps_backend.utils.helpers import now_timestamp
 from rps_backend.utils.helpers import calculate_deadline, deadline_to_iso
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
@@ -244,11 +248,13 @@ class GameManager:
 
         流程：
         1. 记录揭晓到数据库
-        2. 更新缓存
-        3. 通知对手 opponent_reveal
+2. 更新缓存
+3. 通知对手 opponent_reveal
         """
+        logger.info(f"[Reveal API] game_id={game_id} player={player_address[:12]} choice={choice}")
         game = get_game_record(game_id)
         if not game:
+            logger.warning(f"[Reveal API] game_id={game_id} NOT FOUND")
             return {"error": "Game not found"}
 
         # 判断是哪一方玩家
@@ -307,12 +313,22 @@ class GameManager:
             c1 = latest_game.get("choice1")
             c2 = latest_game.get("choice2")
             chain_id = latest_game.get("chain_game_id")
+            logger.info(f"[Reveal API] game_id={game_id} c1={c1} c2={c2} chain_id={chain_id}")
             if c1 is not None and c2 is not None and not chain_id:
                 # = localOnly 模式，双方都已揭晓
-                result = _determine_rps_result(c1, c2, latest_game.get("player1"), latest_game.get("player2"))
+                # 🆕 choice 可能是字符串 ("rock"/"paper"/"scissors") 也可能是 int
+                c1_int = _CHOICE_NAME_TO_INT.get(c1, c1 if isinstance(c1, int) else None)
+                c2_int = _CHOICE_NAME_TO_INT.get(c2, c2 if isinstance(c2, int) else None)
+                if c1_int is None or c2_int is None:
+                    logger.error(f"Invalid choice types: c1={c1}({type(c1)}), c2={c2}({type(c2)})")
+                    return
+                result = _determine_rps_result(c1_int, c2_int, latest_game.get("player1"), latest_game.get("player2"))
+                logger.info(f"[Reveal API] game_id={game_id} 双方都揭晓! 结果: winner={result.get('winner')[:12] if result.get('winner') else None} is_draw={result.get('is_draw')}")
                 update_game_record(game_id, {
+                    "state": "finished",  # 🆕 标记对局结束
                     "winner": result.get("winner"),
                     "is_draw": result.get("is_draw", False),
+                    "finished_at": datetime.utcnow().isoformat(),
                 })
                 # 广播 game_result 给双方
                 p1 = latest_game.get("player1")
@@ -340,6 +356,112 @@ class GameManager:
                             "opponent_choice": c1,
                         }
                     ))
+
+                # 🔥 关键修复：同步更新 room 状态为 finished + 广播房间列表变更
+                try:
+                    p1_addr = latest_game.get("player1") or ""
+                    p2_addr = latest_game.get("player2") or ""
+                    # 🔥 直接遍历 room_manager._rooms 找关联房间，不依赖 get_player_room（player 映射可能已被清理）
+                    rid_found = None
+                    r_found = None
+                    for rid, rm in room_manager._rooms.items():
+                        rm_p1 = (rm.get("creator") or "").lower()
+                        rm_p2 = (rm.get("player2") or "").lower()
+                        if (rm.get("game_id") == game_id or 
+                            rm_p1 == p1_addr.lower() or rm_p2 == p1_addr.lower() or
+                            rm_p1 == p2_addr.lower() or rm_p2 == p2_addr.lower()):
+                            rid_found = rid
+                            r_found = rm
+                            break
+                    if r_found:
+                        r_found["status"] = ROOM_STATUS["FINISHED"]
+                        r_found["fund_stage"] = "settled"
+                        r_found["close_reason"] = "game_settled"
+                        r_found["closed_at"] = now_timestamp()
+                        # 🔥 强制写回内存 + Redis，防止并发覆盖
+                        room_manager._rooms[rid_found] = r_found
+                        redis_client.cache_room_state(rid_found, r_found)
+                        # 🔥 同时清理 _player_rooms 映射，防止 disconnect handler 后续误触发
+                        for addr_key in [p1_addr.lower(), p2_addr.lower()]:
+                            if room_manager._player_rooms.get(addr_key) == rid_found:
+                                room_manager._player_rooms.pop(addr_key, None)
+                        logger.info(f"[Reveal API] game_id={game_id} room #{rid_found} 已更新 status=finished")
+                        # 广播房间列表变更（大厅卡片需要更新状态）
+                        await ws_manager.broadcast(WSMessage(
+                            type="room_list_changed",
+                            data={}
+                        ))
+                    else:
+                        logger.warning(f"[Reveal API] game_id={game_id} 未找到关联房间，跳过 room 状态更新")
+                except Exception as e:
+                    logger.warning(f"Failed to update room state after game finish: {e}")
+
+                # 🆕 真实链上 USDC 结算（localOnly 模式用本地链 Ganache 账号转账）
+                try:
+                    bet = 10.0
+                    if r_found:
+                        bet = float(r_found.get("bet_amount") or bet)
+                    winner_addr = result.get("winner") or ""
+                    is_draw = result.get("is_draw", False)
+                    if not is_draw and winner_addr:
+                        loser_addr = p2_addr if winner_addr.lower() == p1_addr.lower() else p1_addr
+                        # 找 USDC 合约地址 + Ganache 账号私钥
+                        try:
+                            from rps_backend.repository import list_contracts
+                            contracts = list_contracts(network="localhost")
+                            usdc_addr = None
+                            for c in contracts:
+                                if 'USDC' in c.get('name', '') and len(c.get('address', '')) == 42:
+                                    usdc_addr = c['address']; break
+                        except: usdc_addr = None
+
+                        if usdc_addr:
+                            try:
+                                from web3 import Web3
+                                w3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8686"))
+                                # 找 Ganache 账号私钥
+                                pk_map = {}
+                                try:
+                                    import os, json
+                                    pks_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'ganache_accounts.json')
+                                    if os.path.exists(pks_path):
+                                        with open(pks_path) as f: pk_map = json.load(f).get('private_keys', {})
+                                except: pass
+
+                                usdc = w3.eth.contract(address=w3.to_checksum_address(usdc_addr), abi=[
+                                    {"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"success","type":"bool"}],"type":"function"},
+                                    {"constant":True,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"},
+                                ])
+                                decimals = usdc.functions.decimals().call()
+                                wei = int(bet * (10 ** decimals))
+
+                                # 如果 bot 赢了 → bot 是 Ganache 账号，用 bot 的 key 转账（但 bot 不需要付，用户输了）
+                                # 如果用户赢了 → bot 也是 Ganache 账号，用 bot 的 key 给用户发奖金 ✅
+                                # 关键：谁赢谁收 bet；谁输谁付 bet（但只有 Ganache 账号输时才能自动扣链上余额）
+                                # 简化：backend 用第一个 Ganache 账号当 "banker" — winner 总是从 banker 收 bet
+                                banker_addr = None; banker_pk = None
+                                for addr, pk in pk_map.items():
+                                    banker_addr = addr; banker_pk = pk; break
+
+                                if banker_addr and banker_pk:
+                                    # Winner 从 banker 收 bet（真实链上 USDC）
+                                    nonce = w3.eth.get_transaction_count(w3.to_checksum_address(banker_addr))
+                                    tx = usdc.functions.transfer(w3.to_checksum_address(winner_addr), wei).build_transaction({
+                                        'from': w3.to_checksum_address(banker_addr),
+                                        'nonce': nonce, 'chainId': w3.eth.chain_id,
+                                    })
+                                    signed = w3.eth.account.sign_transaction(tx, banker_pk)
+                                    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+                                    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+                                    logger.info(f"[RevealSettle] 真实 USDC 转账 {'OK' if receipt['status']==1 else 'FAIL'}: banker→winner {bet} tx={tx_hash.hex()[:20]}")
+                                else:
+                                    logger.warning("[RevealSettle] 找不到 Ganache banker 私钥，跳过链上转账")
+                            except Exception as e2:
+                                logger.warning(f"[RevealSettle] 链上 USDC 转账异常: {e2}")
+                        else:
+                            logger.warning("[RevealSettle] 没找到 USDC 合约，跳过链上转账")
+                except Exception as e:
+                    logger.warning(f"[RevealSettle] 结算异常: {e}")
 
         return {"success": True, "game_id": game_id}
 

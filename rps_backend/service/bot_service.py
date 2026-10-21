@@ -74,6 +74,10 @@ from rps_backend.utils.helpers import now_timestamp
 
 logger = logging.getLogger(__name__)
 
+# 🆕 模块级常量：已结束的房间状态（任何函数都可以用）
+# 游戏结束后 room.status 设为 "finished"，不是 "closed"，bot 必须正确清理这两种状态
+FINISHED_OR_CLOSED_ROOM_STATES = {ROOM_STATUS["CLOSED"], ROOM_STATUS["FINISHED"]}
+
 _ABI_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
     "contracts", "abi", "ChainRPS.json"
@@ -647,7 +651,7 @@ class BotInstance:
         addr = self._wallet_address.lower()
         for rid in list(self._active_rooms.keys()):
             room = room_manager._rooms.get(rid)
-            if room is None or room.get("status") == ROOM_STATUS["CLOSED"]:
+            if room is None or room.get("status") in FINISHED_OR_CLOSED_ROOM_STATES:
                 stale = True
             else:
                 in_room = (
@@ -685,7 +689,11 @@ class BotInstance:
             player_room_id = room_manager.get_player_room_id(self._wallet_address)
             if player_room_id:
                 room = room_manager._rooms.get(player_room_id)
-                if room:
+                # 🔥 游戏已 finished/closed 的房间不阻塞补开新房间
+                if room and room.get("status") in FINISHED_OR_CLOSED_ROOM_STATES:
+                    self._log("INFO", f"Bot 所在房间 #{player_room_id} 状态={room.get('status')}，不再阻塞大厅保活")
+                    room_manager.cleanup_player_rooms(self._wallet_address)
+                elif room:
                     # 房间仍然存在，确保 _active_rooms 状态同步
                     if player_room_id not in self._active_rooms:
                         # 判断 Bot 在房间中的角色
@@ -1780,8 +1788,10 @@ class BotInstance:
         while elapsed < timeout and self._is_running:
             try:
                 from rps_backend.utils.redis_client import redis_client
+                from rps_backend.models import GameState
                 cached = redis_client.get_cached_game_state(game_id)
-                if cached and cached.get("state") == "reveal_phase":
+                # FIX: 之前硬编码 "reveal_phase" 但 GameState.REVEAL_PHASE.value 实际是 "reveal"
+                if cached and cached.get("state") == GameState.REVEAL_PHASE.value:
                     return
             except Exception:
                 pass

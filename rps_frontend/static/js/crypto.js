@@ -20,6 +20,25 @@ const RPSCrypto = (function() {
         3: '✌️'
     };
 
+    // 🆕 后端枚举值 → 数字映射（后端返回 "rock"/"paper"/"scissors" 字符串）
+    const BACKEND_CHOICE_MAP = {
+        rock: 1,
+        paper: 2,
+        scissors: 3
+    };
+
+    // 🆕 统一规范化 choice 为数字 1/2/3（支持字符串 "rock" 和数字 1 两种输入）
+    function normalizeChoice(choice) {
+        if (choice == null) return null;
+        // 已经是数字 → 直接返回
+        if (typeof choice === 'number') return choice >= 1 && choice <= 3 ? choice : null;
+        // 字符串 → 转换
+        const str = String(choice).toLowerCase();
+        if (str in BACKEND_CHOICE_MAP) return BACKEND_CHOICE_MAP[str];
+        if (CHOICE_NAMES[str]) return Number(str);  // 兼容 "1"/"2"/"3" 字符串
+        return null;
+    }
+
     // 生成随机盐值
     function generateSalt() {
         if (typeof window.crypto !== 'undefined' && window.crypto.getRandomValues) {
@@ -74,6 +93,9 @@ const RPSCrypto = (function() {
 
     // 确定获胜者
     function determineWinner(choice1, choice2) {
+        choice1 = normalizeChoice(choice1);
+        choice2 = normalizeChoice(choice2);
+        if (choice1 == null || choice2 == null) return -1;
         if (choice1 === choice2) {
             return 0;
         }
@@ -91,12 +113,14 @@ const RPSCrypto = (function() {
 
     // 获取出拳名称
     function getChoiceName(choice) {
-        return CHOICE_NAMES[choice] || '未知';
+        const num = normalizeChoice(choice);
+        return num ? (CHOICE_NAMES[num] || '未知') : '未知';
     }
 
     // 获取出拳表情符号
     function getChoiceEmoji(choice) {
-        return CHOICE_EMOJIS[choice] || '❓';
+        const num = normalizeChoice(choice);
+        return num ? (CHOICE_EMOJIS[num] || '❓') : '❓';
     }
 
     // 根据名称获取出拳值
