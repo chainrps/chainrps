@@ -61,55 +61,59 @@ const Wallet = (function() {
     const DEEP_LINK_MAP = {
         deeplink_metamask: 'https://metamask.app.link/dapp/',
         deeplink_okx: 'https://www.okx.com/web3/dapp/',
-        deeplink_tokenpocket: 'https://www.tokenpocket.pro/en/dapp?url=',
-        deeplink_trust: 'https://link.trustwallet.com/open_url?coin_id=60&url=',
-        deeplink_coinbase: 'https://coinbase.com/wallet/deeplink/connect?url='
+        // deeplink_tokenpocket: 'https://www.tokenpocket.pro/en/dapp?url=',  // 已注释
+        // deeplink_trust: 'https://link.trustwallet.com/open_url?coin_id=60&url=',  // 已注释
+        // deeplink_coinbase: 'https://coinbase.com/wallet/deeplink/connect?url='  // 已注释
     };
 
     // 获取可用钱包列表（按优先级排序：Injected → Deep Link → WalletConnect → Debug）
+    // 仅保留4种：OKX、MetaMask、WalletConnect（扫码）、Debug（调试）
     function getAvailableWallets() {
         const wallets = [];
         const isMobile = isMobileDevice();
-        const hasInject = typeof window.ethereum !== 'undefined' || window.okxwallet || window.trustwallet || window.coinbaseWallet;
+        const hasInject = typeof window.ethereum !== 'undefined' || window.okxwallet;
 
-        // ===== 第1层：浏览器注入的钱包（最高优先级） =====
+        // ===== 第1层：浏览器注入的钱包（最高优先级） — 仅保留 MetaMask 和 OKX =====
         if (typeof window.ethereum !== 'undefined') {
             if (window.ethereum.isMetaMask) {
-                wallets.push({ id: 'metamask', name: 'MetaMask', icon: '🦊' });
+                wallets.push({ id: 'metamask', name: '小狐狸钱包', icon: '🦊' });
             } else if (window.ethereum.isOkxWallet) {
-                wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷' });
-            } else if (window.ethereum.isTrust) {
-                wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙' });
+                wallets.push({ id: 'okx', name: 'OKX钱包', icon: '🔷' });
             } else {
-                wallets.push({ id: 'injected', name: 'Injected Wallet', icon: '💼' });
+                // 其他注入钱包暂时归为 injected，保留但不单独识别
+                wallets.push({ id: 'injected', name: '浏览器钱包', icon: '💼' });
             }
         }
         if (window.okxwallet && !wallets.find(w => w.id === 'okx')) {
-            wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷' });
+            wallets.push({ id: 'okx', name: 'OKX钱包', icon: '🔷' });
         }
-        if (window.trustwallet && !wallets.find(w => w.id === 'trust')) {
-            wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙' });
-        }
-        if (window.coinbaseWallet) {
-            wallets.push({ id: 'coinbase', name: 'Coinbase Wallet', icon: '🔵' });
-        }
+        // Trust Wallet — 已注释
+        // if (window.trustwallet && !wallets.find(w => w.id === 'trust')) {
+        //     wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙' });
+        // }
+        // Coinbase Wallet — 已注释
+        // if (window.coinbaseWallet) {
+        //     wallets.push({ id: 'coinbase', name: 'Coinbase Wallet', icon: '🔵' });
+        // }
 
-        // ===== 第2层：Deep Link — 跳转手机钱包 App（仅移动端，且无注入钱包时） =====
+        // ===== 第2层：Deep Link — 跳转手机钱包 App（仅移动端，且无注入钱包时） — 仅保留 MetaMask 和 OKX =====
         if (isMobile && !hasInject && typeof CONFIG !== 'undefined' && CONFIG.enableDeepLink) {
-            wallets.push({ id: 'deeplink_metamask', name: 'MetaMask App', icon: '🦊' });
+            wallets.push({ id: 'deeplink_metamask', name: '小狐狸App', icon: '🦊' });
             wallets.push({ id: 'deeplink_okx', name: 'OKX App', icon: '🔷' });
-            wallets.push({ id: 'deeplink_tokenpocket', name: 'TokenPocket', icon: '🟡' });
-            wallets.push({ id: 'deeplink_trust', name: 'Trust Wallet App', icon: '💙' });
+            // TokenPocket — 已注释
+            // wallets.push({ id: 'deeplink_tokenpocket', name: 'TokenPocket', icon: '🟡' });
+            // Trust Wallet — 已注释
+            // wallets.push({ id: 'deeplink_trust', name: 'Trust Wallet App', icon: '💙' });
         }
 
-        // ===== 第3层：WalletConnect 扫码（通用，桌面 + 无注入的移动端） =====
+        // ===== 第3层：WalletConnect 扫码（二维码钱包） — 通用，桌面 + 无注入的移动端 =====
         if (typeof CONFIG !== 'undefined' && CONFIG.enableWalletConnect) {
-            wallets.push({ id: 'walletconnect', name: '扫码 WalletConnect', icon: '📱' });
+            wallets.push({ id: 'walletconnect', name: '扫码连接', icon: '📱' });
         }
 
-        // ===== 第4层：Debug Mock（本地开发 fallback） =====
+        // ===== 第4层：Debug Mock（调试钱包/调色钱包） — 本地开发 fallback =====
         if (typeof CONFIG !== 'undefined' && CONFIG.enableDebugMode) {
-            wallets.push({ id: 'debug', name: 'Debug Wallet', icon: '🐛' });
+            wallets.push({ id: 'debug', name: '调试钱包', icon: '🐛' });
         }
 
         return wallets;
@@ -126,10 +130,12 @@ const Wallet = (function() {
                 return window.ethereum;
             case 'okx':
                 return window.okxwallet || window.ethereum;
-            case 'trust':
-                return window.trustwallet || window.ethereum;
-            case 'coinbase':
-                return window.coinbaseWallet || window.ethereum;
+            // Trust Wallet — 已注释
+            // case 'trust':
+            //     return window.trustwallet || window.ethereum;
+            // Coinbase Wallet — 已注释
+            // case 'coinbase':
+            //     return window.coinbaseWallet || window.ethereum;
             default:
                 return window.ethereum;
         }
@@ -201,10 +207,10 @@ const Wallet = (function() {
         const targetUrl = base + encodeURIComponent(dappUrl);
 
         const walletNames = {
-            deeplink_metamask: 'MetaMask',
+            deeplink_metamask: '小狐狸',
             deeplink_okx: 'OKX',
-            deeplink_tokenpocket: 'TokenPocket',
-            deeplink_trust: 'Trust Wallet'
+            // deeplink_tokenpocket: 'TokenPocket',  // 已注释
+            // deeplink_trust: 'Trust Wallet'  // 已注释
         };
         const name = walletNames[walletId] || '钱包';
 
@@ -393,7 +399,8 @@ const Wallet = (function() {
     }
 
     // 连接钱包
-    async function connect(type = null) {
+    // opts.forcePicker: true 时强制弹出钱包选择器（跳过单钱包自动选择）
+    async function connect(type = null, opts = {}) {
         if (isConnecting) {
             return { address: currentAddress, chainId: currentChainId, walletType: walletType };
         }
@@ -414,15 +421,16 @@ const Wallet = (function() {
 
             if (!resolvedType) {
                 const injectWallets = availableWallets.filter(w => !w.id.startsWith('deeplink_') && w.id !== 'walletconnect' && w.id !== 'debug');
-                // 只有 1 个注入钱包 → 直接用（最常见的桌面 MetaMask 场景）
-                if (injectWallets.length === 1 && !isMobileDevice()) {
+                // forcePicker 为 true → 始终弹出选择器（桌面端主动选择入口）
+                // 只有 1 个注入钱包 且非强制选择 且桌面端 → 直接用（最常见的桌面 MetaMask 场景）
+                if (!opts.forcePicker && injectWallets.length === 1 && !isMobileDevice()) {
                     resolvedType = injectWallets[0].id;
                 }
                 // 只有 debug 一个 → 直接用
-                else if (availableWallets.length === 1 && availableWallets[0].id === 'debug') {
+                else if (!opts.forcePicker && availableWallets.length === 1 && availableWallets[0].id === 'debug') {
                     resolvedType = 'debug';
                 }
-                // 其他情况（多钱包可选，或移动端）→ 弹出选择器
+                // 其他情况（强制选择、多钱包、移动端）→ 弹出选择器
                 else {
                     try {
                         resolvedType = await showWalletPicker(availableWallets);

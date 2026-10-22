@@ -303,6 +303,57 @@
     position: relative;
 }
 
+/* 连接钱包组合按钮（主按钮 + 下拉箭头） */
+.btn-connect-wrapper {
+    display: flex;
+    align-items: stretch;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-connect-wrapper .btn-connect-wallet {
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: none;
+}
+
+.btn-connect-chevron {
+    background: var(--primary-color);
+    color: #fff;
+    border: none;
+    padding: 0 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    opacity: 0.85;
+    transition: opacity var(--transition-fast);
+}
+
+.btn-connect-chevron:hover {
+    opacity: 1;
+}
+
+.btn-connect-chevron span {
+    line-height: 1;
+}
+
+/* 移动端隐藏下拉箭头（手机始终弹选择器） */
+@media (max-width: 768px) {
+    .btn-connect-chevron {
+        display: none;
+    }
+    .btn-connect-wrapper .btn-connect-wallet {
+        border-right: none;
+    }
+    .btn-connect-wrapper {
+        border-radius: var(--radius-md);
+    }
+}
+
 .wallet-info {
     display: flex;
     align-items: center;

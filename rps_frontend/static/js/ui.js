@@ -5,6 +5,7 @@ const UI = (function() {
     // 初始化UI元素引用
     function init() {
         elements.themeToggle = document.getElementById('themeToggle');
+        elements.btnConnectWrapper = document.getElementById('btnConnectWrapper');
         elements.connectWalletBtn = document.getElementById('connectWalletBtn');
         elements.walletInfo = document.getElementById('walletInfo');
         elements.walletBalance = document.getElementById('walletBalance');
@@ -183,7 +184,7 @@ const UI = (function() {
     // 更新钱包信息显示
     function updateWalletInfo(address, balance, token) {
         if (address) {
-            elements.connectWalletBtn.classList.add('hidden');
+            elements.btnConnectWrapper.classList.add('hidden');
             elements.walletInfo.classList.remove('hidden');
             elements.walletAddress.textContent = formatAddress(address);
             elements.walletAddress.title = '点击复制 - ' + address;
@@ -204,7 +205,7 @@ const UI = (function() {
                 ddAddress.title = '点击复制完整地址';
             }
         } else {
-            elements.connectWalletBtn.classList.remove('hidden');
+            elements.btnConnectWrapper.classList.remove('hidden');
             elements.walletInfo.classList.add('hidden');
             elements.walletAddress.title = '复制';
         }

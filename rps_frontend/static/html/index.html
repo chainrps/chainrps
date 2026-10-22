@@ -14,8 +14,8 @@
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 
     <!--    样式-->
-    <link rel="stylesheet" href="../css/theme.css?v=20261004j">
-    <link rel="stylesheet" href="../css/style.css?v=20261007b">
+    <link rel="stylesheet" href="../css/theme.css?v=20261022a">
+    <link rel="stylesheet" href="../css/style.css?v=20261022a">
 </head>
 <body>
 <div id="app">
@@ -44,9 +44,14 @@
             </div>
 
             <div class="wallet-section" id="walletSection">
-                <button class="btn btn-primary btn-connect-wallet" id="connectWalletBtn">
-                    <span>连接钱包</span>
-                </button>
+                <div class="btn-connect-wrapper" id="btnConnectWrapper">
+                    <button class="btn btn-primary btn-connect-wallet" id="connectWalletBtn">
+                        <span>连接钱包</span>
+                    </button>
+                    <button class="btn-connect-chevron" id="connectWalletChevron" title="选择钱包类型">
+                        <span>▾</span>
+                    </button>
+                </div>
                 <div class="wallet-info hidden" id="walletInfo">
                     <div class="wallet-avatar-container" title="点击查看钱包详情">
                         <div class="wallet-avatar" id="walletAvatar">👤</div>
@@ -645,16 +650,16 @@
 <script src="../js/FWUI/button.js?v=20260726d"></script>
 <script src="../js/FWUI/input.js?v=20260726d"></script>
 
-<script src="../js/config.js?v=20261021c"></script>
-<script src="../js/wallet.js?v=20261021c"></script>
+<script src="../js/config.js?v=20261022a"></script>
+<script src="../js/wallet.js?v=20261022a"></script>
 <script src="../js/crypto.js?v=20260726d"></script>
 <script src="../js/contract.js?v=20261004p"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
 <script src="../js/p2p.js?v=20260729a"></script>
-<script src="../js/ui.js?v=20261019a"></script>
+<script src="../js/ui.js?v=20261022a"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261021a"></script>
+<script src="../js/app.js?v=20261022a"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

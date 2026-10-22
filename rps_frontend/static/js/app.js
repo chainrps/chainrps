@@ -595,7 +595,8 @@ const App = (function () {
             UI.toggleTheme();
         });
 
-        document.getElementById('connectWalletBtn').addEventListener('click', connectWallet);
+        document.getElementById('connectWalletBtn').addEventListener('click', () => connectWallet(false));
+        document.getElementById('connectWalletChevron').addEventListener('click', () => connectWallet(true));
         document.getElementById('disconnectBtn').addEventListener('click', disconnectWallet);
 
         document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -1583,7 +1584,8 @@ const App = (function () {
     }
 
     // 连接钱包
-    async function connectWallet() {
+    // forcePicker: true 强制弹出钱包选择器
+    async function connectWallet(forcePicker = false) {
         try {
             const wallets = Wallet.getAvailableWallets();
             if (wallets.length === 0) {
@@ -1592,7 +1594,7 @@ const App = (function () {
             }
 
             isManualConnect = true;
-            await Wallet.connect();
+            await Wallet.connect(null, { forcePicker: forcePicker });
         } catch (e) {
             isManualConnect = false;
             FWUI.Toast.error(e.message || '连接失败');
