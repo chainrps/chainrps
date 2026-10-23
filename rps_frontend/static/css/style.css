@@ -919,6 +919,21 @@ body[data-game-phase="finished"] #stageGame .game-board {
     50% { transform: scale(1.08); }
 }
 
+/* 🔥 VS 位置 —— 倒计时阶段显示大号数字 */
+#stageGame .game-vs.vs-countdown {
+    font-size: 42px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.25), rgba(var(--primary-rgb), 0.1));
+    color: var(--primary-color);
+    box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.4), inset 0 0 20px rgba(var(--primary-rgb), 0.15);
+    animation: vsCountdownPop 1s ease-in-out infinite;
+}
+@keyframes vsCountdownPop {
+    0%, 100% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.18); filter: brightness(1.3); }
+}
+
 /* ==================== 准备阶段（room-players 等）的 player-side —— 保持原样 ==================== */
 /* 下面这些规则只在非 #stageGame 时生效 */
 
@@ -1122,31 +1137,23 @@ body[data-game-phase="finished"] #stageGame .game-board {
     transition: opacity 0.3s ease, transform 0.3s ease, padding 0.3s ease;
 }
 
-/* 🆕 该你出拳了！— 出拳提示横幅 */
-.punch-banner {
+/* 🆕 该你出拳了！— 轻量醒目的内联文字提示（去掉大红底） */
+.punch-hint-line {
     text-align: center;
-    padding: 14px 24px;
-    margin-bottom: 16px;
-    background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%);
-    color: #fff;
-    font-size: 18px;
-    font-weight: 800;
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(255, 71, 87, 0.4);
-    animation: bannerPulse 1.2s ease-in-out infinite;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    margin-bottom: 14px;
+    padding: 6px 0;
 }
-.punch-banner.hidden { display: none; }
-@keyframes bannerPulse {
-    0%, 100% { transform: scale(1); box-shadow: 0 4px 20px rgba(255, 71, 87, 0.4); }
-    50% { transform: scale(1.03); box-shadow: 0 6px 28px rgba(255, 71, 87, 0.65); }
+.punch-hint-line.hidden { display: none; }
+.punch-hint-text {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--primary-color);
+    letter-spacing: 0.3px;
+    animation: punchHintBlink 1.2s ease-in-out infinite;
 }
-.punch-banner .punch-hint {
-    display: block;
-    font-size: 14px;
-    font-weight: 500;
-    margin-top: 4px;
-    opacity: 0.9;
+@keyframes punchHintBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
 }
 
 /* 🆕 出拳按钮脉冲发光动画 */
@@ -1213,37 +1220,30 @@ body[data-local-only="true"][data-game-phase="choose"] .choice-btn:disabled {
     margin-top: 16px;
 }
 
-/* 🆕 自动揭晓标签（非按钮，纯提示用） */
-.auto-reveal-label {
-    max-width: 300px;
-    margin: 0 auto;
-    padding: 14px 20px;
-    background: rgba(99, 102, 241, 0.15);
-    border: 1.5px dashed rgba(99, 102, 241, 0.5);
-    border-radius: 12px;
-    color: #818cf8;
-    text-align: center;
-    font-size: 15px;
-    font-weight: 500;
+/* 🆕 揭晓阶段标签提示（无边框、纯文字 + 图标） */
+.reveal-hint-tag {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
+    padding: 6px 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
     cursor: default;
     user-select: none;
-    animation: autoRevealPulse 2s ease-in-out infinite;
+    margin-bottom: 8px;
 }
-.auto-reveal-label .auto-reveal-icon {
-    font-size: 18px;
-    animation: autoRevealSpin 2s linear infinite;
+.reveal-hint-tag.hidden { display: none; }
+.reveal-hint-icon {
+    font-size: 14px;
+    animation: revealHintSpin 2s linear infinite;
 }
-.auto-reveal-label.hidden { display: none; }
-
-@keyframes autoRevealPulse {
-    0%, 100% { opacity: 0.85; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.02); }
+.reveal-hint-text {
+    color: var(--primary-color);
+    font-weight: 600;
 }
-@keyframes autoRevealSpin {
+@keyframes revealHintSpin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
@@ -1374,10 +1374,21 @@ body[data-local-only="true"][data-game-phase="choose"] .choice-btn:disabled {
 
 .result-actions {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     gap: 12px;
-    max-width: 320px;
-    margin: 0 auto;
+    justify-content: center;
+    margin-top: 16px;
+}
+.result-actions .btn {
+    flex: 0 0 auto;
+    min-width: 100px;
+}
+.result-actions .btn-play-again {
+    flex: 1;
+    max-width: 200px;
+}
+.result-actions .btn-back-home {
+    min-width: 100px;
 }
 
 /* 结果界面倒计时提示 */
@@ -3012,26 +3023,40 @@ body[data-game-phase="commit"] .room-players {
 .choice-confirm {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     margin-top: 16px;
-    padding: 16px;
+    padding: 14px 16px;
     background: var(--bg-secondary);
     border-radius: var(--radius-md);
     animation: slideUp 0.2s ease;
 }
+.choice-confirm.hidden { display: none; }
 
 @keyframes slideUp {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-.selected-choice-preview {
+/* 选中的出拳预览（emoji + 名称，居中显示） */
+.choice-confirm-preview {
     text-align: center;
-    padding: 12px;
-    font-size: 48px;
+    font-size: 22px;
+    font-weight: 700;
+    padding: 8px 12px;
     background: var(--bg-card);
     border-radius: var(--radius-md);
     border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+}
+
+/* 确认/重选按钮行内布局 */
+.choice-confirm-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+.choice-confirm-actions .btn {
+    min-width: 100px;
 }
 
 .room-actions {
@@ -4912,35 +4937,101 @@ body[data-game-phase="commit"] .room-players {
 }
 
 /* Winner highlight */
+/* ==================== PK 对碰 + 胜负动画 ==================== */
+
+/* 🔥 双方出拳先对碰一下（碰撞瞬间） */
+.pk-left.collide .pk-fist {
+    animation: pkLeftCollide 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.35s;
+}
+.pk-right.collide .pk-fist {
+    animation: pkRightCollide 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.35s;
+}
+
+/* 胜利者：居中 + 放大脉动 */
 .pk-side.winner .pk-fist {
-    animation: winnerPulse 0.8s ease-in-out 1.2s infinite;
+    animation: winnerPulse 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) 1.0s forwards,
+               winnerGlow 2.0s ease-in-out 1.9s infinite;
 }
 
-.pk-side.winner::after {
-    content: '👑';
-    position: absolute;
-    top: -30px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 24px;
-    animation: crownDrop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.9s both;
-}
-
+/* 失败者：缩小 + 淡出 + 掉落消失 */
 .pk-side.loser .pk-fist {
-    filter: grayscale(0.5) brightness(0.7);
-    transform: scale(0.85);
-    transition: all 0.3s ease 0.9s;
+    animation: loserFadeOut 0.6s ease-in 1.0s forwards !important;
+    filter: grayscale(0.7) brightness(0.5) !important;
+}
+.pk-side.loser .pk-fighter-name {
+    opacity: 0;
+    transition: opacity 0.4s ease 1.0s;
 }
 
+/* 平局：颤抖 */
 .pk-side.draw .pk-fist {
     animation: drawShake 0.4s ease-in-out 1.2s 2;
 }
 
-.pk-side {
-    position: relative;
+/* 胜利者王冠 + 居中 */
+.pk-side.winner::after {
+    content: '👑';
+    position: absolute;
+    top: -36px;
+    left: 50%;
+    transform: translateX(-50%) scale(0);
+    font-size: 28px;
+    opacity: 0;
+    animation: crownDrop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 1.2s forwards;
 }
 
-/* Animations */
+.pk-side {
+    position: relative;
+    transition: flex 0.6s ease 1.0s;
+}
+
+/* 胜利方撑开舞台（失败方淡出后让胜利方更醒目） */
+.pk-arena:has(.pk-side.winner) .pk-side.winner {
+    flex: 1.2;
+}
+.pk-arena:has(.pk-side.winner) .pk-side.loser {
+    flex: 0.5;
+    opacity: 0.2;
+}
+
+/* --- Keyframes --- */
+
+@keyframes pkLeftCollide {
+    0% { transform: translateX(0) scale(1); }
+    50% { transform: translateX(50px) scale(1.15); filter: drop-shadow(0 0 16px rgba(var(--primary-rgb),0.7)); }
+    100% { transform: translateX(0) scale(1); }
+}
+
+@keyframes pkRightCollide {
+    0% { transform: translateX(0) scale(1); }
+    50% { transform: translateX(-50px) scale(1.15); filter: drop-shadow(0 0 16px rgba(245,158,11,0.7)); }
+    100% { transform: translateX(0) scale(1); }
+}
+
+@keyframes winnerPulse {
+    0% { transform: translateX(0) scale(1); filter: drop-shadow(0 8px 24px rgba(var(--primary-rgb),0.4)); }
+    60% { transform: translateX(0) scale(1.35); filter: drop-shadow(0 12px 40px rgba(var(--primary-rgb),0.9)); }
+    100% { transform: translateX(0) scale(1.2); filter: drop-shadow(0 10px 32px rgba(var(--primary-rgb),0.7)); }
+}
+
+@keyframes winnerGlow {
+    0%, 100% { transform: scale(1.2); }
+    50% { transform: scale(1.28); }
+}
+
+@keyframes loserFadeOut {
+    0% { transform: scale(1) translateY(0); opacity: 1; }
+    60% { transform: scale(0.4) translateY(20px); opacity: 0.3; }
+    100% { transform: scale(0.2) translateY(40px); opacity: 0; }
+}
+
+@keyframes drawShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-8px) rotate(-4deg); }
+    75% { transform: translateX(8px) rotate(4deg); }
+}
+
+/* --- 保留原入场 / 特效 keyframes --- */
 @keyframes pkMyFistIn {
     0% { transform: translateX(-100px) scale(0.3) rotate(-30deg); opacity: 0; }
     60% { transform: translateX(10px) scale(1.1) rotate(10deg); }
@@ -4965,20 +5056,9 @@ body[data-game-phase="commit"] .room-players {
     100% { opacity: 0; transform: translate(-50%, -50%) scale(2) translateY(-20px); }
 }
 
-@keyframes winnerPulse {
-    0%, 100% { transform: scale(1); filter: drop-shadow(0 8px 24px rgba(99,102,241,0.5)); }
-    50% { transform: scale(1.1); filter: drop-shadow(0 8px 32px rgba(99,102,241,0.9)); }
-}
-
 @keyframes crownDrop {
     0% { transform: translateX(-50%) translateY(-30px) scale(0); opacity: 0; }
     100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
-}
-
-@keyframes drawShake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-5px) rotate(-5deg); }
-    75% { transform: translateX(5px) rotate(5deg); }
 }
 
 /* Result reveal after PK */

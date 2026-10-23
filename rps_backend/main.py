@@ -179,7 +179,7 @@ async def cleanup_loop():
 app = FastAPI(
     title="ChainRPS Backend",
     description="链上公平猜拳后端服务",
-    version="1.0.40",
+    version="1.0.41",
     lifespan=lifespan
 )
 
@@ -499,6 +499,27 @@ def main():
         port=PORT,
         reload=False
     )
+
+
+# 🔒 必须在所有显式路由之后注册的 SPA catch-all
+# 确保前端 hash/pushState 路由刷新不 404（如 /room/abc/game /room/abc/result）
+# FastAPI 会按注册顺序匹配，显式 @app.get 优先，这里兜底
+from fastapi import Request
+
+_INDEX_HTML = os.path.join(STATIC_DIR, "html", "index.html")
+
+
+@app.get("/room/{room_id:path}")
+async def spa_room_subpath(request: Request, room_id: str):
+    """
+    前端 SPA 路由兜底：
+    /room/{id}          → 大厅等待（由前端 handleRoute 解析）
+    /room/{id}/game     → 游戏进行中
+    /room/{id}/result   → 结算画面
+    """
+    # room_id 可能为 "abc/game" / "abc/result" 等
+    # 交给前端 JS 的 handleRoute 进一步解析子路径
+    return FileResponse(_INDEX_HTML)
 
 
 if __name__ == "__main__":

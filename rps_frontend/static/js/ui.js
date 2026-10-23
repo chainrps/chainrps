@@ -508,10 +508,16 @@ const UI = (function() {
         
         // 重置 PK 样式
         [pkLeft, pkRight].forEach(el => {
-            el.classList.remove('winner', 'loser', 'draw');
+            el.classList.remove('winner', 'loser', 'draw', 'collide');
+            // 强制 reflow 让动画可重放
+            void el.offsetWidth;
         });
         if (resultReveal) resultReveal.classList.add('hidden');
         if (pkProcess) pkProcess.classList.add('hidden');
+
+        // 🔥 触发对碰动画（0.35s 后双方出拳向中间 lunge 一下）
+        pkLeft?.classList.add('collide');
+        pkRight?.classList.add('collide');
         
         // 设置双方出拳 emoji
         if (myFist && result.myChoice !== undefined) {
@@ -540,6 +546,9 @@ const UI = (function() {
         
         // 🆕 触发 PK 对决结果（延迟 0.9s 后标记胜方 + 显示过程文字，1.5s 后显示结算详情）
         setTimeout(() => {
+            // 清理 collide（碰撞动画已播放完）
+            pkLeft?.classList.remove('collide');
+            pkRight?.classList.remove('collide');
             if (result.type === 'win') {
                 pkLeft?.classList.add('winner');
                 pkRight?.classList.add('loser');

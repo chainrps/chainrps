@@ -16,7 +16,7 @@
     <!--    样式-->
     <!-- 🔥 去掉 Google Fonts 外链（国内被墙导致 ERR_CONNECTION_CLOSED），改用系统等宽字体 -->
     <link rel="stylesheet" href="../css/theme.css?v=20261020e">
-    <link rel="stylesheet" href="../css/style.css?v=20261023c">
+    <link rel="stylesheet" href="../css/style.css?v=20261024b">
 </head>
 <body>
 <div id="app">
@@ -350,7 +350,7 @@
                             </div>
                         </div>
 
-                        <div class="game-vs">VS</div>
+                        <div class="game-vs" id="gameVs">VS</div>
 
                         <div class="player-side player-me">
                             <div class="player-avatar">😎</div>
@@ -365,10 +365,9 @@
                     </div>
 
                     <div class="game-actions" id="gameActions">
-                        <!-- 🆕 该你出拳了！提示横幅 -->
-                        <div class="punch-banner hidden" id="punchBanner">
-                            🎯 该你出拳了！点下方按钮出招
-                            <span class="punch-hint" id="punchBannerHint">3 种选择：石头 ✊ 布 ✋ 剪刀 ✌️</span>
+                        <!-- 🆕 该你出拳了！提示（改为轻量醒目的内联文字，无大红底） -->
+                        <div class="punch-hint-line hidden" id="punchHintLine">
+                            🎯 <span class="punch-hint-text">该你出拳了！点下方按钮出招</span>
                         </div>
 
                         <div class="choice-buttons">
@@ -386,25 +385,22 @@
                             </button>
                         </div>
 
+                        <!-- 确认/重选：改为一行两个按钮，不再全 width -->
                         <div class="choice-confirm hidden" id="choiceConfirmSection">
-                            <div class="selected-choice-preview" id="selectedChoicePreview"></div>
-                            <button class="btn btn-primary btn-large btn-block" id="confirmChoiceBtn">
-                                ✓ 确认出拳并上链
-                            </button>
-                            <button class="btn btn-secondary btn-block" id="cancelChoiceBtn">
-                                重新选择
-                            </button>
+                            <div class="choice-confirm-preview" id="choiceConfirmPreview"></div>
+                            <div class="choice-confirm-actions">
+                                <button class="btn btn-primary" id="confirmChoiceBtn">确定</button>
+                                <button class="btn btn-secondary" id="cancelChoiceBtn">重选</button>
+                            </div>
                         </div>
 
                         <div class="action-buttons hidden" id="revealSection">
-                            <button class="btn btn-success btn-large btn-block btn-reveal" id="revealBtn">
-                                揭晓出拳
-                            </button>
-                            <!-- 🆕 自动揭晓标签（非按钮，纯提示用） -->
-                            <div class="auto-reveal-label hidden" id="autoRevealLabel">
-                                <span class="auto-reveal-icon">⏱</span>
-                                <span class="auto-reveal-text">自动揭晓中</span>
+                            <!-- 揭晓阶段：用标签提示自动倒计时 -->
+                            <div class="reveal-hint-tag" id="revealHintTag">
+                                <span class="reveal-hint-icon">⏱</span>
+                                <span class="reveal-hint-text" id="revealHintText">即将自动揭晓…</span>
                             </div>
+                            <button class="btn btn-primary btn-reveal" id="revealBtn">立即揭晓</button>
                         </div>
 
                         <div class="action-buttons hidden" id="timeoutSection">
@@ -472,12 +468,8 @@
                             </div>
 
                             <div class="result-actions">
-                                <button class="btn btn-primary btn-large btn-block btn-play-again" id="playAgainBtn">
-                                    再来一局
-                                </button>
-                                <button class="btn btn-default btn-block btn-back-home" id="backHomeBtn">
-                                    退出房间
-                                </button>
+                                <button class="btn btn-primary btn-play-again" id="playAgainBtn">再来一局</button>
+                                <button class="btn btn-default btn-back-home" id="backHomeBtn">退出房间</button>
                             </div>
                             <p class="result-countdown" id="resultCountdown"></p>
                         </div>
@@ -667,7 +659,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.40 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.41 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -692,10 +684,10 @@
 <script src="../js/contract.js?v=20261004p"></script>
 <script src="../js/websocket.js?v=20260726d"></script>
 <script src="../js/p2p.js?v=20260729a"></script>
-<script src="../js/ui.js?v=20261023b"></script>
+<script src="../js/ui.js?v=20261024a"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261023c"></script>
+<script src="../js/app.js?v=20261024b"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

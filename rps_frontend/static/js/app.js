@@ -474,6 +474,9 @@ const App = (function () {
             if (subPath === 'game') {
                 // /room/{id}/game：游戏进行中路由恢复
                 handleGameRoute(roomId);
+            } else if (subPath === 'result') {
+                // /room/{id}/result：结算画面路由恢复
+                handleResultRoute(roomId);
             } else {
                 // /room/{id}：房间等待
                 currentRoomId = roomId;
@@ -560,10 +563,59 @@ const App = (function () {
         }
     }
 
-    // 导航到指定路径
+    // 处理 /room/{id}/result 路由：直接显示结算画面
+    async function handleResultRoute(roomId) {
+        // 重入保护：已在 stageResult 且 room 匹配，直接 return（防止 navigateTo 循环触发）
+        const stageResult = document.getElementById('stageResult');
+        const alreadyHere = stageResult && !stageResult.classList.contains('hidden')
+            && currentRoomId === roomId;
+        if (alreadyHere) return;
+
+        // 场景 1：刷新页面恢复结算画面 → 需要 fetch 校验
+        // 场景 2：navigateTo 自动触发（结算刚发生）→ currentRoomId 已对，直接 show
+        if (currentRoomId === roomId && currentRoom && !isMockMode) {
+            UI.showStage('stageResult');
+            return;
+        }
+        if (!Wallet.isConnected()) {
+            FWUI.Toast.warning('请先连接钱包');
+            navigateTo('/');
+            return;
+        }
+        try {
+            const resp = await fetch(`${CONFIG.backendUrl}/api/game/room/${roomId}`);
+            const room = resp.ok ? await resp.json() : null;
+            if (!room || !room.room_id || room.success === false) {
+                navigateTo('/');
+                return;
+            }
+            const myAddr = (Wallet.getAddress() || '').toLowerCase();
+            const amICreator = room.creator && room.creator.toLowerCase() === myAddr;
+            const amIPlayer2 = room.player2 && room.player2.toLowerCase() === myAddr;
+            if (!amICreator && !amIPlayer2) {
+                navigateTo('/');
+                return;
+            }
+            currentRoomId = roomId;
+            currentRoom = room;
+            UI.showStage('stageResult');
+        } catch (e) {
+            FWUI.Toast.error('恢复结算画面失败: ' + (e.message || e));
+            navigateTo('/');
+        }
+    }
+
+    // 导航到指定路径（只更新 URL，交给 handleRoute 分发；自带重入保护防止死循环）
+    let _navigating = false;
     function navigateTo(path) {
-        window.history.pushState({}, '', path);
-        handleRoute();
+        if (_navigating) return;
+        _navigating = true;
+        try {
+            window.history.pushState({}, '', path);
+            handleRoute();
+        } finally {
+            _navigating = false;
+        }
     }
 
     // 自动连接钱包
@@ -2024,20 +2076,20 @@ const App = (function () {
                     const initialInfo = getTokenAddressInfo(selectedToken);
                     return `
                         <div style="margin-bottom: 16px;">
-                            <div style="font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px;">选择代币</div>
+                            <div style="font-size: 14px; font-weight: 600; color: var(--text-heading); margin-bottom: 10px;">选择代币</div>
                             <div style="display: flex; gap: 8px;">
                                 ${tokenOptions.map(t => `
                                     <button class="dialog-token-btn" data-token="${t}" style="
                                         flex: 1;
                                         padding: 10px;
-                                        border: 1px solid ${t === selectedToken ? '#6366f1' : '#e2e8f0'};
+                                        border: 1px solid ${t === selectedToken ? 'var(--primary-color)' : 'var(--card-border)'};
                                         border-radius: 10px;
-                                        background: ${t === selectedToken ? '#6366f1' : '#fff'};
-                                        color: ${t === selectedToken ? '#fff' : '#0f172a'};
+                                        background: ${t === selectedToken ? 'var(--primary-color)' : 'var(--card-bg)'};
+                                        color: ${t === selectedToken ? 'var(--text-inverse)' : 'var(--text-heading)'};
                                         cursor: pointer;
                                         font-size: 14px;
                                         font-weight: 500;
-                                        transition: all 0.15s ease;
+                                        transition: all var(--transition-fast);
                                     ">${t}</button>
                                 `).join('')}
                             </div>
@@ -2045,26 +2097,26 @@ const App = (function () {
                         <div id="dialogTokenInfo" style="
                             margin-bottom: 16px;
                             padding: 10px 12px;
-                            background: #f8fafc;
-                            border: 1px solid #e2e8f0;
+                            background: var(--bg-secondary);
+                            border: 1px solid var(--card-border);
                             border-radius: 10px;
                             font-size: 12px;
                             line-height: 1.8;
                         ">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                <span style="font-weight: 600; color: #0f172a;">代币信息</span>
+                                <span style="font-weight: 600; color: var(--text-heading);">代币信息</span>
                                 <button id="dialogAddToWallet" style="
                                     padding: 3px 10px;
                                     font-size: 11px;
-                                    background: #6366f1;
-                                    color: #fff;
+                                    background: var(--primary-color);
+                                    color: var(--text-inverse);
                                     border: none;
                                     border-radius: 6px;
                                     cursor: pointer;
                                 ">+ 添加到钱包</button>
                             </div>
                             <div>符号: <b>${selectedToken}</b></div>
-                            <div>合约地址: <code id="dialogTokenAddress" style="font-size: 11px; color: #6366f1; cursor: pointer;" title="点击复制">${initialInfo.isNative ? '原生币 (零地址)' : initialInfo.address}</code></div>
+                            <div>合约地址: <code id="dialogTokenAddress" style="font-size: 11px; color: var(--primary-color); cursor: pointer;" title="点击复制">${initialInfo.isNative ? '原生币 (零地址)' : initialInfo.address}</code></div>
                             <div>Decimals: ${initialInfo.decimals}</div>
                         </div>
                         <div style="margin-bottom: 12px;">
@@ -2128,9 +2180,9 @@ const App = (function () {
                         font-size: 14px;
                         font-weight: 500;
                         cursor: pointer;
-                        border: 1px solid #e2e8f0;
-                        background: #fff;
-                        color: #0f172a;
+                        border: 1px solid var(--card-border);
+                        background: var(--card-bg);
+                        color: var(--text-heading);
                     ">取消</button>
                     <button class="fwui-btn fwui-btn-primary" data-action="confirm" style="
                         padding: 8px 20px;
@@ -2139,8 +2191,8 @@ const App = (function () {
                         font-weight: 500;
                         cursor: pointer;
                         border: none;
-                        background: #6366f1;
-                        color: #fff;
+                        background: var(--primary-color);
+                        color: var(--text-inverse);
                     ">创建房间</button>
                 `
             });
@@ -2230,9 +2282,9 @@ const App = (function () {
                     selectedToken = btn.dataset.token;
                     modal.element.querySelectorAll('.dialog-token-btn').forEach(b => {
                         const isActive = b.dataset.token === selectedToken;
-                        b.style.borderColor = isActive ? '#6366f1' : '#e2e8f0';
-                        b.style.background = isActive ? '#6366f1' : '#fff';
-                        b.style.color = isActive ? '#fff' : '#0f172a';
+                        b.style.borderColor = isActive ? 'var(--primary-color)' : 'var(--card-border)';
+                        b.style.background = isActive ? 'var(--primary-color)' : 'var(--card-bg)';
+                        b.style.color = isActive ? 'var(--text-inverse)' : 'var(--text-heading)';
                     });
                     updateTokenInfo();
                 });
@@ -4680,11 +4732,13 @@ const App = (function () {
         // 同时更新两个位置：stageRoomWait 的小计时器 + stageGame 的大计时器
         const stageRoomTimer = document.getElementById('roomLifecycleTimer');
         const stageGameTimer = document.getElementById('gameTimer');
+        const gameVs = document.getElementById('gameVs');
 
         if (!info || info.primary == null || info.primary <= 0) {
             // 隐藏
             if (stageRoomTimer) { stageRoomTimer.textContent = ''; stageRoomTimer.className = 'room-lifecycle-timer'; stageRoomTimer.style.display = 'none'; }
             if (stageGameTimer) { stageGameTimer.textContent = '--:--'; stageGameTimer.className = 'game-timer'; }
+            if (gameVs) { gameVs.textContent = 'VS'; gameVs.classList.remove('vs-countdown'); }
             return;
         }
 
@@ -4724,6 +4778,17 @@ const App = (function () {
             stageGameTimer.className = 'game-timer' + (isDanger ? ' danger' : isWarn ? ' warning' : '');
             // 如果有阶段名，用 Tooltip
             stageGameTimer.title = label;
+        }
+
+        // 🔥 VS 位置：倒计时阶段显示大号倒计时数字，其他阶段恢复 VS
+        if (gameVs) {
+            if (info.phase === 'game_countdown') {
+                gameVs.textContent = secs > 0 ? secs : 'GO!';
+                gameVs.classList.add('vs-countdown');
+            } else {
+                gameVs.textContent = 'VS';
+                gameVs.classList.remove('vs-countdown');
+            }
         }
     }
 
@@ -5260,9 +5325,13 @@ const App = (function () {
 
         // 显示确认区
         const confirmSection = document.getElementById('choiceConfirmSection');
-        const preview = document.getElementById('selectedChoicePreview');
-        if (confirmSection && preview) {
-            preview.textContent = RPSCrypto.getChoiceEmoji(choice);
+        const preview = document.getElementById('choiceConfirmPreview');
+        if (confirmSection) {
+            if (preview) {
+                const emoji = RPSCrypto.getChoiceEmoji(choice);
+                const name = RPSCrypto.getChoiceName(choice);
+                preview.textContent = `${emoji} ${name}`;
+            }
             confirmSection.classList.remove('hidden');
         }
     }
@@ -5536,24 +5605,24 @@ const App = (function () {
     // 🆕 显示自动揭晓标签（隐藏按钮）
     function showAutoRevealLabel(seconds) {
         const btn = UI.elements.revealBtn;
-        const label = document.getElementById('autoRevealLabel');
+        const label = document.getElementById('revealHintTag');
         if (btn) btn.classList.add('hidden');
         if (label) {
             label.classList.remove('hidden');
-            const textEl = label.querySelector('.auto-reveal-text');
+            const textEl = document.getElementById('revealHintText');
             if (textEl && seconds != null) textEl.textContent = `自动揭晓（${seconds}s）`;
-            else if (textEl) textEl.textContent = '自动揭晓中';
+            else if (textEl) textEl.textContent = '自动揭晓中…';
         }
     }
 
     // 🆕 显示手动揭晓按钮（隐藏标签）
     function showManualRevealBtn() {
         const btn = UI.elements.revealBtn;
-        const label = document.getElementById('autoRevealLabel');
+        const label = document.getElementById('revealHintTag');
         if (btn) {
             btn.classList.remove('hidden');
             btn.disabled = false;
-            btn.textContent = '揭晓出拳';
+            btn.textContent = '立即揭晓';
         }
         if (label) label.classList.add('hidden');
     }
@@ -5589,9 +5658,9 @@ const App = (function () {
                 return;
             }
             // 更新标签倒计时
-            const label = document.getElementById('autoRevealLabel');
+            const label = document.getElementById('revealHintTag');
             if (label) {
-                const textEl = label.querySelector('.auto-reveal-text');
+                const textEl = document.getElementById('revealHintText');
                 if (textEl) textEl.textContent = `自动揭晓（${remaining}s）`;
             }
             remaining--;
@@ -5608,7 +5677,7 @@ const App = (function () {
             autoRevealTimer = null;
         }
         // 🆕 隐藏自动揭晓标签
-        const label = document.getElementById('autoRevealLabel');
+        const label = document.getElementById('revealHintTag');
         if (label) label.classList.add('hidden');
     }
 
@@ -5704,10 +5773,18 @@ const App = (function () {
 
     // 显示对局结果（默认持续显示30秒，之后自动返回）
     function showResult(result) {
+        // 🔥 关键：结算时必须停掉所有轮询，防止 polling 把 UI 打回 game/room 阶段
+        stopRoomPolling();
+        stopAllFallbackPolling();
+        stopLifecycleCountdown();
         setGamePhase('finished');
         UI.showStage('stageResult');
         UI.showResult(result);
         startResultCountdown(30);
+        // 更新 URL 为结算子路径（便于刷新恢复 / 排查 BUG）
+        if (currentRoomId) {
+            navigateTo(`/room/${currentRoomId}/result`);
+        }
     }
 
     // 启动结果界面倒计时（seconds 秒后自动返回房间/大厅）
