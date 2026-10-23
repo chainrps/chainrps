@@ -2019,11 +2019,72 @@ input:checked + .slider:before {
 }
 
 /* ==================== 大厅筛选 Tab ==================== */
+.lobby-control-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
 .lobby-tabs {
     display: flex;
     gap: 6px;
-    margin-bottom: 12px;
     flex-wrap: wrap;
+    margin-bottom: 0;
+}
+
+/* 右侧操作区 */
+.lobby-tabs-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* 低调的图标按钮（🔗 加入房间） */
+.btn-icon.btn-icon-muted {
+    color: var(--text-tertiary);
+    opacity: 0.7;
+}
+
+.btn-icon.btn-icon-muted:hover {
+    opacity: 1;
+    color: var(--text-secondary);
+    background: rgba(var(--primary-rgb), 0.06);
+}
+
+/* 醒目的创建房间主按钮 */
+.btn-create-room {
+    gap: 6px;
+    padding: 8px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: var(--radius-full);
+    box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.btn-create-room:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.45);
+}
+
+.btn-create-room:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(var(--primary-rgb), 0.3);
+}
+
+.btn-create-room .btn-icon-plus {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.btn-create-room .btn-label {
+    font-size: 14px;
+    letter-spacing: 0.5px;
 }
 
 .lobby-tab {
@@ -2430,6 +2491,25 @@ input:checked + .slider:before {
         justify-content: flex-end;
         flex-wrap: wrap;
         gap: 2px;
+    }
+
+    /* 移动端：tabs 和右侧按钮分行 */
+    .lobby-control-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .lobby-tabs-right {
+        margin-left: 0;
+        justify-content: flex-end;
+    }
+
+    .btn-create-room {
+        flex: 1;
+        min-width: 0;
+        padding: 8px 14px;
+        font-size: 13px;
     }
 
     .lobby-stats {

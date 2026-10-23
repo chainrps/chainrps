@@ -16,7 +16,7 @@
     <!--    样式-->
     <!-- 🔥 去掉 Google Fonts 外链（国内被墙导致 ERR_CONNECTION_CLOSED），改用系统等宽字体 -->
     <link rel="stylesheet" href="../css/theme.css?v=20261020e">
-    <link rel="stylesheet" href="../css/style.css?v=20261023a">
+    <link rel="stylesheet" href="../css/style.css?v=20261023c">
 </head>
 <body>
 <div id="app">
@@ -158,27 +158,32 @@
                                     <button class="view-switch-btn" id="viewSwitchBtn" title="切换列表/卡片视图">
                                         <span class="view-icon">▦</span>
                                     </button>
-                                    <button class="btn-icon" id="createRoomBtn" title="创建房间">
-                                        <span>➕</span>
-                                    </button>
-                                    <button class="btn-icon" id="joinRoomBtn" title="输入房间ID加入">
-                                        <span>🔗</span>
-                                    </button>
                                 </div>
                             </div>
                             <p class="lobby-subtitle">创建房间或加入房间开始对局</p>
                         </div>
 
-                        <div class="lobby-tabs" id="lobbyTabs">
-                            <button class="lobby-tab active" data-filter="all" title="显示全部房间">
-                                全部 <span class="tab-count" id="tabAllCount">0</span>
-                            </button>
-                            <button class="lobby-tab" data-filter="available" title="只显示可加入的房间">
-                                可加入 <span class="tab-count" id="tabAvailableCount">0</span>
-                            </button>
-                            <button class="lobby-tab" data-filter="in_progress" title="只显示游戏中的房间">
-                                游戏中 <span class="tab-count" id="tabStartedCount">0</span>
-                            </button>
+                        <div class="lobby-control-bar">
+                            <div class="lobby-tabs" id="lobbyTabs">
+                                <button class="lobby-tab active" data-filter="all" title="显示全部房间">
+                                    全部 <span class="tab-count" id="tabAllCount">0</span>
+                                </button>
+                                <button class="lobby-tab" data-filter="available" title="只显示可加入的房间">
+                                    可加入 <span class="tab-count" id="tabAvailableCount">0</span>
+                                </button>
+                                <button class="lobby-tab" data-filter="in_progress" title="只显示游戏中的房间">
+                                    游戏中 <span class="tab-count" id="tabStartedCount">0</span>
+                                </button>
+                            </div>
+                            <div class="lobby-tabs-right">
+                                <button class="btn-icon btn-icon-muted" id="joinRoomBtn" title="输入房间ID加入">
+                                    <span>🔗</span>
+                                </button>
+                                <button class="btn btn-primary btn-create-room" id="createRoomBtn" title="创建房间">
+                                    <span class="btn-icon-plus">➕</span>
+                                    <span class="btn-label">创建房间</span>
+                                </button>
+                            </div>
                         </div>
 
                         <!-- 列表视图表头（仅 view-list 时显示） -->
@@ -195,7 +200,7 @@
                             <div class="empty-state">
                                 <span class="empty-icon">🏠</span>
                                 <p>暂无可用房间</p>
-                                <p class="empty-hint">点击右上角 ➕ 按钮创建第一个房间</p>
+                                <p class="empty-hint">点击下方 ➕ 创建房间，或加入已有房间</p>
                             </div>
                         </div>
 
@@ -662,7 +667,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.39 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.40 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -690,7 +695,7 @@
 <script src="../js/ui.js?v=20261023b"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261023b"></script>
+<script src="../js/app.js?v=20261023c"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

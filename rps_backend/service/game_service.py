@@ -557,24 +557,47 @@ class GameManager:
 
         # 同步：关联房间标记为已完成，停止所有计时器
         try:
-            room_info = room_manager.get_player_room(player1 or "")
-            if not room_info:
-                room_info = room_manager.get_player_room(player2 or "")
-            if room_info and room_info.get("game_id") == game_id:
-                rid = room_info["room_id"]
-                # 将房间标记为 FINISHED（已完成），生命周期计时器会自动跳过
-                r = room_manager._rooms.get(rid)
-                if r:
-                    r["status"] = ROOM_STATUS["FINISHED"]
-                    r["fund_stage"] = "settled"
-                    r["finished_at"] = datetime.utcnow().isoformat()
-                    redis_client.cache_room_state(rid, r)
-                    # 停止计时器
-                    room_manager._stop_game_timer(rid)
-                    room_manager._stop_lifetime_timer(rid)
-                    # 广播房间列表变更（从大厅移除）
-                    room_manager._broadcast_room_list_changed("game_finished", rid)
-        except Exception:
+            # 🔥 改用 iterate _rooms 找房间（不依赖 _player_rooms 映射，可能已被清理）
+            rid = None
+            r = None
+            p1_lower = (player1 or "").lower()
+            p2_lower = (player2 or "").lower()
+            for rid_key, rm in room_manager._rooms.items():
+                if rm.get("game_id") == game_id:
+                    rid = rid_key
+                    r = rm
+                    break
+                rm_p1 = (rm.get("creator") or "").lower()
+                rm_p2 = (rm.get("player2") or "").lower()
+                if rm_p1 and rm_p1 in (p1_lower, p2_lower):
+                    rid = rid_key
+                    r = rm
+                    break
+                if rm_p2 and rm_p2 in (p1_lower, p2_lower):
+                    rid = rid_key
+                    r = rm
+                    break
+            if r:
+                r["status"] = ROOM_STATUS["FINISHED"]
+                r["fund_stage"] = "settled"
+                r["close_reason"] = "game_settled"
+                r["closed_at"] = now_timestamp()
+                redis_client.cache_room_state(rid, r)
+                # 停止计时器
+                room_manager._stop_game_timer(rid)
+                room_manager._stop_lifetime_timer(rid)
+                # 🔥 关键：清理 _player_rooms 映射（链上结算后双方都应释放房间占用）
+                for addr_lower in [p1_lower, p2_lower]:
+                    if addr_lower and room_manager._player_rooms.get(addr_lower) == rid:
+                        room_manager._player_rooms.pop(addr_lower, None)
+                logger.info(f"[ChainSettle] game_id={game_id} room #{rid} status=finished, player_rooms 已清理")
+                # 广播房间列表变更（从大厅移除）
+                await ws_manager.broadcast(WSMessage(
+                    type="room_list_changed",
+                    data={"event": "game_finished", "room_id": rid},
+                ))
+        except Exception as e:
+            logger.warning(f"Failed to update room state after chain settle: {e}")
             pass
 
         return {"success": True, "game_id": game_id}

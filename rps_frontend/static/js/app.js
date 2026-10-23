@@ -1142,9 +1142,10 @@ const App = (function () {
             stopResultCountdown();
             // 房间模式下：退出房间后返回大厅
             const myAddress = Wallet.getAddress();
+            let backendLeaveOk = false;
             if (currentRoomId && myAddress) {
                 try {
-                    await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
+                    const res = await fetch(`${CONFIG.backendUrl}/api/game/room/leave`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -1152,8 +1153,15 @@ const App = (function () {
                             player_address: myAddress,
                         }),
                     });
+                    const data = await res.json().catch(() => ({}));
+                    backendLeaveOk = res.ok && data.success;
+                    if (!backendLeaveOk) {
+                        // 后端拒绝（可能 room 状态还没同步到 FINISHED）
+                        console.warn('[backHomeBtn] 后端 leave 未成功:', data.message || data.detail || res.status);
+                    }
                 } catch (e) {
-                    console.error('离开房间请求失败:', e);
+                    console.warn('[backHomeBtn] 后端 leave 网络异常:', e.message);
+                    // 网络异常时仍继续（最终一致性：后端结算路径会清 player_rooms）
                 }
             }
             stopRoomPolling();
@@ -1163,6 +1171,10 @@ const App = (function () {
             UI.showStage('stageLobby');
             resetGameState();
             loadRoomList();
+            if (!backendLeaveOk) {
+                // 防御性提示：如果后端 leave 失败，可能导致短暂无法创建新房间
+                FWUI.Toast.info('已退出房间；如提示"已在其他房间"请稍等几秒后重试');
+            }
         });
 
         document.querySelectorAll('.panel-tab').forEach(tab => {
