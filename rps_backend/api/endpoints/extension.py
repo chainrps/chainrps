@@ -7,10 +7,22 @@
 import re
 import time
 from typing import Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from rps_backend.repository import get_all_system_config, list_contracts, get_system_config_value
 from rps_backend.config import RPC_URL, RPC_CHAIN_ID, CONTRACT_ADDRESS, RPC_LOCAL_PORT
+from rps_backend.utils import validate_address
+
+_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+
+def _check_ext_address(address: str, field: str = "address") -> str:
+    """校验扩展端点地址，返回规范化的小写地址或抛异常"""
+    if not validate_address(address):
+        raise HTTPException(status_code=400, detail=f"无效的 {field}（应为 0x + 40 位十六进制字符）")
+    if address.lower() == _ZERO_ADDRESS.lower():
+        raise HTTPException(status_code=400, detail=f"{field} 不能为零地址")
+    return address.lower()
 
 router = APIRouter(prefix="/ext", tags=["extension"])
 
@@ -261,8 +273,11 @@ async def faucet(address: str, eth_amount: float = 1.0, usdc_amount: float = 100
     }
     try:
         from web3 import Web3
-        if not address or not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
-            result["error"] = "地址格式无效（应为 0x + 40 hex 字符）"
+        # 统一地址校验（含零地址拦截）
+        try:
+            _check_ext_address(address)
+        except HTTPException as e:
+            result["error"] = e.detail
             return result
 
         from rps_backend.service.local_chain_service import get_local_chain_service
@@ -521,7 +536,237 @@ async def get_invite_rewards(address: str):
     }
 
 
-# ==================== 链上查询（公开） ====================
+# ==================== 自动发币（本地测试网） ====================
+
+# Ganache 预定义富账户 #0 — 有 990M USDC + 32K ETH，当作水龙头
+_GANACHE_FAUCET_ADDRESS = "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
+_USDC_CONTRACT_ADDRESS = "0x28D51CA433509024B1062c8eE8683B26fe04F169"
+
+# 每日限额配置（活动入口：用户每天点一次领取）
+DAILY_DRIP_USDC = 3000          # 每次领取 3000 USDC
+DAILY_DRIP_POL = 5              # 每次领取 5 POL（gas）
+DRIP_COOLDOWN_SECONDS = 5       # 防误点，5 秒内不能重复领
+
+_drip_table_initialized = False
+
+
+def _ensure_drip_table():
+    """确保 drip_records 表存在（首次调用自动创建）"""
+    global _drip_table_initialized
+    if _drip_table_initialized:
+        return
+    import sqlite3
+    from rps_backend.repository.database import DATABASE_PATH
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drip_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                address TEXT NOT NULL,
+                usdc_amount REAL NOT NULL,
+                pol_amount REAL NOT NULL,
+                tx_hash TEXT,
+                created_at INTEGER NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_drip_addr_time 
+            ON drip_records(address, created_at)
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+    _drip_table_initialized = True
+
+
+def _get_today_total(address: str) -> tuple:
+    """返回 (今日已发 USDC, 今日已发 POL)"""
+    import sqlite3
+    from datetime import datetime, timezone, timedelta
+    from rps_backend.repository.database import DATABASE_PATH
+
+    # 本地今天的 00:00（用东八区）
+    tz = timezone(timedelta(hours=8))
+    start_of_day = int(datetime.now(tz).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).timestamp())
+
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(usdc_amount), 0), COALESCE(SUM(pol_amount), 0) "
+            "FROM drip_records WHERE address = ? AND created_at >= ?",
+            (address.lower(), start_of_day)
+        ).fetchone()
+        return row[0], row[1]
+    finally:
+        conn.close()
+
+
+def _record_drip(address: str, usdc: float, pol: float, tx_hash: str = None):
+    import sqlite3, time
+    from rps_backend.repository.database import DATABASE_PATH
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO drip_records(address, usdc_amount, pol_amount, tx_hash, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (address.lower(), usdc, pol, tx_hash, int(time.time()))
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _last_drip_time(address: str) -> int:
+    """返回上次发币时间戳（0=从未发过）"""
+    import sqlite3
+    from rps_backend.repository.database import DATABASE_PATH
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        row = conn.execute(
+            "SELECT MAX(created_at) FROM drip_records WHERE address = ?",
+            (address.lower(),)
+        ).fetchone()
+        return row[0] or 0
+    finally:
+        conn.close()
+
+
+@router.post("/drip")
+async def drip_test_tokens(body: dict):
+    """
+    每日领币活动 — 用户每天主动点击领取一次。
+    
+    规则：
+    - 同一地址每天只能领一次（东八区 00:00 重置）
+    - 每次固定发放：{DAILY_DRIP_USDC} USDC + {DAILY_DRIP_POL} POL
+    - 5 秒冷却防误点
+    - 记录持久化到 SQLite
+    """
+    from web3 import Web3
+    import time as _time
+
+    _ensure_drip_table()
+
+    address = body.get("address", "")
+    try:
+        address = _check_ext_address(address)
+    except HTTPException as e:
+        return {"success": False, "message": e.detail}
+
+    # 1) 冷却检查（防误点）
+    last_ts = _last_drip_time(address)
+    now = int(_time.time())
+    if last_ts and now - last_ts < DRIP_COOLDOWN_SECONDS:
+        remain = DRIP_COOLDOWN_SECONDS - (now - last_ts)
+        return {
+            "success": True,
+            "message": f"请稍等 {remain} 秒",
+            "dripped": False,
+            "cooldown": True,
+        }
+
+    # 2) 今日是否已领过
+    today_usdc, today_pol = _get_today_total(address)
+    already_claimed_today = today_usdc >= DAILY_DRIP_USDC * 0.9  # 容差 0.1U
+
+    if already_claimed_today:
+        return {
+            "success": True,
+            "message": "今日已领取，明天再来",
+            "dripped": False,
+            "already_claimed": True,
+            "daily_amount": {"usdc": DAILY_DRIP_USDC, "pol": DAILY_DRIP_POL},
+        }
+
+    try:
+        w3 = Web3(Web3.HTTPProvider(RPC_URL, request_kwargs={"timeout": 10}))
+        if not w3.is_connected():
+            return {"success": False, "message": "无法连接到本地 RPC"}
+
+        to_addr = Web3.to_checksum_address(address)
+        faucet = Web3.to_checksum_address(_GANACHE_FAUCET_ADDRESS)
+
+        faucet_eth = w3.eth.get_balance(faucet)
+        if faucet_eth < w3.to_wei(1, 'ether'):
+            return {"success": False, "message": "水龙头余额不足，请联系管理员"}
+
+        results = {}
+        overall_hash = None
+
+        # 发原生币
+        try:
+            eth_hash = w3.eth.send_transaction({
+                "from": faucet, "to": to_addr,
+                "value": w3.to_wei(DAILY_DRIP_POL, 'ether'),
+                "gas": 21000, "gasPrice": w3.to_wei(20, 'gwei'),
+            })
+            w3.eth.wait_for_transaction_receipt(eth_hash, timeout=15)
+            results["POL"] = str(DAILY_DRIP_POL)
+            overall_hash = eth_hash.hex()
+        except Exception as e:
+            results["POL"] = f"失败: {str(e)[:80]}"
+
+        # 发 USDC
+        try:
+            usdc_abi = [
+                {"inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}],
+                 "name": "transfer", "outputs": [{"name": "", "type": "bool"}],
+                 "stateMutability": "nonpayable", "type": "function"},
+                {"inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}],
+                 "stateMutability": "view", "type": "function"},
+            ]
+            usdc = w3.eth.contract(address=Web3.to_checksum_address(_USDC_CONTRACT_ADDRESS), abi=usdc_abi)
+            decimals = usdc.functions.decimals().call()
+            amount = int(DAILY_DRIP_USDC * (10 ** decimals))
+            usdc_hash = usdc.functions.transfer(to_addr, amount).transact({
+                "from": faucet, "gas": 100000, "gasPrice": w3.to_wei(20, 'gwei'),
+            })
+            w3.eth.wait_for_transaction_receipt(usdc_hash, timeout=15)
+            results["USDC"] = str(DAILY_DRIP_USDC)
+            if not overall_hash:
+                overall_hash = usdc_hash.hex()
+        except Exception as e:
+            results["USDC"] = f"失败: {str(e)[:80]}"
+
+        all_ok = "失败" not in results.get("USDC", "") and "失败" not in results.get("POL", "")
+        _record_drip(address,
+                     0 if "失败" in results.get("USDC", "") else DAILY_DRIP_USDC,
+                     0 if "失败" in results.get("POL", "") else DAILY_DRIP_POL,
+                     overall_hash)
+
+        return {
+            "success": all_ok,
+            "message": "🎉 领取成功！" if all_ok else "部分代币发放失败",
+            "dripped": True,
+            "results": results,
+            "daily_amount": {"usdc": DAILY_DRIP_USDC, "pol": DAILY_DRIP_POL},
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"领取异常: {str(e)[:100]}"}
+
+
+@router.get("/drip/status")
+async def drip_status(address: str):
+    """查询今日是否已领取"""
+    _ensure_drip_table()
+    try:
+        address = _check_ext_address(address)
+    except HTTPException as e:
+        return {"success": False, "message": e.detail}
+    usdc, pol = _get_today_total(address)
+    last_ts = _last_drip_time(address)
+    claimed = usdc >= DAILY_DRIP_USDC * 0.9
+    return {
+        "success": True,
+        "address": address,
+        "claimed_today": claimed,
+        "daily_amount": {"usdc": DAILY_DRIP_USDC, "pol": DAILY_DRIP_POL},
+        "last_claim_ts": last_ts,
+    }
+
 #
 # 以下端点为公开链上查询接口，无需管理员登录认证。
 # 从 admin.py 的 /admin/local-chain/explorer/* 迁移而来，供独立公开页面 /explorer 使用。

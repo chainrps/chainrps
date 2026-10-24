@@ -81,15 +81,11 @@ const App = (function () {
 
         updateHistoryAndStats();
 
-        await autoConnectWallet();
+        // 自动连接钱包（用 localStorage 记住的钱包类型，刷新自动重连）
+        autoConnectWallet();
 
-        // 检查 MOCK 参数（调试用，优先于路由处理）
-        await checkMockParams();
-
-        // 处理 URL 路由（mock 模式下跳过）
-        if (!isMockMode) {
-            handleRoute();
-        }
+        // 处理 URL 路由
+        handleRoute();
 
         // 监听 URL 变化
         window.addEventListener('popstate', handleRoute);
@@ -274,187 +270,8 @@ const App = (function () {
         setVal('csCheckedAt', fmtTime(data.checked_at));
     }
 
-    // 检查并加载Mock调试参数
-    async function checkMockParams() {
-        const params = new URLSearchParams(window.location.search);
-        const mockStage = params.get('mock');
-
-        if (!mockStage) return;
-
-        isMockMode = true;
-        console.log('[MOCK] 检测到 mock 参数:', mockStage);
-
-        try {
-            const response = await fetch(`/api/game/debug/mock-ui/${mockStage}`);
-            const result = await response.json();
-
-            if (!result.success) {
-                console.error('[MOCK] 获取模拟数据失败:', result.message);
-                FWUI.Toast.error('MOCK 加载失败: ' + result.message);
-                return;
-            }
-
-            const data = result.data;
-
-            switch (mockStage) {
-                case 'lobby':
-                    // 大厅列表 MOCK
-                    UI.showStage('stageLobby');
-                    UI.setRoomListView(UI.getPreferredRoomListView());
-                    if (data.rooms && Array.isArray(data.rooms)) {
-                        UI.renderRoomList(data.rooms);
-                    }
-                    FWUI.Toast.success('已进入 MOCK 大厅（共 ' + (data.total || 0) + ' 个房间）');
-                    break;
-
-                case 'room_wait':
-                    // 房间等待中 MOCK
-                    currentRoom = data;
-                    currentRoomId = data.room_id;
-                    currentMode = 'R';
-                    UI.showStage('stageRoomWait');
-                    UI.setGameId(data.room_id);
-                    UI.setMyAddress(data.creator);
-                    UI.setOpponentAddress(data.player2);
-                    UI.setMyStatus(data.creator_ready ? '已准备' : '未准备');
-                    UI.setOpponentStatus(data.player2_ready ? '已准备' : '未准备');
-                    FWUI.Toast.success('已进入 MOCK 房间等待界面');
-                    break;
-
-                case 'countdown':
-                    // 倒计时中 MOCK - 使用 stageGame 显示倒计时
-                    currentRoom = data;
-                    currentRoomId = data.room_id;
-                    currentMode = 'R';
-                    UI.showStage('stageGame');
-                    UI.setGameId(data.room_id);
-                    UI.setGameStatus('倒计时中（MOCK模式）');
-                    UI.setMyAddress(data.creator);
-                    UI.setOpponentAddress(data.player2);
-                    UI.setMyStatus('已准备');
-                    UI.setOpponentStatus('已准备');
-                    UI.setMyChoice(null);
-                    UI.setOpponentChoice(null);
-                    UI.setChoiceButtonsEnabled(false);
-                    UI.showRevealButton(false);
-                    UI.showTimeoutButton(false);
-                    // 显示倒计时数字
-                    const cdRemaining = 15 - Math.min(15, Math.floor(Date.now() / 1000 - (data.countdown_start || 0)));
-                    UI.updateCountdown(Math.max(1, cdRemaining), cdRemaining <= 5);
-                    FWUI.Toast.success('已进入 MOCK 倒计时界面');
-                    break;
-
-                case 'game_commit':
-                    // 直接进入游戏出拳阶段
-                    currentRoom = data;
-                    currentRoomId = data.room_id;
-                    currentGameId = data.game_id;
-                    currentMode = 'R';
-
-                    resetGameState();
-                    currentRoom = data;
-                    currentRoomId = data.room_id;
-                    currentGameId = data.game_id;
-
-                    UI.showStage('stageGame');
-                    UI.setGameId(`MOCK-${data.game_id}`);
-                    UI.setGameStatus('选择你的出拳（MOCK模式）');
-                    UI.setMyStatus('🎯 该你出拳了');
-                    UI.setOpponentStatus('等待出拳');
-                    UI.setMyAddress(data.creator);
-                    UI.setOpponentAddress(data.opponent || data.player2);
-                    UI.setMyChoice(null);
-                    UI.setOpponentChoice(null);
-                    UI.setChoiceButtonsEnabled(true);
-                    UI.showRevealButton(false);
-                    UI.showTimeoutButton(false);
-
-                    const confirmSection = document.getElementById('choiceConfirmSection');
-                    if (confirmSection) confirmSection.classList.add('hidden');
-
-                    setGamePhase('commit');
-
-                    FWUI.Toast.success('已进入 MOCK 出拳阶段（点击石头剪刀布试试）');
-                    break;
-
-                case 'game_reveal':
-                    // 揭晓阶段
-                    resetGameState();
-                    currentRoom = data;
-                    currentRoomId = data.room_id;
-                    currentGameId = data.game_id;
-                    currentMode = 'R';
-                    selectedChoice = data.my_choice || 1;
-                    myCommitSubmitted = true;
-                    opponentCommitSubmitted = data.opponent_committed;
-                    setGamePhase('reveal');
-
-                    UI.showStage('stageGame');
-                    UI.setGameId(`MOCK-${data.game_id}`);
-                    UI.setGameStatus('揭晓阶段（MOCK模式）- 点击"揭晓出拳"按钮');
-                    UI.setMyStatus('已提交');
-                    UI.setOpponentStatus(data.opponent_committed ? '已提交' : '等待提交');
-                    UI.setMyAddress(data.creator);
-                    UI.setOpponentAddress(data.opponent || data.player2);
-                    UI.setMyChoice(data.my_choice || 1, true);
-                    UI.setOpponentChoice(null, false);
-                    UI.setChoiceButtonsEnabled(false);
-                    UI.showRevealButton(true);
-                    UI.showTimeoutButton(false);
-
-                    FWUI.Toast.success('已进入 MOCK 揭晓阶段');
-                    break;
-
-                case 'result_win':
-                case 'result_lose':
-                case 'result_draw':
-                    // 结果展示
-                    const resultType = mockStage === 'result_win' ? 'win' :
-                        mockStage === 'result_lose' ? 'lose' : 'draw';
-
-                    // 使用 stageResult 展示完整的结果界面（含动画）
-                    UI.showStage('stageResult');
-                    const mockResult = {
-                        type: resultType,
-                        myChoice: data.my_choice,
-                        opponentChoice: data.opponent_choice,
-                    };
-                    UI.showResult(mockResult);
-
-                    // 填充结果详情
-                    const resultAmount = document.getElementById('resultAmount');
-                    const resultPrize = document.getElementById('resultPrize');
-                    const resultFee = document.getElementById('resultFee');
-                    if (resultAmount) resultAmount.textContent = (data.bet_amount || 100) + ' ' + (data.token || 'USDC');
-                    if (resultType === 'win') {
-                        if (resultPrize) resultPrize.textContent = '+' + (data.prize || '98') + ' ' + (data.token || 'USDC');
-                        if (resultFee) resultFee.textContent = '-' + (data.fee || '2') + ' ' + (data.token || 'USDC');
-                    } else if (resultType === 'lose') {
-                        if (resultPrize) resultPrize.textContent = '-' + (data.bet_amount || 100) + ' ' + (data.token || 'USDC');
-                        if (resultFee) resultFee.textContent = '-';
-                    } else {
-                        if (resultPrize) resultPrize.textContent = '0 ' + (data.token || 'USDC');
-                        if (resultFee) resultFee.textContent = '-';
-                    }
-
-                    console.log('[MOCK] 结果:', resultType, data);
-                    break;
-
-                default:
-                    console.log('[MOCK] 未知阶段:', mockStage);
-                    FWUI.Toast.warning('未知 MOCK 阶段: ' + mockStage);
-                    break;
-            }
-        } catch (err) {
-            console.error('[MOCK] 加载模拟数据出错:', err);
-            FWUI.Toast.error('MOCK 加载出错: ' + (err.message || err));
-        }
-    }
-
     // 处理URL路由
     function handleRoute() {
-        if (isMockMode) return;
-
         const path = window.location.pathname;
 
         if (path === '/' || path === '/lobby') {
@@ -478,10 +295,12 @@ const App = (function () {
                 // /room/{id}/result：结算画面路由恢复
                 handleResultRoute(roomId);
             } else {
-                // /room/{id}：房间等待
+                // /room/{id}：房间等待 — 异步检查房间是否存在
                 currentRoomId = roomId;
                 roomGameStartedHandled = false;
                 enterRoomWait();
+                // 异步验证房间存在性（后台静默检查，失败不打断）
+                validateRoomExists(roomId);
             }
         } else if (path === '/game' || path.startsWith('/game/')) {
             // 兼容旧路由 /game
@@ -489,7 +308,41 @@ const App = (function () {
                 enterLobby();
             }
         } else {
+            // 🆕 未知路径 → 404 Modal 而不是静默跳回首页
+            FWUI.Modal.alert({
+                title: '🤔 页面不存在',
+                content: `<p>路径 <code style="background:#1a1a2e;padding:2px 6px;border-radius:4px;">${path}</code> 不存在哦～</p><p style="margin-top:8px;">已返回游戏大厅。</p>`,
+                onClose: () => navigateTo('/'),
+            });
             enterLobby();
+        }
+    }
+
+    // 🆕 异步检查房间是否存在 — 存在就正常显示；不存在/已关闭就 Modal 引导
+    async function validateRoomExists(roomId) {
+        try {
+            const r = await fetch(`${CONFIG.backendUrl}/api/game/room/${roomId}`, {
+                method: 'GET', cache: 'no-store', timeout: 5
+            });
+            // 404 或 200 + success:false 都视为不可用（双重保险）
+            let isGone = r.status === 404;
+            if (!isGone && r.ok) {
+                try {
+                    const data = await r.json();
+                    isGone = data && data.success === false;
+                } catch (_) { /* 响应体非 JSON，忽略 */ }
+            }
+            if (isGone) {
+                FWUI.Modal.alert({
+                    title: '🚪 房间不存在',
+                    content: `<p>房间 <b>${roomId}</b> 不存在或已被关闭。</p><p style="margin-top:8px;">已返回游戏大厅。</p>`,
+                    onClose: () => navigateTo('/'),
+                });
+                enterLobby();
+                currentRoomId = null;
+            }
+        } catch (_) {
+            // 后端暂时不可达 → 不打断用户，保持当前显示（可能是 loading 状态）
         }
     }
 
@@ -573,7 +426,7 @@ const App = (function () {
 
         // 场景 1：刷新页面恢复结算画面 → 需要 fetch 校验
         // 场景 2：navigateTo 自动触发（结算刚发生）→ currentRoomId 已对，直接 show
-        if (currentRoomId === roomId && currentRoom && !isMockMode) {
+        if (currentRoomId === roomId && currentRoom) {
             UI.showStage('stageResult');
             return;
         }
@@ -607,11 +460,15 @@ const App = (function () {
 
     // 导航到指定路径（只更新 URL，交给 handleRoute 分发；自带重入保护防止死循环）
     let _navigating = false;
-    function navigateTo(path) {
+    function navigateTo(path, opts = {}) {
         if (_navigating) return;
         _navigating = true;
         try {
-            window.history.pushState({}, '', path);
+            if (opts.replace) {
+                window.history.replaceState({}, '', path);
+            } else {
+                window.history.pushState({}, '', path);
+            }
             handleRoute();
         } finally {
             _navigating = false;
@@ -644,7 +501,7 @@ const App = (function () {
             UI.toggleTheme();
         });
 
-        document.getElementById('connectWalletBtn').addEventListener('click', connectWallet);
+        document.getElementById('connectWalletBtn').addEventListener('click', toggleWalletPicker);
         document.getElementById('disconnectBtn').addEventListener('click', disconnectWallet);
 
         document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -680,6 +537,174 @@ const App = (function () {
                 setTimeout(() => refreshBtn.classList.remove('refreshing'), 600);
                 FWUI.Toast.info('已刷新大厅');
             });
+        }
+
+        // ===== 每日领测试币按钮（钱包面板里） =====
+        const dripBtn = document.getElementById('walletDripBtn');
+        if (dripBtn) {
+            dripBtn.addEventListener('click', async () => {
+                // === 状态检查 + 引导 ===
+                const address = Wallet.getAddress();
+
+                // 1) 连钱包引导
+                if (!address) {
+                    const wallets = Wallet.getAvailableWallets();
+                    if (wallets.length === 0) {
+                        // 完全没装钱包扩展 → Modal 教安装
+                        FWUI.Modal.alert({
+                            title: '💰 先装个钱包吧',
+                            content: `
+                                <div style="line-height:1.8;padding:12px 0;">
+                                    <p>没检测到 Web3 钱包插件，领测试币需要钱包地址。</p>
+                                    <p>推荐 2 款主流钱包（浏览器扩展）：</p>
+                                    <div style="margin:12px 0 4px;display:flex;gap:10px;flex-wrap:wrap;">
+                                        <a href="https://chromewebstore.google.com/detail/okx-wallet/mcohilncbfahbmgdjkbpemcciiolgcge" 
+                                           target="_blank" style="background:#ff6b35;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-size:13px;">
+                                            🔷 装 OKX Wallet
+                                        </a>
+                                        <a href="https://chromewebstore.google.com/detail/metamask/nkbihfbeogaeaoehlefnkodbefgpgknn" 
+                                           target="_blank" style="background:#F6851B;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-size:13px;">
+                                            🦊 装 MetaMask
+                                        </a>
+                                    </div>
+                                    <p style="color:#888;font-size:12px;">装完后刷新 ChainRPS 页面，点右上角「连接钱包」→ 领测试币。</p>
+                                </div>
+                            `
+                        });
+                        return;
+                    }
+                    // 装了但没连接
+                    FWUI.Modal.confirm({
+                        title: '🔗 请先连接钱包',
+                        content: `
+                            <div style="line-height:1.8;padding:8px 0;">
+                                <p>检测到 ${wallets.map(w => w.name).join('、')}，但还没连接到 ChainRPS。</p>
+                                <p>点右上角「连接钱包」→ 选一个钱包 → 选账号 → 回来点领币就行。</p>
+                            </div>
+                        `,
+                        confirmText: '好的，去连接',
+                        onConfirm: () => document.getElementById('walletConnectBtn')?.click(),
+                    });
+                    return;
+                }
+
+                // 2) 链检查（领币需要 Ganache 链）
+                const currentChainId = Number(Wallet.getChainId());
+                const expectedChainId = Number(CONFIG.RPC_CHAIN_ID);  // ← 直接用常量！之前 CONFIG.chainId 是 undefined
+                if (currentChainId && currentChainId !== expectedChainId) {
+                    FWUI.Modal.confirm({
+                        title: '⛓️ 请切到测试链',
+                        content: `
+                            <div style="line-height:1.8;padding:8px 0;">
+                                <p>当前钱包在 <b>Chain ID ${currentChainId}</b>，不是 ChainRPS 本地测试链。</p>
+                                <p>测试币只能在测试链上用哦～</p>
+                                <div style="background:#1a1a2e;padding:10px 12px;border-radius:8px;font-size:12px;margin:8px 0;line-height:1.6;">
+                                    RPC: <code>http://127.0.0.1:8686</code><br>
+                                    Chain ID: <code>5208888</code><br>
+                                    名称: ChainRPS Local
+                                </div>
+                            </div>
+                        `,
+                        confirmText: '切过去',
+                        onConfirm: async () => {
+                            try { await Wallet.switchChain(CONFIG.RPC_CHAIN_ID); } catch (_) { /* 可能手动切 */ }
+                        },
+                    });
+                    return;
+                }
+
+                // === 开始领币 ===
+                dripBtn.disabled = true;
+                const prevBadge = dripBtn.querySelector('.drip-badge')?.textContent || '';
+                dripBtn.querySelector('.drip-badge').textContent = '领取中...';
+
+                try {
+                    const res = await fetch(`${CONFIG.backendUrl}/api/ext/drip`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ address })
+                    });
+                    const data = await res.json();
+
+                    if (data.dripped) {
+                        FWUI.Toast.success(`🎉 ${data.message || '领取成功！'}`);
+                        if (data.results) {
+                            const parts = [];
+                            if (data.results.USDC && !String(data.results.USDC).includes('失败'))
+                                parts.push(`${data.results.USDC} USDC`);
+                            if (data.results.POL && !String(data.results.POL).includes('失败'))
+                                parts.push(`${data.results.POL} POL`);
+                            if (parts.length) FWUI.Toast.info(`已到账: ${parts.join(' + ')}`);
+                        }
+                        setTimeout(() => updateBalanceDisplay(), 2000);
+                        dripBtn.classList.add('claimed');
+                        const lbl = dripBtn.querySelector('.drip-label');
+                        if (lbl) lbl.textContent = '今日已领';
+                        const badge = dripBtn.querySelector('.drip-badge');
+                        if (badge) badge.textContent = '明天再来';
+                    } else if (data.already_claimed) {
+                        FWUI.Toast.info('📌 今天你已经领过了，明天再来～');
+                        dripBtn.classList.add('claimed');
+                        const lbl = dripBtn.querySelector('.drip-label');
+                        if (lbl) lbl.textContent = '今日已领';
+                        const badge = dripBtn.querySelector('.drip-badge');
+                        if (badge) badge.textContent = '明天再来';
+                    } else if (data.cooldown) {
+                        FWUI.Toast.info(data.message || '请稍等');
+                    } else {
+                        FWUI.Modal.alert({
+                            title: '领币失败',
+                            content: `<p style="color:#ff9a56;">${data.message || '未知错误'}</p>`
+                        });
+                    }
+                } catch (e) {
+                    FWUI.Modal.alert({
+                        title: '网络异常',
+                        content: `<p>请求失败：${e.message}</p><p style="color:#888;font-size:12px;">确认后端在运行：http://127.0.0.1:8000/health</p>`
+                    });
+                } finally {
+                    const claimed = dripBtn.classList.contains('claimed');
+                    dripBtn.disabled = claimed;
+                    if (!claimed) {
+                        dripBtn.querySelector('.drip-badge').textContent = prevBadge;
+                    }
+                }
+            });
+        }
+
+        // 连接钱包后查询领币状态 → 更新按钮外观
+        async function refreshDripButtonState() {
+            const dripBtnEl = document.getElementById('walletDripBtn');
+            const badgeEl = document.getElementById('walletDripBadge');
+            if (!dripBtnEl) return;
+            const address = Wallet.getAddress();
+            if (!address) {
+                dripBtnEl.classList.remove('claimed');
+                dripBtnEl.disabled = false;
+                const lbl = dripBtnEl.querySelector('.wdrip-text');
+                if (lbl) lbl.textContent = '领测试币';
+                if (badgeEl) badgeEl.textContent = '先连钱包';
+                return;
+            }
+            try {
+                const r = await fetch(`${CONFIG.backendUrl}/api/ext/drip/status?address=${address}`, {
+                    method: 'GET', cache: 'no-store'
+                });
+                const data = await r.json();
+                if (data.success && data.claimed_today) {
+                    dripBtnEl.classList.add('claimed');
+                    dripBtnEl.disabled = true;
+                    const lbl = dripBtnEl.querySelector('.wdrip-text');
+                    if (lbl) lbl.textContent = '今日已领';
+                    if (badgeEl) badgeEl.textContent = '明天再来';
+                } else {
+                    dripBtnEl.classList.remove('claimed');
+                    dripBtnEl.disabled = false;
+                    const lbl = dripBtnEl.querySelector('.wdrip-text');
+                    if (lbl) lbl.textContent = '领测试币';
+                    if (badgeEl) badgeEl.textContent = '每日一次 · 3000 USDC';
+                }
+            } catch (_) { /* 忽略查询失败 */ }
         }
 
         // 视图切换（列表/卡片）— 单个按钮，点击切换
@@ -824,6 +849,7 @@ const App = (function () {
         document.getElementById('exitGameBtn').addEventListener('click', async () => {
             const myAddress = Wallet.getAddress();
             if (!myAddress || !currentRoomId) {
+                navigateTo('/');
                 UI.showStage('stageLobby');
                 return;
             }
@@ -876,6 +902,8 @@ const App = (function () {
                                 const tx = await contract.cancelMatch(currentGameId);
                                 await tx.wait();
                                 FWUI.Toast.success('✓ 链上对局已取消，资金已退回');
+                                // 🔥 资金已退回钱包 → 刷新余额
+                                updateBalanceDisplay();
                                 await safeExitRoom(currentRoomId, myAddress);
                             } catch (txErr) {
                                 FWUI.Modal.alert({
@@ -994,6 +1022,7 @@ const App = (function () {
             chainGameIdResolved = false;
             myChainJoined = false;
             try { GameSocket && GameSocket.disconnect && GameSocket.disconnect(); } catch (_) {}
+            navigateTo('/');
             UI.showStage('stageLobby');
             loadRoomList();
         }
@@ -1118,6 +1147,7 @@ const App = (function () {
                             currentRoomId = null;
                             currentRoom = null;
                             currentGameId = null;
+                            navigateTo('/');
                             UI.showStage('stageLobby');
                             loadRoomList();
                         } else {
@@ -1173,6 +1203,8 @@ const App = (function () {
                         }
                         disconnectP2PChannel();
                         stopAllFallbackPolling();
+                        // ⚠️ 关键：同步 URL，否则 /room/{id}/result 还在 history 里
+                        navigateTo(`/room/${currentRoomId}`, { replace: true });
                         UI.showStage('stageRoomWait');
                         updateRoomUI();
                         startRoomPolling();
@@ -1184,6 +1216,7 @@ const App = (function () {
                     FWUI.Toast.error('再来一局失败: ' + (e.message || e));
                 }
                 // 兜底：返回大厅
+                navigateTo('/');
             }
             UI.showStage('stageLobby');
             resetGameState();
@@ -1220,6 +1253,7 @@ const App = (function () {
             disconnectP2PChannel();
             currentRoomId = null;
             currentRoom = null;
+            navigateTo('/');
             UI.showStage('stageLobby');
             resetGameState();
             loadRoomList();
@@ -1581,17 +1615,83 @@ const App = (function () {
         });
     }
 
-    // 连接钱包
-    async function connectWallet() {
-        try {
-            const wallets = Wallet.getAvailableWallets();
-            if (wallets.length === 0) {
-                FWUI.Toast.error('未检测到 Web3 钱包，请先安装 MetaMask');
-                return;
-            }
+    // ==================== 钱包选择下拉面板 ====================
 
+    function toggleWalletPicker() {
+        const dd = document.getElementById('walletPickerDropdown');
+        if (!dd) return;
+        const isHidden = dd.classList.contains('hidden');
+        if (isHidden) {
+            renderWalletPicker();
+            dd.classList.remove('hidden');
+            // 点击外部关闭
+            setTimeout(() => {
+                document.addEventListener('click', closeWalletPickerOnOutside);
+            }, 0);
+        } else {
+            dd.classList.add('hidden');
+        }
+    }
+
+    function closeWalletPickerOnOutside(e) {
+        const picker = document.getElementById('walletConnectPicker');
+        if (picker && !picker.contains(e.target)) {
+            document.getElementById('walletPickerDropdown')?.classList.add('hidden');
+            document.removeEventListener('click', closeWalletPickerOnOutside);
+        }
+    }
+
+    function renderWalletPicker() {
+        const listEl = document.getElementById('walletPickerList');
+        const emptyEl = document.getElementById('walletPickerEmpty');
+        if (!listEl) return;
+
+        const wallets = Wallet.getAvailableWallets().filter(w => w.id !== 'debug');
+
+        if (wallets.length === 0) {
+            listEl.innerHTML = '';
+            emptyEl.style.display = 'block';
+            return;
+        }
+        emptyEl.style.display = 'none';
+
+        listEl.innerHTML = wallets.map(w => `
+            <div class="wp-item" data-type="${w.id}" style="padding:10px 12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:background 0.12s;" onmouseover="this.style.background='rgba(var(--primary-rgb,59,130,246),0.08)'" onmouseout="this.style.background=''">
+                <span style="font-size:20px;">${w.icon}</span>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:500;font-size:14px;">${w.name}</div>
+                    <div style="font-size:11px;color:#888;">${walletTypeDesc(w.id)}</div>
+                </div>
+                <span style="color:var(--primary-color, #3b82f6);font-size:12px;">连接 →</span>
+            </div>
+        `).join('');
+
+        listEl.querySelectorAll('.wp-item').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                document.getElementById('walletPickerDropdown')?.classList.add('hidden');
+                document.removeEventListener('click', closeWalletPickerOnOutside);
+                connectWallet(el.dataset.type);
+            });
+        });
+    }
+
+    function walletTypeDesc(id) {
+        const map = {
+            metamask: '浏览器扩展 · 最流行',
+            okx: 'OKX Wallet · 官方插件',
+            trust: 'Trust Wallet',
+            coinbase: 'Coinbase Wallet',
+            injected: '检测到的钱包扩展'
+        };
+        return map[id] || '浏览器钱包扩展';
+    }
+
+    // 连接指定类型的钱包
+    async function connectWallet(walletType) {
+        try {
             isManualConnect = true;
-            await Wallet.connect();
+            await Wallet.connect(walletType);
         } catch (e) {
             isManualConnect = false;
             FWUI.Toast.error(e.message || '连接失败');
@@ -1622,73 +1722,93 @@ const App = (function () {
             UI.showTokenSelect(currentToken);
 
             let needsChainSwitch = false;
+            let mainChainId = null;
+            let mainChainConfig = null;
             try {
-                const mainChainConfig = await fetchMainChainConfig();
+                mainChainConfig = await fetchMainChainConfig();
                 if (mainChainConfig && mainChainConfig.chain_id) {
-                    const mainChainId = mainChainConfig.chain_id;
-                    const now = Date.now();
-                    if (chainId !== mainChainId && now - lastChainSwitchTime > CHAIN_SWITCH_COOLDOWN) {
-                        lastChainSwitchTime = now;
+                    mainChainId = mainChainConfig.chain_id;
+
+                    if (chainId !== mainChainId) {
                         needsChainSwitch = true;
-                        if (!silentMode) {
-                            FWUI.Toast.info(`正在切换到 ChainRPS 主链: ${mainChainConfig.network_name}...`);
-                        }
-                        try {
-                            isSwitchingChain = true;
-                            const switched = await Wallet.switchOrAddChain({
-                                chainId: mainChainId,
-                                chainName: mainChainConfig.network_name,
-                                rpcUrls: [mainChainConfig.rpc_url],
-                                nativeCurrency: mainChainConfig.native_currency,
-                                blockExplorerUrls: mainChainConfig.block_explorer ? [mainChainConfig.block_explorer] : undefined,
-                            });
-                            if (switched === false) {
-                                if (!silentMode) {
-                                    FWUI.Toast.warning(`请先在钱包中手动添加 ${mainChainConfig.network_name} 网络（配置已弹出显示），添加后刷新页面`);
-                                }
-                                isSwitchingChain = false;
-                            } else if (switched && !silentMode) {
-                                FWUI.Toast.success(`已切换到 ChainRPS 主链: ${mainChainConfig.network_name}`);
-                            }
-                        } catch (switchError) {
-                            console.error('切换主链失败:', switchError);
-                            isSwitchingChain = false;
-                            if (!silentMode) {
-                                const errMsg = switchError.message || switchError.toString();
-                                if (errMsg.indexOf('User rejected') !== -1 || errMsg.indexOf('用户拒绝') !== -1) {
-                                    FWUI.Toast.warning(`您已拒绝切换网络，请手动切换到 ${mainChainConfig.network_name}`);
-                                } else {
-                                    FWUI.Toast.error(`切换网络失败，请手动切换到 ${mainChainConfig.network_name}`);
-                                }
-                            }
-                        }
                     }
 
                     if (mainChainConfig.contract_address) {
                         CONFIG.setContractAddress(mainChainConfig.contract_address);
                     }
-                    // 同步结算币（USDC）合约地址到前端配置
                     if (mainChainConfig.settlement_token && mainChainConfig.settlement_token.address) {
                         CONFIG.setSettlementTokenAddress(mainChainConfig.settlement_token.address);
-                        // USDC 地址同步后重新设置默认代币（可能从原生币切换到 USDC）
                         currentToken = CONFIG.getDefaultToken();
                         UI.showTokenSelect(currentToken);
                     }
-                    // 更新下拉面板中的代币信息
                     updateDropdownTokenInfo();
                 }
             } catch (e) {
-                console.warn('获取主链配置失败，使用本地配置:', e);
+                console.warn('获取主链配置失败:', e);
             }
 
-            if (needsChainSwitch && isSwitchingChain) {
-                // 网络正在切换中，后续操作（initContract、updateBalance 等）交给 chainChanged 事件处理
-                return;
+            Wallet._needsChainSwitch = needsChainSwitch;
+            Wallet._targetChainId = mainChainId;
+
+            // === 核心：链不对时弹窗让用户确认切换 ===
+            if (needsChainSwitch && !isSwitchingChain) {
+                const currentNet = getNetworkNameByChainId(chainId);
+                const targetNet = mainChainConfig?.network_name || 'ChainRPS Local';
+                const doSwitch = await new Promise(resolve => {
+                    FWUI.Modal.confirm({
+                        title: '⚠️ 需要切换网络',
+                        content: `
+                            <div style="line-height:1.9;font-size:14px;">
+                                <p>你当前钱包在 <b style="color:#e74c3c;">${currentNet}</b>。</p>
+                                <p>ChainRPS 运行在 <b style="color:#27ae60;">${targetNet}</b>（本地 Ganache 测试网）。</p>
+                                <p style="color:#888;font-size:12px;margin-top:8px;">点击"切换"会让你的钱包弹出切换请求，确认后余额会显示测试网的测试币。</p>
+                            </div>
+                        `,
+                        okText: '切换网络',
+                        cancelText: '保持当前',
+                        onOk: () => resolve(true),
+                        onCancel: () => resolve(false)
+                    });
+                });
+
+                if (doSwitch) {
+                    try {
+                        isSwitchingChain = true;
+                        const switched = await Wallet.switchOrAddChain({
+                            chainId: mainChainId,
+                            chainName: targetNet,
+                            rpcUrls: [mainChainConfig?.rpc_url || CONFIG.getLocalRpcUrl()],
+                            nativeCurrency: mainChainConfig?.native_currency || { name: 'Polygon', symbol: 'POL', decimals: 18 },
+                        });
+                        isSwitchingChain = false;
+                        if (switched) {
+                            FWUI.Toast.success('✅ 已切换，正在刷新...');
+                            // 等 chainChanged 事件自动重新跑 handleWalletConnected — 直接 return
+                            return;
+                        } else {
+                            FWUI.Toast.warning('请在钱包中确认切换，或在钱包设置里手动添加网络');
+                        }
+                    } catch (e) {
+                        isSwitchingChain = false;
+                        FWUI.Toast.error('切换失败: ' + (e.message || e).substring(0, 100));
+                    }
+                } else {
+                    FWUI.Toast.info('你可以稍后在创建房间时再切换');
+                }
             }
 
             initContract();
-
             updateBalanceDisplay();
+            refreshDripButtonState();  // 同步领币按钮状态
+            try {
+                const usdcBal = parseFloat(await Wallet.getBalance(CONFIG.getSettlementTokenAddress()));
+                const ethBal = parseFloat(await Wallet.getBalance('0x0000000000000000000000000000000000000000'));
+                if (usdcBal < 100 || ethBal < 0.1) {
+                    FWUI.Toast.info('💡 测试币不足？点大厅顶部 "💸 领测试币" 每天领 3000 USDC');
+                }
+            } catch (e) {
+                console.warn('余额检查失败:', e);
+            }
 
             History.syncFromChain(address).then(() => {
                 updateHistoryAndStats();
@@ -1774,6 +1894,7 @@ const App = (function () {
         UI.setMyAddress('');
         currentGameId = null;
         resetGameState();
+        navigateTo('/');
         UI.showStage('stageLobby');
     }
 
@@ -1812,6 +1933,7 @@ const App = (function () {
         try {
             // 获取当前选中代币的余额（用于主显示）
             const tokenAddress = CONFIG.getTokenAddresses()[currentToken];
+            console.info('[updateBalanceDisplay] currentToken=', currentToken, 'tokenAddress=', tokenAddress, 'CONFIG._settlementTokenAddress=', CONFIG._settlementTokenAddress, 'CONFIG.getCurrentNetwork()=', CONFIG.getCurrentNetwork()?.name);
             const balance = await Wallet.getBalance(tokenAddress);
             UI.updateWalletInfo(Wallet.getAddress(), balance, currentToken);
 
@@ -1870,7 +1992,6 @@ const App = (function () {
 
     // 进入交易大厅
     async function enterLobby() {
-        if (isMockMode) return;
         UI.showStage('stageLobby');
         UI.setRoomListView(UI.getPreferredRoomListView());
         loadRoomList();
@@ -1878,7 +1999,6 @@ const App = (function () {
         startLobbyRefresh();
     }
 
-    let isMockMode = false;
     let lobbyRefreshInterval = null;
     let lobbySlowRefreshInterval = null; // WS 已连接时的低频兜底刷新
     let lobbyWsConnected = false;
@@ -2233,7 +2353,7 @@ const App = (function () {
                             okText: '切换网络',
                             onOk: async () => {
                                 try {
-                                    const chainId = CONFIG.getChainId();
+                                    const chainId = CONFIG.RPC_CHAIN_ID;  // 固定游戏链！不是 getChainId() 动态值
                                     const hexChainId = '0x' + chainId.toString(16);
                                     await window.ethereum.request({
                                         method: 'wallet_switchEthereumChain',
@@ -2415,12 +2535,64 @@ const App = (function () {
         });
     }
 
+    // 统一检查：钱包是否在游戏链上（不在则弹窗提示切换）
+    // 返回 true = 可以继续操作；false = 用户取消 / 正在切换中
+    async function ensureOnGameChain(actionName = '执行此操作') {
+        if (!Wallet.isConnected()) return true;  // 未连接让其他逻辑处理
+
+        const currentChainId = Wallet.getChainId();
+        const targetChainId = CONFIG.RPC_CHAIN_ID;  // ← 固定游戏链 5208888！之前 CONFIG.getChainId() 会返回钱包当前链 ❌
+        if (currentChainId === targetChainId) return true;  // 已经在游戏链
+
+        const currentNet = getNetworkNameByChainId(currentChainId);
+        const targetNet = CONFIG.networks?.localhost?.name || 'ChainRPS Local';
+
+        return await new Promise((resolve) => {
+            FWUI.Modal.confirm({
+                title: '需要切换网络',
+                content: `
+                    <div style="line-height:1.8;font-size:14px;">
+                        <p>你当前在 <b>${currentNet}</b> (Chain ID: ${currentChainId})。</p>
+                        <p>ChainRPS 游戏运行在 <b>${targetNet}</b> (Chain ID: ${targetChainId})。</p>
+                        <p style="color:#888;margin-top:6px;font-size:12px;">点击"切换网络"会让钱包弹出切换确认框，确认后即可继续。</p>
+                    </div>
+                `,
+                okText: '切换网络',
+                cancelText: '暂不切换',
+                onOk: async () => {
+                    try {
+                        const mainChainConfig = await fetchMainChainConfig();
+                        const switched = await Wallet.switchOrAddChain({
+                            chainId: mainChainConfig?.chain_id || targetChainId,
+                            chainName: mainChainConfig?.network_name || targetNet,
+                            rpcUrls: [mainChainConfig?.rpc_url || CONFIG.getLocalRpcUrl()],
+                            nativeCurrency: mainChainConfig?.native_currency || { name: 'Polygon', symbol: 'POL', decimals: 18 },
+                        });
+                        if (switched) {
+                            FWUI.Toast.success('✅ 已切换到游戏网络，请再次点击操作');
+                        } else {
+                            FWUI.Toast.warning('请在钱包中确认切换');
+                        }
+                        resolve(false);  // 让用户重新点击
+                    } catch (e) {
+                        FWUI.Toast.error('切换失败: ' + (e.message || e));
+                        resolve(false);
+                    }
+                },
+                onCancel: () => resolve(false)
+            });
+        });
+    }
+
     // 创建房间
     async function createRoom() {
         if (!Wallet.isConnected()) {
             FWUI.Toast.warning('请先连接钱包');
             return;
         }
+
+        // 检查链（用户可能在主网/Polygon）
+        if (!(await ensureOnGameChain('创建房间'))) return;
 
         // 弹窗让用户选择代币和金额
         const result = await showCreateRoomDialog();
@@ -2800,6 +2972,9 @@ const App = (function () {
             return;
         }
 
+        // 检查链（用户可能在主网/Polygon）
+        if (!(await ensureOnGameChain('加入房间'))) return;
+
         try {
             const response = await fetch(`${CONFIG.backendUrl}/api/game/room/join`, {
                 method: 'POST',
@@ -3025,6 +3200,7 @@ const App = (function () {
     // 离开房间（右上角关闭图标入口）
     async function leaveRoom() {
         if (!currentRoomId) {
+            navigateTo('/');
             UI.showStage('stageLobby');
             return;
         }
@@ -3034,6 +3210,7 @@ const App = (function () {
             stopRoomPolling();
             currentRoomId = null;
             currentRoom = null;
+            navigateTo('/');
             UI.showStage('stageLobby');
             return;
         }
@@ -3070,6 +3247,7 @@ const App = (function () {
                 closeSeatMenu();
                 currentRoomId = null;
                 currentRoom = null;
+                navigateTo('/');
                 UI.showStage('stageLobby');
                 loadRoomList();
             } else {
@@ -3391,6 +3569,8 @@ const App = (function () {
                 if (data.room) {
                     currentRoom = data.room;
                 }
+                // ⚠️ 关键：同步 URL
+                navigateTo(`/room/${currentRoomId}`, { replace: true });
                 // 如果当前在 stageResult 或 stageGame，都跳回房间等待界面
                 UI.showStage('stageRoomWait');
                 updateRoomUI();
@@ -3645,6 +3825,19 @@ const App = (function () {
             .then(({ok, data}) => {
                 if (ok && data.room_id) {
                     currentRoom = data;
+
+                    // ⚠️ 关键：已结算的房间直接跳 result
+                    // 场景：大厅点了已结算房间的加入按钮（后端列表过滤了但用户可能通过历史 URL 进来）
+                    // 场景：join_room 成功返回但房间其实已 finished（竞态条件）
+                    const status = (data.status || '').toUpperCase();
+                    if (status === 'FINISHED' || status === 'COMPLETED' || status === 'SETTLED') {
+                        console.info(`[Room] 房间 ${currentRoomId} 已结算 (status=${status}) → 跳转 result`);
+                        stopRoomPolling();
+                        stopAllCountdowns();
+                        navigateTo(`/room/${currentRoomId}/result`);
+                        return;
+                    }
+
                     updateRoomUI();
                     updateExitGameBtnState();
                     // 启动/刷新房间生命周期倒计时（deadlines 从后端下发）
@@ -4278,6 +4471,8 @@ const App = (function () {
 
             // 调用合约 createMatch
             const {gameId: chainGameId} = await Contract.createMatch(currentRoom.bet_amount, tokenAddress);
+            // 🔥 资金已上链冻结 → 立即刷新余额（钱包可用余额应减少）
+            updateBalanceDisplay();
 
             if (!chainGameId) {
                 throw new Error('未能获取链上对局 ID');
@@ -4441,6 +4636,8 @@ const App = (function () {
             // 调用合约 joinMatch
             await Contract.joinMatch(currentGameId);
             myChainJoined = true;
+            // 🔥 资金已上链冻结 → 立即刷新余额
+            updateBalanceDisplay();
 
             enterGamePhase();
             // 资金已在 joinMatch 中上链冻结
@@ -4949,7 +5146,7 @@ const App = (function () {
                             console.error('[Fallback] showResult 抛出异常:', showErr);
                         }
                         stopGamePhaseFallbackPolling();  // 🔥 结算后停掉兜底轮询，避免重复触发
-                        // 🆕 刷新余额（localOnly 模式从后端 mock 余额 API 读）
+                        // 刷新余额（localOnly 模式从后端余额接口读）
                         if (isLocalOnlyGame) {
                             const myAddr = (Wallet.getAddress() || '').toLowerCase();
                             fetch(`/api/game/balance/${myAddr}`)
@@ -5123,6 +5320,8 @@ const App = (function () {
 
             const {gameId} = await Contract.createMatch(currentAmount, tokenAddress);
             currentGameId = gameId;
+            // 🔥 资金已上链冻结 → 立即刷新余额
+            updateBalanceDisplay();
 
             UI.setStartButtonText('创建成功', false);
 
@@ -5162,6 +5361,8 @@ const App = (function () {
 
             await Contract.joinMatch(gameId);
             currentGameId = gameId;
+            // 🔥 资金已上链冻结 → 立即刷新余额
+            updateBalanceDisplay();
 
             enterGamePhase();
 
@@ -5707,6 +5908,8 @@ const App = (function () {
     function handleGameSettled(args) {
         stopGameTimer();
         stopAutoReveal();
+        // 🔥 结算完成 → 钱包余额发生了真实变化（赢方进账/输方扣减），立即刷新显示
+        updateBalanceDisplay();
         // 结算后更新房间 fund_stage（本地同步）
         if (currentRoom) currentRoom.fund_stage = 'settled';
         updateExitGameBtnState();

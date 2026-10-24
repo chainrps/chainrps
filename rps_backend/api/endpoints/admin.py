@@ -242,11 +242,11 @@ async def get_compile_artifacts(request: Request):
     }
 
 
-# 获取 MockERC20 编译产物
+# 获取 USDC 合约编译产物
 @router.get("/contracts/mock-erc20-artifacts")
 async def get_mock_erc20_artifacts(request: Request):
     """
-    获取 MockERC20 合约编译产物（ABI + Bytecode），用于部署测试代币。
+    获取本地 USDC 合约编译产物（ABI + Bytecode），用于重新部署。
     """
     _verify_admin(None, request)
 
@@ -297,7 +297,7 @@ async def get_mock_erc20_artifacts(request: Request):
     if not abi or not bytecode:
         raise HTTPException(
             status_code=404,
-            detail="未找到 MockERC20 编译产物，且自动编译失败。",
+            detail="未找到 USDC 合约编译产物，且自动编译失败。",
         )
 
     return {
@@ -1085,12 +1085,12 @@ async def get_local_chain_tokens():
     return {"tokens": tokens}
 
 
-# 部署测试代币
+# 部署本地 USDC 代币
 @router.post("/local-chain/deploy-token")
 async def deploy_local_token(request: Request):
-    """在本地链部署测试代币 (MockERC20，开发环境功能)"""
+    """在本地链部署 USDC 代币（用于本地开发环境）"""
     body = await request.json()
-    name = body.get("name", "Mock USDC")
+    name = body.get("name", "USDC")
     symbol = body.get("symbol", "USDC")
     decimals = int(body.get("decimals", 6))
     initial_supply = int(body.get("initial_supply", 1_000_000))

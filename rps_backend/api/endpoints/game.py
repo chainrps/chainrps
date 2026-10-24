@@ -44,6 +44,18 @@ from rps_backend.config import BOT_AUTO_CHAIN_MATCH
 from rps_backend.repository import get_game_record, get_player_stats, get_leaderboard
 from rps_backend.service import game_manager, match_manager, room_manager
 from rps_backend.service.relayer_service import relayer_service
+from rps_backend.utils import validate_address
+
+# 零地址黑洞（不应给它发币）
+_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+
+def _check_player_address(address: str, field: str = "player_address") -> None:
+    """校验玩家地址，不通过则抛 HTTPException(400)"""
+    if not validate_address(address):
+        raise HTTPException(status_code=400, detail=f"无效的 {field}（应为 0x + 40 位十六进制字符）")
+    if address.lower() == _ZERO_ADDRESS.lower():
+        raise HTTPException(status_code=400, detail=f"{field} 不能为零地址")
 
 
 def _room_to_response(room: dict) -> RoomResponse:
@@ -127,6 +139,7 @@ def _build_game_response(game: dict) -> GameResponse:
 @router.post("/room/create")
 async def create_room(request: CreateRoomRequest):
     """创建房间（替代原来的寻找对手）"""
+    _check_player_address(request.player_address)
     result = room_manager.create_room(
         request.player_address,
         request.token.value,
@@ -153,6 +166,7 @@ async def create_room(request: CreateRoomRequest):
 @router.post("/room/join")
 async def join_room(request: JoinRoomRequest):
     """加入房间"""
+    _check_player_address(request.player_address)
     result = room_manager.join_room(
         request.room_id,
         request.player_address,
@@ -244,6 +258,7 @@ async def kick_player(request: KickPlayerRequest):
 @router.post("/room/ready")
 async def toggle_ready(request: ToggleReadyRequest):
     """准备/取消准备"""
+    _check_player_address(request.player_address)
     result = room_manager.toggle_ready(
         request.room_id,
         request.player_address,
@@ -267,6 +282,7 @@ async def leave_room(request: LeaveRoomRequest):
     - player2 尚未 join 链上对局（自己资金未上链）→ 即使链上对局已创建也允许退出
     - 已 join（资金已上链）→ 不允许退出，需走链上索赔/撤销流程
     """
+    _check_player_address(request.player_address)
     # 权威检查：若退出者是 player2，先读链上确认其是否已 join
     player2_chain_joined = True  # 安全默认值：链不可读时维持旧行为（拒绝）
     try:
@@ -310,6 +326,7 @@ async def reset_room_for_rematch(request: ResetRoomRequest):
     - 保留两位玩家不变，清除 game_id/准备状态，回到 JOINED/CREATED。
     房间内的双方都会收到 room_reset_for_rematch WS 事件通知。
     """
+    _check_player_address(request.player_address)
     result = room_manager.reset_room_for_rematch(
         request.room_id,
         request.player_address,
@@ -436,11 +453,11 @@ async def get_room(room_id: str):
     room = room_manager.get_room(room_id)
 
     if not room:
-        return {"success": False, "message": "房间不存在或已关闭"}
+        raise HTTPException(status_code=404, detail="房间不存在或已关闭")
 
     # 已关闭的房间视为不存在
     if room.get("status") == "closed":
-        return {"success": False, "message": "房间已解散"}
+        raise HTTPException(status_code=404, detail="房间已解散")
 
     return _room_to_response(room)
 
@@ -454,6 +471,7 @@ async def report_chain_game(room_id: str, request: ReportChainGameRequest):
     房间模式倒计时结束后，创建者调用合约 createMatch 创建链上对局，
     然后通过此接口上报 chain_game_id，后端会通知 player2 加入链上对局。
     """
+    _check_player_address(request.player_address)
     result = await room_manager.report_chain_game(
         room_id, request.player_address, request.chain_game_id
     )
@@ -462,180 +480,6 @@ async def report_chain_game(room_id: str, request: ReportChainGameRequest):
         raise HTTPException(status_code=400, detail=result.get("message", "上报失败"))
 
     return result
-
-
-# ==================== 调试 / MOCK 接口 ====================
-
-# 创建模拟游戏
-@router.post("/debug/mock-game")
-async def mock_game(request: dict):
-    """
-    调试用：直接进入游戏出拳阶段（无需链上交互）
-
-    前端可以调用此接口来直接查看游戏界面效果。
-    返回一个模拟的房间数据，前端收到后直接进入出拳界面。
-    """
-    from rps_backend.utils.helpers import now_timestamp
-    import uuid
-
-    player_address = request.get("player_address", "0xMockPlayer1234567890")
-    opponent_address = request.get("opponent_address", "0xMockOpponent1234567890")
-    token = request.get("token", "USDC")
-    bet_amount = request.get("bet_amount", 100)
-    phase = request.get("phase", "commit")  # commit / reveal / result
-
-    room_id = f"DEBUG-{uuid.uuid4().hex[:8].upper()}"
-    now = now_timestamp()
-
-    mock_room = {
-        "room_id": room_id,
-        "creator": player_address,
-        "player2": opponent_address,
-        "token": token,
-        "bet_amount": bet_amount,
-        "status": "game_started",
-        "creator_ready": True,
-        "player2_ready": True,
-        "created_at": now - 120,
-        "countdown_start": now - 105,
-        "game_started_at": now - 90,
-        "game_id": 99999,
-        "chain_game_id": 88888,
-        "is_creator": True,
-        "opponent": opponent_address,
-        "mock_phase": phase,
-        "commit_deadline": now + 300,
-        "reveal_deadline": now + 600,
-    }
-
-    return {
-        "success": True,
-        "room": mock_room,
-        "message": "MOCK 游戏已创建（仅用于界面调试）",
-    }
-
-
-# 获取模拟UI数据
-@router.get("/debug/mock-ui/{stage}")
-async def mock_ui_stage(stage: str):
-    """
-    调试用：直接查看指定界面的模拟数据
-
-    stage 可选值：
-    - lobby: 大厅
-    - room_wait: 房间等待中
-    - countdown: 倒计时中
-    - game_commit: 游戏提交阶段（出拳）
-    - game_reveal: 游戏揭晓阶段
-    - result_win: 胜利结果
-    - result_lose: 失败结果
-    - result_draw: 平局结果
-    """
-    from rps_backend.utils.helpers import now_timestamp
-    import uuid
-
-    now = now_timestamp()
-    room_id = f"DEBUG-{uuid.uuid4().hex[:8].upper()}"
-
-    base_room = {
-        "room_id": room_id,
-        "creator": "0xMockPlayer1234567890",
-        "player2": "0xMockOpponent1234567890",
-        "token": "USDC",
-        "bet_amount": 100,
-        "status": "joined",
-        "creator_ready": False,
-        "player2_ready": False,
-        "created_at": now - 60,
-        "countdown_start": None,
-        "game_started_at": None,
-        "game_id": None,
-        "chain_game_id": None,
-    }
-
-    stages = {
-        "lobby": {
-            "rooms": [
-                {**base_room, "room_id": "ROOM-A1B2C3", "creator": "0xAlice1234...", "bet_amount": 50},
-                {**base_room, "room_id": "ROOM-D4E5F6", "creator": "0xBob5678...", "bet_amount": 100},
-                {**base_room, "room_id": "ROOM-G7H8I9", "creator": "0xCarol9012...", "bet_amount": 200},
-            ],
-            "total": 3,
-        },
-        "room_wait": {
-            **base_room,
-            "status": "joined",
-            "creator_ready": True,
-            "player2_ready": False,
-        },
-        "countdown": {
-            **base_room,
-            "status": "countdown",
-            "creator_ready": True,
-            "player2_ready": True,
-            "countdown_start": now - 5,
-        },
-        "game_commit": {
-            **base_room,
-            "status": "game_started",
-            "creator_ready": True,
-            "player2_ready": True,
-            "countdown_start": now - 20,
-            "game_started_at": now - 5,
-            "game_id": 99999,
-            "chain_game_id": 88888,
-            "is_creator": True,
-            "opponent": base_room["player2"],
-            "commit_deadline": now + 300,
-            "mock_phase": "commit",
-        },
-        "game_reveal": {
-            **base_room,
-            "status": "game_started",
-            "creator_ready": True,
-            "player2_ready": True,
-            "game_id": 99999,
-            "chain_game_id": 88888,
-            "is_creator": True,
-            "opponent": base_room["player2"],
-            "reveal_deadline": now + 180,
-            "mock_phase": "reveal",
-            "my_choice": 1,
-            "opponent_committed": True,
-        },
-        "result_win": {
-            "result": "win",
-            "my_choice": 1,
-            "opponent_choice": 3,
-            "amount": 100,
-            "prize": 196,
-            "fee": 4,
-            "token": "USDC",
-        },
-        "result_lose": {
-            "result": "lose",
-            "my_choice": 3,
-            "opponent_choice": 1,
-            "amount": 100,
-            "prize": 0,
-            "fee": 0,
-            "token": "USDC",
-        },
-        "result_draw": {
-            "result": "draw",
-            "my_choice": 1,
-            "opponent_choice": 1,
-            "amount": 100,
-            "prize": 100,
-            "fee": 0,
-            "token": "USDC",
-        },
-    }
-
-    if stage not in stages:
-        return {"success": False, "message": f"未知阶段: {stage}，可选：{', '.join(stages.keys())}"}
-
-    return {"success": True, "stage": stage, "data": stages[stage]}
 
 
 # ==================== 匹配相关 ====================

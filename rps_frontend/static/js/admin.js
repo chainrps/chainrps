@@ -1606,7 +1606,7 @@ const AdminApp = {
         try {
             const artifacts = await this.apiRequest('/api/admin/contracts/mock-erc20-artifacts');
             if (!artifacts.bytecode) {
-                throw new Error('未找到 MockERC20 编译产物');
+                throw new Error('未找到 USDC 合约编译产物');
             }
 
             const abi = typeof artifacts.abi === 'string' ? JSON.parse(artifacts.abi) : artifacts.abi;
@@ -2503,7 +2503,7 @@ const AdminApp = {
     async redeployUsdc() {
         const confirmed = await FWUI.Modal.confirm(
             '重新部署 USDC',
-            '将清除旧的 USDC 合约记录，重新部署 MockERC20 合约并向所有测试账户分发 100,000 USDC。\n\n此操作不可撤销，确定继续？'
+            '将清除旧的 USDC 合约记录，重新部署本地 USDC 合约并向所有测试账户分发 100,000 USDC。\n\n此操作不可撤销，确定继续？'
         );
         if (!confirmed) return;
 

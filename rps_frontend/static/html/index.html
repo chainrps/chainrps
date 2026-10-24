@@ -45,9 +45,18 @@
             </div>
 
             <div class="wallet-section" id="walletSection">
-                <button class="btn btn-primary btn-connect-wallet" id="connectWalletBtn">
-                    <span>连接钱包</span>
-                </button>
+                <!-- 连接钱包下拉选择器 -->
+                <div class="wallet-connect-picker" id="walletConnectPicker" style="position:relative;display:inline-block;">
+                    <button class="btn btn-primary btn-connect-wallet" id="connectWalletBtn" style="display:flex;align-items:center;gap:6px;">
+                        <span>连接钱包</span>
+                        <span id="walletPickerCaret" style="font-size:10px;opacity:0.7;">▾</span>
+                    </button>
+                    <!-- 下拉面板 -->
+                    <div id="walletPickerDropdown" class="hidden" style="position:absolute;top:calc(100% + 6px);right:0;min-width:220px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.15);z-index:9999;padding:6px;">
+                        <div id="walletPickerList"></div>
+                        <div id="walletPickerEmpty" style="padding:16px;text-align:center;color:#888;font-size:12px;display:none;">未检测到钱包扩展</div>
+                    </div>
+                </div>
                 <div class="wallet-info hidden" id="walletInfo">
                     <div class="wallet-avatar-container" title="点击查看钱包详情">
                         <div class="wallet-avatar" id="walletAvatar">👤</div>
@@ -90,6 +99,13 @@
                         <span class="balance-symbol">USDC</span>
                         <span class="balance-value" id="walletUsdcBalance">-</span>
                     </div>
+
+                    <!-- 领测试币入口 -->
+                    <button class="wallet-drip-btn" id="walletDripBtn" title="每日领测试币（本地测试网）">
+                        <span class="wdrip-icon">💸</span>
+                        <span class="wdrip-text">领测试币</span>
+                        <span class="wdrip-badge" id="walletDripBadge">每日一次 · 3000 USDC</span>
+                    </button>
 
                     <!-- 网络与代币合约地址 -->
                     <div class="dropdown-section-title">网络 & 合约</div>
@@ -659,7 +675,7 @@
             <a href="/admin" class="footer-link" target="_blank">管理面板</a>
         </div>
         <div class="footer-copyright">
-            <span>ChainRPS v1.0.41 · 公平 · 透明 · 可验证</span>
+            <span>ChainRPS v1.0.42 · 公平 · 透明 · 可验证</span>
         </div>
     </footer>
 </div>
@@ -687,7 +703,7 @@
 <script src="../js/ui.js?v=20261024a"></script>
 <script src="../js/history.js?v=20260726d"></script>
 <script src="../js/settings.js?v=20261004j"></script>
-<script src="../js/app.js?v=20261024b"></script>
+<script src="../js/app.js?v=20261025a"></script>
 
 <!-- 主链状态详情面板 -->
 <div class="chain-status-panel hidden" id="chainStatusPanel">

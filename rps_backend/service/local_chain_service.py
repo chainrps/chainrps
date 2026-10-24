@@ -896,11 +896,11 @@ class LocalChainService:
 
         return {"success": False, "message": f"转账失败: {last_error}"}
 
-    # 部署 Mock ERC20 代币
+    # 部署 USDC 代币
     def deploy_mock_erc20(
             self,
             from_index: int = 0,
-            name: str = "Mock USDC",
+            name: str = "USDC",
             symbol: str = "USDC",
             decimals: int = 6,
             initial_supply: int = 1_000_000,
@@ -1129,7 +1129,7 @@ class LocalChainService:
             self,
             from_index: int = 0,
             symbol: str = "USDC",
-            name: str = "Mock USDC",
+            name: str = "USDC",
             decimals: int = 6,
             per_account_amount: float = 10000,
     ) -> Dict[str, Any]:

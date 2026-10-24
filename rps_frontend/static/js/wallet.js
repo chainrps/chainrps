@@ -4,6 +4,7 @@ const Wallet = (function() {
     // 作用：解决 wallet_revokePermissions 在 OKX/MetaMask 等钱包中不被支持或行为不一致
     // 导致刷新页面后 eth_accounts 仍返回账户、autoConnect 自动重连的问题
     const DISCONNECT_FLAG_KEY = 'rps_wallet_disconnected';
+    const LAST_WALLET_TYPE_KEY = 'rps_last_wallet_type';
 
     let provider = null;
     let signer = null;
@@ -50,86 +51,174 @@ const Wallet = (function() {
     }
 
     // 获取可用钱包列表
+    // 关键：OKX + MetaMask 同时装时，后装的那个覆盖 window.ethereum，
+    // 先装的被挪到 window.ethereum.providers 数组里
+    // ⚠️ OKX 会伪装成 MetaMask（同时设置 isOkxWallet + isMetaMask）
+    //    所以判断顺序必须是：先 isOkxWallet，再 isMetaMask！
     function getAvailableWallets() {
         const wallets = [];
-        
+        const seen = new Set();
+
+        // 先诊断所有 provider — F12 console 能看到真实标志
+        console.groupCollapsed('[Wallet] 扫描所有 provider');
         if (typeof window.ethereum !== 'undefined') {
-            if (window.ethereum.isMetaMask) {
-                wallets.push({ id: 'metamask', name: 'MetaMask', icon: '🦊' });
-            } else if (window.ethereum.isOkxWallet) {
-                wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷' });
-            } else if (window.ethereum.isTrust) {
-                wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙' });
-            } else {
-                wallets.push({ id: 'injected', name: 'Injected Wallet', icon: '💼' });
+            const all = window.ethereum.providers || [window.ethereum];
+            all.forEach((p, i) => {
+                console.info(`  provider[${i}]: isMetaMask=${p.isMetaMask}, isOkxWallet=${p.isOkxWallet}, isTrust=${p.isTrust}, isCoinbase=${p.isCoinbaseWallet}, _events=${Object.keys(p._events||{}).length}`);
+            });
+        }
+        if (window.okxwallet) console.info('  window.okxwallet: isOkxWallet=', window.okxwallet.isOkxWallet);
+        if (window.trustwallet) console.info('  window.trustwallet: isTrust=', window.trustwallet.isTrust);
+        console.groupEnd();
+
+        // 1️⃣ 遍历 window.ethereum.providers —— 先查 isOkxWallet（OKX 会同时设 isMetaMask，必须先判断）
+        if (typeof window.ethereum !== 'undefined') {
+            const providers = window.ethereum.providers || [window.ethereum];
+            for (const p of providers) {
+                let id, name, icon;
+                // ⚠️ 顺序！isOkxWallet 必须在 isMetaMask 前面！
+                if (p.isOkxWallet) {
+                    id = 'okx'; name = 'OKX Wallet'; icon = '🔷';
+                } else if (p.isCoinbaseWallet || p.isCoinbaseExtension) {
+                    id = 'coinbase'; name = 'Coinbase Wallet'; icon = '🔵';
+                } else if (p.isTrust) {
+                    id = 'trust'; name = 'Trust Wallet'; icon = '💙';
+                } else if (p.isMetaMask) {
+                    id = 'metamask'; name = 'MetaMask'; icon = '🦊';
+                } else {
+                    continue;
+                }
+                if (!seen.has(id)) {
+                    seen.add(id);
+                    wallets.push({ id, name, icon, provider: p });
+                }
             }
         }
 
-        if (window.okxwallet) {
-            if (!wallets.find(w => w.id === 'okx')) {
-                wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷' });
+        // 2️⃣ 顶层独立注入
+        if (window.okxwallet && !seen.has('okx')) {
+            seen.add('okx');
+            wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷', provider: window.okxwallet });
+        }
+        if (window.trustwallet && !seen.has('trust')) {
+            seen.add('trust');
+            wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙', provider: window.trustwallet });
+        }
+        if (window.coinbaseWallet && !seen.has('coinbase')) {
+            seen.add('coinbase');
+            wallets.push({ id: 'coinbase', name: 'Coinbase Wallet', icon: '🔵', provider: window.coinbaseWallet });
+        }
+
+        // 3️⃣ 兜底：window.ethereum 顶层（当 providers 数组不存在时）
+        if (typeof window.ethereum !== 'undefined' && (!window.ethereum.providers || window.ethereum.providers.length === 0)) {
+            if (window.ethereum.isOkxWallet && !seen.has('okx')) {
+                wallets.push({ id: 'okx', name: 'OKX Wallet', icon: '🔷', provider: window.ethereum });
+            } else if (window.ethereum.isMetaMask && !seen.has('metamask')) {
+                wallets.push({ id: 'metamask', name: 'MetaMask', icon: '🦊', provider: window.ethereum });
+            } else if (!seen.has('injected')) {
+                wallets.push({ id: 'injected', name: 'Injected Wallet', icon: '💼', provider: window.ethereum });
             }
         }
 
-        if (window.trustwallet) {
-            if (!wallets.find(w => w.id === 'trust')) {
-                wallets.push({ id: 'trust', name: 'Trust Wallet', icon: '💙' });
-            }
-        }
-
-        if (window.coinbaseWallet) {
-            wallets.push({ id: 'coinbase', name: 'Coinbase Wallet', icon: '🔵' });
-        }
-
+        // Debug Wallet（默认关，只在 enableDebugMode=true 时出现）
         if (typeof CONFIG !== 'undefined' && CONFIG.enableDebugMode) {
             wallets.push({ id: 'debug', name: 'Debug Wallet', icon: '🐛' });
         }
 
+        console.info('[Wallet] 检测到钱包:', wallets.map(w => w.id + '(' + w.name + ')').join(', '));
         return wallets;
     }
 
     // 根据钱包类型获取对应的Provider对象
+    // 关键：从 window.ethereum.providers 数组里找，而不是顶层（OKX/MetaMask 共存时顶层是后装的那个）
     function getProviderByType(type) {
-        switch (type) {
-            case 'metamask':
-            case 'injected':
-                return window.ethereum;
-            case 'okx':
-                return window.okxwallet || window.ethereum;
-            case 'trust':
-                return window.trustwallet || window.ethereum;
-            case 'coinbase':
-                return window.coinbaseWallet || window.ethereum;
-            default:
-                return window.ethereum;
+        // 从 getAvailableWallets() 里直接取已匹配好的 provider（包含 providers 数组遍历）
+        const available = getAvailableWallets();
+        const match = available.find(w => w.id === type);
+        if (match && match.provider) return match.provider;
+
+        // 兜底：顶层注入
+        if (type === 'okx') return window.okxwallet || window.ethereum;
+        if (type === 'trust') return window.trustwallet || window.ethereum;
+        if (type === 'coinbase') return window.coinbaseWallet || window.ethereum;
+        return window.ethereum;
+    }
+
+    // wallet_requestPermissions 返回格式兼容：
+    // MetaMask: { "0x...": { parentCapabilities: ... } }  或 [{ parentCapability: 'eth_accounts', ... }]
+    // OKX: 可能直接返回账户数组
+    function extractAccountsFromPermissions(perms) {
+        // 格式 A：直接是数组（OKX 某些版本）
+        if (Array.isArray(perms) && perms.length > 0 && typeof perms[0] === 'string' && perms[0].startsWith('0x')) {
+            return perms;
         }
+        // 格式 B：权限对象里找 eth_accounts
+        if (perms && typeof perms === 'object') {
+            // 某些钱包把账户藏在 eth_accounts.accounts 里
+            if (perms.eth_accounts && Array.isArray(perms.eth_accounts.accounts)) {
+                return perms.eth_accounts.accounts;
+            }
+            // 格式 C：wallet_getPermissions 风格的数组
+            if (Array.isArray(perms)) {
+                const ethAcc = perms.find(p => p?.parentCapability === 'eth_accounts');
+                if (ethAcc?.caveats && Array.isArray(ethAcc.caveats)) {
+                    for (const c of ethAcc.caveats) {
+                        if (Array.isArray(c.value) && c.value.length > 0 && c.value[0].startsWith('0x')) {
+                            return c.value;
+                        }
+                    }
+                }
+            }
+        }
+        // 实在解析不出来，返回空数组让调用方回退
+        return [];
     }
 
     let isConnecting = false;
 
     // 连接钱包
     async function connect(type = null) {
-        if (isConnecting) {
-            return {
-                address: currentAddress,
-                chainId: currentChainId,
-                walletType: walletType
-            };
+        // 强制每次都是全新连接 — 清理旧状态让 eth_requestAccounts 重新弹窗
+        // （之前的 provider/signer/rawProvider 全部丢弃，确保钱包重新选账号）
+        if (signer || rawProvider) {
+            // 先彻底断开旧连接
+            await disconnect(true);  // silent=true 不弹提示
         }
-        isConnecting = true;
+        currentAddress = null;
+        currentChainId = null;
+        walletType = null;
+        provider = null;
+        signer = null;
+        rawProvider = null;
+        isConnecting = false;
+
+        emit('accountChanged', null);
 
         // 用户主动连接，清除"已主动断开"标记
         try { localStorage.removeItem(DISCONNECT_FLAG_KEY); } catch (e) {}
 
+        isConnecting = true;  // 标记连接中，finally 里重置
+
         try {
         const availableWallets = getAvailableWallets();
         
-        if (availableWallets.length === 0) {
-            throw new Error('未检测到 Web3 钱包，请先安装 MetaMask 或其他钱包');
+        // 分离真实钱包和调试钱包
+        const realWallets = availableWallets.filter(w => w.id !== 'debug');
+        const hasRealEthereum = typeof window.ethereum !== 'undefined' || window.okxwallet || window.trustwallet || window.coinbaseWallet;
+        
+        // 没有真实钱包注入时：如果有真实钱包在 availableWallets 列表里就用它
+        // 如果只有 debug 选项 → 报错，禁止静默回退到模拟钱包
+        if (!hasRealEthereum && realWallets.length === 0) {
+            throw new Error('未检测到 Web3 钱包扩展（MetaMask / OKX Wallet 等），请先安装浏览器钱包插件');
         }
 
         if (!type) {
-            type = availableWallets[0].id;
+            // 优先选真实钱包，永不自动选 debug
+            if (realWallets.length > 0) {
+                type = realWallets[0].id;
+            } else {
+                type = availableWallets[0].id;  // 只有 debug 时才到这里（已被上方 guard 拦截）
+            }
         }
 
         if (type === 'debug' && typeof CONFIG !== 'undefined' && CONFIG.enableDebugMode) {
@@ -146,11 +235,53 @@ const Wallet = (function() {
             throw new Error('指定的钱包未安装');
         }
 
+        // 关键！连真实钱包前必须把 debug 模式关掉
+        // 否则 getBalance 会返回 CONFIG.debugBalance（10）而不是链上真实余额
+        isDebugMode = false;
+        if (provider && rawProvider) {
+            try { removeEventListeners(rawProvider); } catch (e) {}
+        }
+
         try {
-            const accounts = await providerObj.request({ method: 'eth_requestAccounts' });
+            // 关键：彻底断开钱包连接，确保下次 eth_requestAccounts 一定会弹窗
+            // OKX 的 revokePermissions 只清兼容层，内部状态没动
+            // OKX 专属 provider.disconnect() 能彻底断开连接
             
-            if (accounts.length === 0) {
-                throw new Error('用户拒绝连接');
+            try {
+                // 方法 1：OKX/MetaMask 都支持的 revokePermissions
+                await providerObj.request({
+                    method: 'wallet_revokePermissions',
+                    params: [{ eth_accounts: {} }]
+                });
+                console.info('[Wallet] revokePermissions OK');
+            } catch (e) {
+                console.info('[Wallet] revokePermissions 跳过:', (e.message || '').substring(0, 80));
+            }
+
+            // 方法 2：OKX 专属 disconnect() — 更彻底
+            try {
+                if (typeof providerObj.disconnect === 'function') {
+                    providerObj.disconnect();
+                    console.info('[Wallet] provider.disconnect() OK');
+                }
+            } catch (e) {
+                console.info('[Wallet] provider.disconnect() 跳过');
+            }
+
+            // 方法 3：OKX 有些版本需要重置 accounts 属性
+            try {
+                providerObj._accounts = null;
+                providerObj._connectInfo = null;
+            } catch (e) {}
+
+            // 给钱包时间彻底清理
+            await new Promise(r => setTimeout(r, 500));
+
+            // 第二步：请求账号
+            const accounts = await providerObj.request({ method: 'eth_requestAccounts' });
+
+            if (!accounts || accounts.length === 0) {
+                throw new Error('钱包未返回任何账户，请在钱包设置中授权连接');
             }
 
             currentAddress = accounts[0];
@@ -168,16 +299,17 @@ const Wallet = (function() {
             emit('accountChanged', currentAddress);
             emit('chainChanged', currentChainId);
 
+            // ✅ 记住用户选的钱包类型 — 刷新后自动重连用
+            try { localStorage.setItem(LAST_WALLET_TYPE_KEY, type); } catch (e) {}
+
             return {
                 address: currentAddress,
                 chainId: currentChainId,
                 walletType: walletType
             };
         } catch (error) {
-            if (error.code === 4001) {
-                throw new Error('用户拒绝连接钱包');
-            }
-            throw error;
+            console.error('[Wallet] connect 失败:', error.code || '', error.message);
+            throw error;  // 直接向上抛，上层会显示准确消息
         }
         } finally {
             isConnecting = false;
@@ -194,7 +326,7 @@ const Wallet = (function() {
             // 1. 先读 config 里的本地链 RPC
             const rpcHost = CONFIG.RPC_HOST || '127.0.0.1';
             const rpcPort = CONFIG.RPC_PORT || 8686;
-            const chainId = CONFIG.getChainId ? CONFIG.getChainId() : 5208888;
+            const chainId = CONFIG.RPC_CHAIN_ID || (CONFIG.getLocalChainId ? CONFIG.getLocalChainId() : 5208888);  // 固定游戏链！
             const rpcUrl = `http://${rpcHost}:${rpcPort}`;
 
             // 2. 如果浏览器在手机上（非 localhost），把 127.0.0.1 改成主机局域网 IP
@@ -267,56 +399,73 @@ const Wallet = (function() {
 
     // 自动连接钱包（无需用户手动点击）
     async function autoConnect() {
-        if (!window.ethereum) {
-            return null;
-        }
-        // 用户之前主动断开过，则不自动重连（需用户再次手动点击连接）
-        // 这是解决 wallet_revokePermissions 不被 OKX/MetaMask 等钱包支持的关键
+        // 用户之前主动断开过，则不自动重连（尊重用户选择）
         if (localStorage.getItem(DISCONNECT_FLAG_KEY) === '1') {
             return null;
         }
         if (isConnected()) {
-            return {
-                address: currentAddress,
-                chainId: currentChainId,
-                walletType: walletType
-            };
+            return { address: currentAddress, chainId: currentChainId, walletType: walletType };
         }
         if (isConnecting) {
             return null;
         }
+
         isConnecting = true;
 
         try {
-            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-            if (accounts.length === 0) {
-                return null;
+            // 优先用用户上次选的钱包类型
+            const lastType = localStorage.getItem(LAST_WALLET_TYPE_KEY);
+            const availableWallets = getAvailableWallets();
+            let providerObj = null;
+            let type = null;
+
+            if (lastType) {
+                // 用户之前选过 OKX/MetaMask/Trust → 找到对应的 provider
+                const saved = availableWallets.find(w => w.id === lastType);
+                if (saved && saved.provider) {
+                    providerObj = saved.provider;
+                    type = lastType;
+                }
             }
 
-            const address = accounts[0];
-            
-            const providerObj = window.ethereum;
+            // 没记住或者钱包被卸了 → 用第一个可用的真实钱包
+            if (!providerObj) {
+                const firstReal = availableWallets.find(w => w.id !== 'debug' && w.provider);
+                if (firstReal) {
+                    providerObj = firstReal.provider;
+                    type = firstReal.id;
+                }
+            }
+
+            if (!providerObj) {
+                return null;  // 连钱包扩展都没装
+            }
+
+            // 查已授权的账户（eth_accounts 不弹窗，直接返回已授权的）
+            let accounts = [];
+            try { accounts = await providerObj.request({ method: 'eth_accounts' }); } catch (_) {}
+            if (!accounts || accounts.length === 0) {
+                return null;  // 没授权过 → 不自动弹窗，让用户手动点
+            }
+
+            currentAddress = accounts[0];
+            walletType = type || 'auto';
+            rawProvider = providerObj;
+
             provider = new ethers.BrowserProvider(providerObj);
             signer = await provider.getSigner();
             const network = await provider.getNetwork();
-
-            currentAddress = address;
             currentChainId = Number(network.chainId);
-            walletType = 'auto';
-            rawProvider = providerObj;
 
             setupEventListeners(providerObj);
 
             emit('accountChanged', currentAddress);
             emit('chainChanged', currentChainId);
 
-            return {
-                address: currentAddress,
-                chainId: currentChainId,
-                walletType: walletType
-            };
+            console.log('[Wallet] Auto-connected:', currentAddress, 'via', type);
+            return { address: currentAddress, chainId: currentChainId, walletType: walletType };
         } catch (e) {
-            console.log('Auto-connect failed:', e.message);
+            console.log('[Wallet] Auto-connect failed:', e.message);
             return null;
         } finally {
             isConnecting = false;
@@ -438,7 +587,7 @@ const Wallet = (function() {
     }
 
     // 断开钱包连接
-    async function disconnect() {
+    async function disconnect(silent = false) {
         // 先清除本地状态
         const wasConnected = currentAddress !== null;
         const providerObj = rawProvider;
@@ -453,26 +602,25 @@ const Wallet = (function() {
         // 移除事件监听器
         removeEventListeners(providerObj);
 
-        // 设置"已主动断开"标记：刷新页面后 autoConnect 检查此标记跳过自动重连
-        // 必须在调用 wallet_revokePermissions 之前设置，确保即使钱包不支持 revoke 也能阻止重连
-        try { localStorage.setItem(DISCONNECT_FLAG_KEY, '1'); } catch (e) {}
+        if (!silent) {
+            // 设置"已主动断开"标记：刷新页面后 autoConnect 检查此标记跳过自动重连
+            try { localStorage.setItem(DISCONNECT_FLAG_KEY, '1'); } catch (e) {}
 
-        // 真正与钱包断开：撤销 EIP-1193 权限（MetaMask 等支持 wallet_revokePermissions）
-        if (wasConnected && providerObj && providerObj.request) {
-            try {
-                await providerObj.request({
-                    method: 'wallet_revokePermissions',
-                    params: [{ eth_accounts: {} }]
-                });
-            } catch (e) {
-                // 部分钱包不支持 wallet_revokePermissions，仅清理本地状态
-                // 因为已设置 DISCONNECT_FLAG_KEY，刷新后不会自动重连
-                console.warn('钱包不支持 wallet_revokePermissions，已设置本地断开标记');
+            // 真正与钱包断开：撤销 EIP-1193 权限
+            if (wasConnected && providerObj && providerObj.request) {
+                try {
+                    await providerObj.request({
+                        method: 'wallet_revokePermissions',
+                        params: [{ eth_accounts: {} }]
+                    });
+                } catch (e) {
+                    console.warn('钱包不支持 wallet_revokePermissions，已设置本地断开标记');
+                }
             }
         }
 
         rawProvider = null;
-        emit('disconnect');
+        if (!silent) emit('disconnect');
     }
 
     // 检查钱包是否已连接
@@ -513,21 +661,27 @@ const Wallet = (function() {
     // 获取钱包余额（支持原生币和代币）
     async function getBalance(tokenAddress = null) {
         if (!currentAddress) {
+            console.warn('[Wallet.getBalance] 无 currentAddress');
             return '0';
         }
 
         if (isDebugMode && typeof CONFIG !== 'undefined') {
+            console.warn('[Wallet.getBalance] isDebugMode=true！返回 debugBalance:', CONFIG.debugBalance);
             return CONFIG.debugBalance.toString();
         }
 
         if (!provider) {
+            console.warn('[Wallet.getBalance] 无 provider');
             return '0';
         }
 
         if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
             const balance = await provider.getBalance(currentAddress);
-            return ethers.formatEther(balance);
+            const formatted = ethers.formatEther(balance);
+            console.info('[Wallet.getBalance] 原生币(POL)余额:', formatted, 'address=', currentAddress.slice(0,8)+'...', 'chainId=', await provider.getNetwork().then(n=>n.chainId));
+            return formatted;
         } else if (!isValidAddress(tokenAddress)) {
+            console.warn('[Wallet.getBalance] 无效代币地址:', tokenAddress);
             return '0';
         } else {
             try {
@@ -536,11 +690,16 @@ const Wallet = (function() {
                     'function decimals() view returns (uint8)'
                 ];
                 const contract = new ethers.Contract(tokenAddress, abi, provider);
-                const balance = await contract.balanceOf(currentAddress);
-                const decimals = await contract.decimals();
-                return ethers.formatUnits(balance, decimals);
+                const [balance, decimals, network] = await Promise.all([
+                    contract.balanceOf(currentAddress),
+                    contract.decimals().catch(() => 6),
+                    provider.getNetwork()
+                ]);
+                const formatted = ethers.formatUnits(balance, decimals);
+                console.info('[Wallet.getBalance] 代币余额: addr=', tokenAddress.slice(0,10)+'...', 'bal=', formatted, 'dec=', decimals, 'chainId=', network.chainId);
+                return formatted;
             } catch (e) {
-                console.warn('获取代币余额失败:', tokenAddress, e.message);
+                console.warn('获取代币余额失败:', tokenAddress, e.message, e);
                 return '0';
             }
         }

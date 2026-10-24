@@ -1899,6 +1899,57 @@ input:checked + .slider:before {
     gap: 12px;
 }
 
+/* ===== 每日领测试币按钮（活动入口） ===== */
+.daily-drip-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #ff9a56 0%, #ff6b35 100%);
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(255, 107, 53, 0.35);
+    transition: all 0.18s ease;
+    animation: drip-pulse 2.5s ease-in-out infinite;
+    white-space: nowrap;
+}
+.daily-drip-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 16px rgba(255, 107, 53, 0.5);
+    filter: brightness(1.06);
+}
+.daily-drip-btn:active { transform: translateY(0); }
+.daily-drip-btn:disabled {
+    background: linear-gradient(135deg, #aaa 0%, #888 100%);
+    box-shadow: none;
+    cursor: default;
+    animation: none;
+    opacity: 0.75;
+}
+.daily-drip-btn .drip-icon { font-size: 15px; }
+.daily-drip-btn .drip-label { font-size: 13px; }
+.daily-drip-btn .drip-badge {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 7px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 10px;
+}
+.daily-drip-btn.claimed {
+    background: linear-gradient(135deg, #888 0%, #666 100%);
+    box-shadow: none;
+    animation: none;
+    cursor: default;
+}
+@keyframes drip-pulse {
+    0%, 100% { box-shadow: 0 3px 10px rgba(255, 107, 53, 0.35); }
+    50%      { box-shadow: 0 3px 18px rgba(255, 107, 53, 0.7); }
+}
+
 .lobby-toolbar {
     display: flex;
     align-items: center;
@@ -3053,10 +3104,48 @@ body[data-game-phase="commit"] .room-players {
 .choice-confirm-actions {
     display: flex;
     justify-content: center;
-    gap: 12px;
+    gap: 14px;
+    align-items: center;
 }
-.choice-confirm-actions .btn {
-    min-width: 100px;
+
+/* 确定按钮 — 主操作，醒目突出 */
+.choice-confirm-actions #confirmChoiceBtn {
+    min-width: 120px;
+    padding: 10px 28px;
+    font-size: 15px;
+    font-weight: 700;
+    background: var(--primary-color);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.1) inset;
+    transition: all 0.15s ease;
+}
+.choice-confirm-actions #confirmChoiceBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+    filter: brightness(1.08);
+}
+.choice-confirm-actions #confirmChoiceBtn:active {
+    transform: translateY(0);
+}
+
+/* 重选按钮 — 次要操作，低调弱化 */
+.choice-confirm-actions #cancelChoiceBtn {
+    min-width: 70px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 400;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: all 0.15s ease;
+}
+.choice-confirm-actions #cancelChoiceBtn:hover {
+    color: var(--text-secondary);
+    border-color: var(--text-muted);
+    background: var(--bg-hover);
 }
 
 .room-actions {
@@ -3676,6 +3765,52 @@ body[data-game-phase="commit"] .room-players {
     font-family: monospace;
     font-size: 14px;
     color: var(--text-primary);
+}
+
+/* ===== 钱包面板里的领测试币按钮 ===== */
+.wallet-drip-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 8px;
+    margin-bottom: 4px;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #ff9a56 0%, #ff6b35 100%);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
+    transition: all 0.18s ease;
+}
+.wallet-drip-btn:hover {
+    box-shadow: 0 3px 12px rgba(255, 107, 53, 0.5);
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+}
+.wallet-drip-btn:disabled {
+    background: linear-gradient(135deg, #888 0%, #666 100%);
+    box-shadow: none;
+    cursor: default;
+    filter: none;
+    transform: none;
+}
+.wallet-drip-btn .wdrip-icon { font-size: 15px; }
+.wallet-drip-btn .wdrip-text { font-size: 13px; font-weight: 600; }
+.wallet-drip-btn .wdrip-badge {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 8px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 10px;
+}
+.wallet-drip-btn.claimed {
+    background: linear-gradient(135deg, #666 0%, #444 100%);
+    box-shadow: none;
+    cursor: default;
 }
 
 .wallet-balances-dropdown .dropdown-token-info {

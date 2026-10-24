@@ -179,7 +179,7 @@ async def cleanup_loop():
 app = FastAPI(
     title="ChainRPS Backend",
     description="链上公平猜拳后端服务",
-    version="1.0.41",
+    version="1.0.42",
     lifespan=lifespan
 )
 
@@ -197,10 +197,21 @@ app.add_middleware(
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     if exc.status_code == 404:
+        # API 路径 → 返回 404 JSON
+        if request.url.path.startswith('/api/'):
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "detail": exc.detail or "API endpoint not found"},
+            )
+        # SPA 路径 → 返回 index.html 让前端路由处理
+        index_path = os.path.join(STATIC_DIR, "html", "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
         return RedirectResponse(url="/")
+    # 其他错误一律 JSON
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail},
+        content={"success": False, "detail": exc.detail},
     )
 
 
@@ -443,7 +454,20 @@ async def serve_project_file(filepath: str):
 # 捕获所有未匹配的路由
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    """捕获所有未匹配的路由，重定向到首页"""
+    """
+    捕获所有未匹配的路由，返回 index.html 让前端 SPA 路由处理。
+    这是 SPA 必需的：前端路由（/room/xxx, /result 等）必须拿到 index.html
+    才能在浏览器里由 handleRoute() 分发。
+    """
+    # API 路径 → 让它返回 404 JSON（不要吞了）
+    if full_path.startswith('api/'):
+        raise HTTPException(status_code=404, detail=f"API endpoint not found: /{full_path}")
+
+    # 其他所有路径 → 返回 index.html 让前端路由决定怎么显示
+    index_path = os.path.join(STATIC_DIR, "html", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    # 兜底：index.html 不存在 → 重定向
     return RedirectResponse(url="/")
 
 

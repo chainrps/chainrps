@@ -31,13 +31,13 @@ const CONFIG = {
             get supportedTokens() {
                 return [
                     {symbol: CONFIG.RPC_NATIVE_SYMBOL, name: CONFIG.RPC_NATIVE_NAME, decimals: 18, address: '0x0000000000000000000000000000000000000000'},
-                    {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0xC89Ce4735882C9F0f0FE26686c53074E09B0D550'}
+                    {symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x28D51CA433509024B1062c8eE8683B26fe04F169'}
                 ];
             },
             get tokenAddresses() {
                 return {
                     [CONFIG.RPC_NATIVE_SYMBOL]: '0x0000000000000000000000000000000000000000',
-                    'USDC': '0xC89Ce4735882C9F0f0FE26686c53074E09B0D550'
+                    'USDC': '0x28D51CA433509024B1062c8eE8683B26fe04F169'
                 };
             }
         },
@@ -94,7 +94,7 @@ const CONFIG = {
 
     officialDeveloper: '0x0000000000000000000000000000000000000000',
 
-    enableDebugMode: true,
+    enableDebugMode: false,
     debugWalletAddress: '0x1234567890abcdef1234567890abcdef12345678',
     debugBalance: 100000,      // 每个账户的默认原生代币余额
 
