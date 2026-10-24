@@ -615,8 +615,13 @@ const App = (function () {
 
                 // === 开始领币 ===
                 dripBtn.disabled = true;
-                const prevBadge = dripBtn.querySelector('.drip-badge')?.textContent || '';
-                dripBtn.querySelector('.drip-badge').textContent = '领取中...';
+                const badge = dripBtn.querySelector('.wdrip-badge');
+                const label = dripBtn.querySelector('.wdrip-text');
+                const icon = dripBtn.querySelector('.wdrip-icon');
+                const prevBadge = badge?.textContent || '';
+                const prevText = label?.textContent || '';
+                badge && (badge.textContent = '领取中...');
+                label && (label.textContent = '领币中');
 
                 try {
                     const res = await fetch(`${CONFIG.backendUrl}/api/ext/drip`, {
@@ -637,39 +642,46 @@ const App = (function () {
                             if (parts.length) FWUI.Toast.info(`已到账: ${parts.join(' + ')}`);
                         }
                         setTimeout(() => updateBalanceDisplay(), 2000);
-                        dripBtn.classList.add('claimed');
-                        const lbl = dripBtn.querySelector('.drip-label');
-                        if (lbl) lbl.textContent = '今日已领';
-                        const badge = dripBtn.querySelector('.drip-badge');
-                        if (badge) badge.textContent = '明天再来';
+                        _markDripClaimed(dripBtn);
                     } else if (data.already_claimed) {
                         FWUI.Toast.info('📌 今天你已经领过了，明天再来～');
-                        dripBtn.classList.add('claimed');
-                        const lbl = dripBtn.querySelector('.drip-label');
-                        if (lbl) lbl.textContent = '今日已领';
-                        const badge = dripBtn.querySelector('.drip-badge');
-                        if (badge) badge.textContent = '明天再来';
+                        _markDripClaimed(dripBtn);
                     } else if (data.cooldown) {
                         FWUI.Toast.info(data.message || '请稍等');
+                        badge && (badge.textContent = prevBadge);
+                        label && (label.textContent = prevText);
+                        dripBtn.disabled = false;
                     } else {
                         FWUI.Modal.alert({
                             title: '领币失败',
                             content: `<p style="color:#ff9a56;">${data.message || '未知错误'}</p>`
                         });
+                        badge && (badge.textContent = prevBadge);
+                        label && (label.textContent = prevText);
+                        dripBtn.disabled = false;
                     }
                 } catch (e) {
                     FWUI.Modal.alert({
                         title: '网络异常',
                         content: `<p>请求失败：${e.message}</p><p style="color:#888;font-size:12px;">确认后端在运行：http://127.0.0.1:8000/health</p>`
                     });
-                } finally {
-                    const claimed = dripBtn.classList.contains('claimed');
-                    dripBtn.disabled = claimed;
-                    if (!claimed) {
-                        dripBtn.querySelector('.drip-badge').textContent = prevBadge;
-                    }
+                    badge && (badge.textContent = prevBadge);
+                    label && (label.textContent = prevText);
+                    dripBtn.disabled = false;
                 }
             });
+
+            // 统一标记按钮为"已领取"状态
+            function _markDripClaimed(btn) {
+                btn.classList.add('claimed');
+                btn.disabled = true;
+                const t = btn.querySelector('.wdrip-text');
+                const b = btn.querySelector('.wdrip-badge');
+                const i = btn.querySelector('.wdrip-icon');
+                if (t) t.textContent = '✓ 今日已领';
+                if (b) b.textContent = '明天再来';
+                if (i) i.textContent = '✅';
+            }
         }
 
         // 连接钱包后查询领币状态 → 更新按钮外观
@@ -681,8 +693,8 @@ const App = (function () {
             if (!address) {
                 dripBtnEl.classList.remove('claimed');
                 dripBtnEl.disabled = false;
-                const lbl = dripBtnEl.querySelector('.wdrip-text');
-                if (lbl) lbl.textContent = '领测试币';
+                dripBtnEl.querySelector('.wdrip-text').textContent = '领测试币';
+                dripBtnEl.querySelector('.wdrip-icon').textContent = '💸';
                 if (badgeEl) badgeEl.textContent = '先连钱包';
                 return;
             }
@@ -694,14 +706,14 @@ const App = (function () {
                 if (data.success && data.claimed_today) {
                     dripBtnEl.classList.add('claimed');
                     dripBtnEl.disabled = true;
-                    const lbl = dripBtnEl.querySelector('.wdrip-text');
-                    if (lbl) lbl.textContent = '今日已领';
+                    dripBtnEl.querySelector('.wdrip-text').textContent = '✓ 今日已领';
+                    dripBtnEl.querySelector('.wdrip-icon').textContent = '✅';
                     if (badgeEl) badgeEl.textContent = '明天再来';
                 } else {
                     dripBtnEl.classList.remove('claimed');
                     dripBtnEl.disabled = false;
-                    const lbl = dripBtnEl.querySelector('.wdrip-text');
-                    if (lbl) lbl.textContent = '领测试币';
+                    dripBtnEl.querySelector('.wdrip-text').textContent = '领测试币';
+                    dripBtnEl.querySelector('.wdrip-icon').textContent = '💸';
                     if (badgeEl) badgeEl.textContent = '每日一次 · 3000 USDC';
                 }
             } catch (_) { /* 忽略查询失败 */ }

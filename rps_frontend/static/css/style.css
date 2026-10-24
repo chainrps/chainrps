@@ -3808,9 +3808,18 @@ body[data-game-phase="commit"] .room-players {
     border-radius: 10px;
 }
 .wallet-drip-btn.claimed {
-    background: linear-gradient(135deg, #666 0%, #444 100%);
-    box-shadow: none;
+    background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+    box-shadow: 0 2px 8px rgba(46, 204, 113, 0.25);
     cursor: default;
+    opacity: 0.92;
+}
+.wallet-drip-btn.claimed:disabled {
+    background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+    box-shadow: 0 2px 8px rgba(46, 204, 113, 0.25);
+    cursor: default;
+}
+.wallet-drip-btn.claimed .wdrip-badge {
+    background: rgba(255, 255, 255, 0.32);
 }
 
 .wallet-balances-dropdown .dropdown-token-info {
