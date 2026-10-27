@@ -48,6 +48,7 @@ class MatchManager:
             {"status": "matched", "game_id": ..., "opponent": ...} 或
             {"status": "waiting", "queue_position": ...}
         """
+        player_address = (player_address or "").lower()
         # 先加入队列
         queue_position = redis_client.add_to_match_queue(player_address, token, bet_amount)
 
@@ -127,7 +128,9 @@ class MatchManager:
             asyncio.create_task(self.monitor_timeout(game_id))
 
             # 判定当前请求玩家是否为被匹配的玩家之一
-            opponent = player2["address"] if player_address == player1["address"] else player1["address"]
+            p1_addr = (player1["address"] or "").lower()
+            p2_addr = (player2["address"] or "").lower()
+            opponent = p2_addr if player_address == p1_addr else p1_addr
             return {
                 "status": "matched",
                 "game_id": game_id,
@@ -147,6 +150,7 @@ class MatchManager:
 
         从匹配队列移除玩家并清理活跃匹配请求记录。
         """
+        player_address = (player_address or "").lower()
         removed = redis_client.remove_from_match_queue(player_address, token, bet_amount)
         self.active_matches.pop(player_address, None)
         return removed
@@ -159,6 +163,7 @@ class MatchManager:
         若玩家在活跃匹配请求中且 token/bet_amount 匹配，则返回队列位置；
         否则返回未在匹配中。
         """
+        player_address = (player_address or "").lower()
         match_info = self.active_matches.get(player_address)
         if match_info and match_info["token"] == token and match_info["bet_amount"] == bet_amount:
             queue_position = redis_client.get_queue_position(player_address, token, bet_amount)

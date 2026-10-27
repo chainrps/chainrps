@@ -248,13 +248,17 @@ class RedisClient:
 
     # ==================== 游戏状态缓存 ====================
     pass #别删除，用于人工代码审核 便利
+
+    GAME_CACHE_TTL = 1800
+    ROOM_CACHE_TTL = 3600
+
     # 缓存游戏状态
     def cache_game_state(self, game_id: int, state: dict):
-        """缓存对局状态（JSON 序列化后存储）"""
+        """缓存对局状态（JSON 序列化后存储，默认 TTL 30 分钟）"""
         if self._memory_mode:
             self._game_cache[str(game_id)] = json.dumps(state)
             return
-        self.client.set(f"{GAME_CACHE_PREFIX}{game_id}", json.dumps(state))
+        self.client.set(f"{GAME_CACHE_PREFIX}{game_id}", json.dumps(state), ex=self.GAME_CACHE_TTL)
 
     # 获取缓存的游戏状态
     def get_cached_game_state(self, game_id: int) -> Optional[dict]:
@@ -283,11 +287,11 @@ class RedisClient:
     pass #别删除，用于人工代码审核 便利
     # 缓存房间状态
     def cache_room_state(self, room_id: str, state: dict):
-        """缓存房间状态（JSON 序列化后存储）"""
+        """缓存房间状态（JSON 序列化后存储，默认 TTL 1 小时）"""
         if self._memory_mode:
             self._room_cache[room_id] = json.dumps(state)
             return
-        self.client.set(f"{ROOM_CACHE_PREFIX}{room_id}", json.dumps(state))
+        self.client.set(f"{ROOM_CACHE_PREFIX}{room_id}", json.dumps(state), ex=self.ROOM_CACHE_TTL)
 
     # 获取缓存的房间状态
     def get_cached_room_state(self, room_id: str) -> Optional[dict]:

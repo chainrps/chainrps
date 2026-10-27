@@ -343,9 +343,9 @@ class GameManager:
         if not game:
             return {"error": "Game not found"}
 
-        # 判断是哪一方玩家
-        is_player1 = game.get("player1") == player_address
-        is_player2 = game.get("player2") == player_address
+        player_addr_lower = player_address.lower() if player_address else ""
+        is_player1 = (game.get("player1") or "").lower() == player_addr_lower
+        is_player2 = (game.get("player2") or "").lower() == player_addr_lower
         if not (is_player1 or is_player2):
             return {"error": "Not a player in this game"}
 
@@ -428,9 +428,9 @@ class GameManager:
             logger.warning(f"[Reveal API] game_id={game_id} NOT FOUND")
             return {"error": "Game not found"}
 
-        # 判断是哪一方玩家
-        is_player1 = game.get("player1") == player_address
-        is_player2 = game.get("player2") == player_address
+        player_addr_lower = player_address.lower() if player_address else ""
+        is_player1 = (game.get("player1") or "").lower() == player_addr_lower
+        is_player2 = (game.get("player2") or "").lower() == player_addr_lower
         if not (is_player1 or is_player2):
             return {"error": "Not a player in this game"}
 

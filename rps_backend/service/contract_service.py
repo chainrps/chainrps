@@ -484,9 +484,9 @@ class ContractService:
         if not game:
             return
 
-        # 判断是哪一方玩家
-        is_player1 = player == game.get("player1")
-        is_player2 = player == game.get("player2")
+        player_lower = (player or "").lower()
+        is_player1 = player_lower == (game.get("player1") or "").lower()
+        is_player2 = player_lower == (game.get("player2") or "").lower()
         if not (is_player1 or is_player2):
             return
 
@@ -576,8 +576,9 @@ class ContractService:
         if not game:
             return
 
-        is_player1 = player == game.get("player1")
-        is_player2 = player == game.get("player2")
+        player_lower = (player or "").lower()
+        is_player1 = player_lower == (game.get("player1") or "").lower()
+        is_player2 = player_lower == (game.get("player2") or "").lower()
         if not (is_player1 or is_player2):
             return
 
