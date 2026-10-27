@@ -328,19 +328,19 @@ class RelayerService:
             await self._maybe_notify_degradation(prev_healthy, new_status["healthy"])
             return new_status
 
-        # 3. nonce 同步
+        # 3. nonce 同步（纯检测，不修改 _local_nonce，避免与提交路径并发冲突）
         try:
             chain_nonce = await _run_sync(
                 lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
             )
             new_status["chain_nonce"] = chain_nonce
-            # 🆕 无论何时发现本地 nonce 落后，强制同步到链上（避免 pending tx 被挤掉后本地缓存漂移）
-            if self._local_nonce is None or self._local_nonce < chain_nonce:
-                if self._local_nonce is not None and self._local_nonce < chain_nonce:
-                    _safe_log(f"[Relayer] 本地 nonce 落后链上，强制同步: local={self._local_nonce} → chain={chain_nonce}")
-                self._local_nonce = chain_nonce
-            new_status["local_nonce"] = self._local_nonce
-            new_status["nonce_synced"] = True
+            current_local_nonce = self._local_nonce or 0
+            new_status["local_nonce"] = current_local_nonce
+            if current_local_nonce != chain_nonce:
+                new_status["nonce_synced"] = False
+                new_status["error"] = f"Nonce 不同步: local={current_local_nonce}, chain={chain_nonce}"
+            else:
+                new_status["nonce_synced"] = True
         except Exception as e:
             new_status["error"] = f"nonce 查询失败: {e}"
             self._health_status = new_status

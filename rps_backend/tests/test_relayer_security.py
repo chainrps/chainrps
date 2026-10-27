@@ -17,6 +17,10 @@ import pytest
 
 def test_private_key_loaded_from_env_only(monkeypatch):
     """未设置 RELAYER_PRIVATE_KEY 环境变量时，RelayerService 不应可用"""
+    # 阻止 load_dotenv 在 reload 时把 .env 文件里的值重新注入 os.environ
+    import dotenv as _dotenv
+    monkeypatch.setattr(_dotenv, "load_dotenv", lambda *a, **kw: None)
+
     # 确保环境变量为空
     monkeypatch.delenv("RELAYER_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("RELAYER_ADDRESS", raising=False)
