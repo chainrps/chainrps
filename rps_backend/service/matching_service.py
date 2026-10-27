@@ -32,6 +32,7 @@ class MatchManager:
     def __init__(self):
         """初始化活跃匹配请求字典（player_address -> match_info）"""
         self.active_matches: Dict[str, dict] = {}
+        self._match_lock = asyncio.Lock()
 
     # 请求匹配
     async def request_match(self, player_address: str, token: str, bet_amount: float) -> dict:
@@ -49,98 +50,94 @@ class MatchManager:
             {"status": "waiting", "queue_position": ...}
         """
         player_address = (player_address or "").lower()
-        # 先加入队列
-        queue_position = redis_client.add_to_match_queue(player_address, token, bet_amount)
 
-        # 记录活跃匹配请求
-        self.active_matches[player_address] = {
+        async with self._match_lock:
+            queue_position = redis_client.add_to_match_queue(player_address, token, bet_amount)
+            self.active_matches[player_address] = {
+                "token": token,
+                "bet_amount": bet_amount,
+                "joined_at": now_timestamp(),
+            }
+            match_result = redis_client.try_match_players(token, bet_amount)
+
+        if not match_result:
+            return {
+                "status": "waiting",
+                "queue_position": queue_position,
+            }
+
+        player1 = match_result["player1"]
+        player2 = match_result["player2"]
+
+        # 创建对局记录
+        game_data = {
+            "player1": player1["address"],
+            "player2": player2["address"],
             "token": token,
             "bet_amount": bet_amount,
-            "joined_at": now_timestamp(),
         }
+        game_id = create_game_record(game_data)
 
-        # 尝试从队列头部弹出两个玩家进行匹配
-        match_result = redis_client.try_match_players(token, bet_amount)
+        # 计算提交阶段截止时间
+        commit_deadline_ts = calculate_deadline(COMMIT_TIMEOUT)
+        commit_deadline_iso = deadline_to_iso(commit_deadline_ts)
 
-        if match_result:
-            player1 = match_result["player1"]
-            player2 = match_result["player2"]
+        # 更新对局状态为提交阶段
+        update_game_record(game_id, {
+            "state": GameState.COMMIT_PHASE.value,
+            "commit_deadline": commit_deadline_iso,
+        })
 
-            # 创建对局记录
-            game_data = {
-                "player1": player1["address"],
-                "player2": player2["address"],
-                "token": token,
-                "bet_amount": bet_amount,
-            }
-            game_id = create_game_record(game_data)
+        # 缓存对局状态
+        redis_client.cache_game_state(game_id, {
+            "player1": player1["address"],
+            "player2": player2["address"],
+            "token": token,
+            "bet_amount": bet_amount,
+            "state": GameState.COMMIT_PHASE.value,
+            "commit_deadline": commit_deadline_ts,
+            "commit1": None,
+            "commit2": None,
+        })
 
-            # 计算提交阶段截止时间
-            commit_deadline_ts = calculate_deadline(COMMIT_TIMEOUT)
-            commit_deadline_iso = deadline_to_iso(commit_deadline_ts)
-
-            # 更新对局状态为提交阶段
-            update_game_record(game_id, {
-                "state": GameState.COMMIT_PHASE.value,
-                "commit_deadline": commit_deadline_iso,
-            })
-
-            # 缓存对局状态
-            redis_client.cache_game_state(game_id, {
-                "player1": player1["address"],
-                "player2": player2["address"],
-                "token": token,
-                "bet_amount": bet_amount,
-                "state": GameState.COMMIT_PHASE.value,
-                "commit_deadline": commit_deadline_ts,
-                "commit1": None,
-                "commit2": None,
-            })
-
-            # 通知双方匹配成功
-            await ws_manager.send_to_player(player1["address"], WSMessage(
-                type="match_success",
-                data={
-                    "game_id": game_id,
-                    "opponent": player2["address"],
-                    "token": token,
-                    "bet_amount": bet_amount,
-                    "commit_deadline": commit_deadline_ts,
-                }
-            ))
-
-            await ws_manager.send_to_player(player2["address"], WSMessage(
-                type="match_success",
-                data={
-                    "game_id": game_id,
-                    "opponent": player1["address"],
-                    "token": token,
-                    "bet_amount": bet_amount,
-                    "commit_deadline": commit_deadline_ts,
-                }
-            ))
-
-            # 清理活跃匹配请求记录
-            self.active_matches.pop(player1["address"], None)
-            self.active_matches.pop(player2["address"], None)
-
-            # 启动超时提醒任务
-            asyncio.create_task(self.monitor_timeout(game_id))
-
-            # 判定当前请求玩家是否为被匹配的玩家之一
-            p1_addr = (player1["address"] or "").lower()
-            p2_addr = (player2["address"] or "").lower()
-            opponent = p2_addr if player_address == p1_addr else p1_addr
-            return {
-                "status": "matched",
+        # 通知双方匹配成功
+        await ws_manager.send_to_player(player1["address"], WSMessage(
+            type="match_success",
+            data={
                 "game_id": game_id,
-                "opponent": opponent,
+                "opponent": player2["address"],
+                "token": token,
+                "bet_amount": bet_amount,
+                "commit_deadline": commit_deadline_ts,
             }
+        ))
 
-        # 匹配失败，返回等待状态
+        await ws_manager.send_to_player(player2["address"], WSMessage(
+            type="match_success",
+            data={
+                "game_id": game_id,
+                "opponent": player1["address"],
+                "token": token,
+                "bet_amount": bet_amount,
+                "commit_deadline": commit_deadline_ts,
+            }
+        ))
+
+        # 清理活跃匹配请求记录
+        self.active_matches.pop(player1["address"], None)
+        self.active_matches.pop(player2["address"], None)
+
+        # 启动超时提醒任务
+        asyncio.create_task(self.monitor_timeout(game_id))
+
+        # 判定当前请求玩家是否为被匹配的玩家之一
+        p1_addr = (player1["address"] or "").lower()
+        p2_addr = (player2["address"] or "").lower()
+        opponent = p2_addr if player_address == p1_addr else p1_addr
         return {
-            "status": "waiting",
-            "queue_position": queue_position,
+            "status": "matched",
+            "game_id": game_id,
+            "opponent": opponent,
         }
 
     # 取消匹配
