@@ -507,9 +507,10 @@ class GameManager:
                     return {"error": f"Invalid choice types: c1={c1}, c2={c2}"}
                 result = _determine_rps_result(c1_int, c2_int, latest_game.get("player1"), latest_game.get("player2"))
                 logger.info(f"[Reveal API] game_id={game_id} 双方都揭晓! 结果: winner={result.get('winner')[:12] if result.get('winner') else None} is_draw={result.get('is_draw')}")
+                winner_addr = result.get("winner")
                 update_game_record(game_id, {
                     "state": GameState.FINISHED.value,
-                    "winner": result.get("winner"),
+                    "winner": winner_addr.lower() if winner_addr else None,
                     "is_draw": 1 if result.get("is_draw") else 0,
                     "finished_at": datetime.utcnow().isoformat(),
                     "settlement_source": "local_only",
@@ -695,7 +696,7 @@ class GameManager:
             "provisional": False,
         }
         if winner:
-            updates["winner"] = winner
+            updates["winner"] = winner.lower() if winner else None
         update_game_record(game_id, updates)
 
         self.stop_commit_timeout_timer(game_id)
@@ -709,17 +710,18 @@ class GameManager:
         if is_draw:
             # 平局：双方均记为 draw
             if player1:
-                update_player_stats(player1, "draw", bet_amount)
+                update_player_stats(player1.lower(), "draw", bet_amount)
             if player2:
-                update_player_stats(player2, "draw", bet_amount)
+                update_player_stats(player2.lower(), "draw", bet_amount)
         elif winner:
             # 有胜者：胜者 win，败者 loss
-            loser = player2 if winner == player1 else player1
+            winner_lower = winner.lower()
+            loser = player2 if winner_lower == (player1 or "").lower() else player1
             # 胜者奖金 = 下注金额 - 手续费（双方下注相同）
             winner_prize = bet_amount - fee if bet_amount > fee else 0
-            update_player_stats(winner, "win", winner_prize)
+            update_player_stats(winner_lower, "win", winner_prize)
             if loser:
-                update_player_stats(loser, "loss", bet_amount)
+                update_player_stats(loser.lower(), "loss", bet_amount)
 
         # 通知双方对局结果
         result_data = {
