@@ -495,7 +495,7 @@ class GameManager:
                 c2_int = _CHOICE_NAME_TO_INT.get(c2, c2 if isinstance(c2, int) else None)
                 if c1_int is None or c2_int is None:
                     logger.error(f"Invalid choice types: c1={c1}({type(c1)}), c2={c2}({type(c2)})")
-                    return
+                    return {"error": f"Invalid choice types: c1={c1}, c2={c2}"}
                 result = _determine_rps_result(c1_int, c2_int, latest_game.get("player1"), latest_game.get("player2"))
                 logger.info(f"[Reveal API] game_id={game_id} 双方都揭晓! 结果: winner={result.get('winner')[:12] if result.get('winner') else None} is_draw={result.get('is_draw')}")
                 update_game_record(game_id, {

@@ -695,12 +695,8 @@ class RelayerService:
 
         except Exception as e:
             err_msg = str(e)
-            # nonce 回滚（避免本地 nonce 超前导致永久 stuck）
             async with self._nonce_lock:
-                if self._local_nonce is not None and "nonce" in err_msg.lower() or "replacement" in err_msg.lower():
-                    # 仅在 nonce 类错误时回滚
-                    pass
-            # 识别常见错误
+                self._local_nonce = None
             if "Nonce mismatch" in err_msg:
                 return {"success": False, "message": "Nonce 不匹配，签名可能已被使用"}
             if "Invalid signature" in err_msg:
@@ -710,15 +706,7 @@ class RelayerService:
             if "Already committed" in err_msg:
                 return {"success": False, "message": "已提交过 commit"}
             if "nonce too low" in err_msg.lower() or "replacement transaction underpriced" in err_msg.lower():
-                # 强制重新同步 nonce
-                async with self._nonce_lock:
-                    try:
-                        self._local_nonce = await _run_sync(
-                            lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
-                        )
-                    except Exception:
-                        pass
-                return {"success": False, "message": f"代提交 commit 失败（nonce 已重新同步）: {err_msg}"}
+                return {"success": False, "message": f"代提交 commit 失败（nonce 已重置，下一次自动重同步）: {err_msg}"}
             return {"success": False, "message": f"代提交 commit 失败: {err_msg}"}
 
     # 代提交 reveal（方案A）
@@ -812,6 +800,8 @@ class RelayerService:
 
         except Exception as e:
             err_msg = str(e)
+            async with self._nonce_lock:
+                self._local_nonce = None
             if "Nonce mismatch" in err_msg:
                 return {"success": False, "message": "Nonce 不匹配，签名可能已被使用"}
             if "Invalid signature" in err_msg:
@@ -823,14 +813,7 @@ class RelayerService:
             if "Already revealed" in err_msg:
                 return {"success": False, "message": "已揭晓过"}
             if "nonce too low" in err_msg.lower() or "replacement transaction underpriced" in err_msg.lower():
-                async with self._nonce_lock:
-                    try:
-                        self._local_nonce = await _run_sync(
-                            lambda: self.w3.eth.get_transaction_count(self.relayer_account.address)
-                        )
-                    except Exception:
-                        pass
-                return {"success": False, "message": f"代提交 reveal 失败（nonce 已重新同步）: {err_msg}"}
+                return {"success": False, "message": f"代提交 reveal 失败（nonce 已重置，下一次自动重同步）: {err_msg}"}
             return {"success": False, "message": f"代提交 reveal 失败: {err_msg}"}
 
     # 查询玩家 relayer 授权状态（方案B）

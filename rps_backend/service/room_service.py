@@ -1567,6 +1567,13 @@ class RoomManager:
         self._rooms[room_id] = room
         redis_client.cache_room_state(room_id, room)
 
+        # mark_game_finished 会清理 _player_rooms，重置后必须恢复，
+        # 否则 is_player_in_room() 会错误返回 False，玩家还能加入别的房间
+        if room.get("creator"):
+            self._player_rooms[room["creator"].lower()] = room_id
+        if room.get("player2"):
+            self._player_rooms[room["player2"].lower()] = room_id
+
         # 通知房间内双方：房间已重置，可重新准备
         asyncio.create_task(ws_manager.send_to_room(room_id, WSMessage(
             type="room_reset_for_rematch",
