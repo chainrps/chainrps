@@ -119,6 +119,7 @@ class RoomManager:
         self._chain_setup_timers: Dict[str, asyncio.Task] = {}
         self._countdown_started: set = set()
         self._game_starting: set = set()
+        self._joining_rooms: set = set()
 
     # 创建房间
     def create_room(self, creator_address: str, token: str, bet_amount: float) -> dict:
@@ -206,6 +207,16 @@ class RoomManager:
         if not room:
             return {"success": False, "message": "房间不存在"}
 
+        if room_id in self._joining_rooms:
+            return {"success": False, "message": "正在加入中，请稍后"}
+        self._joining_rooms.add(room_id)
+
+        try:
+            return self._join_room_inner(room_id, player_address, room)
+        finally:
+            self._joining_rooms.discard(room_id)
+
+    def _join_room_inner(self, room_id: str, player_address: str, room: dict) -> dict:
         if room["status"] != ROOM_STATUS["CREATED"]:
             return {"success": False, "message": "房间已满或已开始"}
 
@@ -223,6 +234,11 @@ class RoomManager:
 
         if room["creator"].lower() == player_lower:
             return {"success": False, "message": "不能加入自己创建的房间"}
+
+        latest = self._rooms.get(room_id)
+        if latest and latest.get("status") != ROOM_STATUS["CREATED"]:
+            return {"success": False, "message": "房间已被占用或已开始"}
+        room = latest or room
 
         room["player2"] = player_address
         room["status"] = ROOM_STATUS["JOINED"]
