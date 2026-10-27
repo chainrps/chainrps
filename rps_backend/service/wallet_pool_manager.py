@@ -36,6 +36,7 @@ class WalletPoolManager:
         self._initial_eth: float = BOT_WALLET_INITIAL_ETH
         self._initial_usdc: float = BOT_WALLET_INITIAL_USDC
         self._max_capacity: int = self._end_index - self._start_index + 1
+        self._pending_indices: set = set()
 
     def _get_chain_account_count(self) -> int:
         """获取当前本地链可用的账户数量"""
@@ -102,7 +103,6 @@ class WalletPoolManager:
             return self._allocate_auto(chain_svc)
 
     def _allocate_specific(self, chain_svc, wallet_index: int) -> Tuple[int, Optional[str]]:
-        """分配指定钱包"""
         if not self._is_in_range(wallet_index):
             logger.error(f"钱包索引 {wallet_index} 不在池范围 [{self._start_index}, {self._end_index}]")
             return (-1, None)
@@ -121,10 +121,10 @@ class WalletPoolManager:
         if not address:
             return (-1, None)
 
+        self._pending_indices.add(wallet_index)
         return (wallet_index, address)
 
     def _allocate_auto(self, chain_svc) -> Tuple[int, Optional[str]]:
-        """自动分配下一个可用钱包"""
         used_indices = self._get_used_indices()
         safe_end = self._get_safe_end_index()
 
@@ -132,6 +132,7 @@ class WalletPoolManager:
             if idx not in used_indices:
                 address = self._get_or_create_account(chain_svc, idx)
                 if address:
+                    self._pending_indices.add(idx)
                     logger.info(f"钱包池分配: 索引 {idx} → {address}")
                     return (idx, address)
 
@@ -142,11 +143,7 @@ class WalletPoolManager:
         return (-1, None)
 
     def release(self, wallet_index: int) -> bool:
-        """
-        归还钱包至池（不删除 Ganache 账户，保留余额）
-
-        实际归还逻辑由 BotManager 在删除 Bot 实例时调用
-        """
+        self._pending_indices.discard(wallet_index)
         logger.info(f"钱包索引 {wallet_index} 已归还至池")
         return True
 
@@ -213,11 +210,11 @@ class WalletPoolManager:
         return self._start_index <= index <= self._end_index
 
     def _get_used_indices(self) -> List[int]:
-        """获取已使用的钱包索引列表"""
         try:
-            return get_used_wallet_indices()
+            db_indices = set(get_used_wallet_indices())
         except Exception:
-            return []
+            db_indices = set()
+        return sorted(db_indices | self._pending_indices)
 
 
 # 钱包池管理器单例
