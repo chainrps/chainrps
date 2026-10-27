@@ -121,6 +121,7 @@ class RoomManager:
         self._game_starting: set = set()
         self._joining_rooms: set = set()
         self._creating_players: set = set()
+        self._leaving_rooms: set = set()
 
     # 创建房间
     def create_room(self, creator_address: str, token: str, bet_amount: float) -> dict:
@@ -1262,144 +1263,150 @@ class RoomManager:
         Returns:
             {"success": True, "action": "dissolved" | "left", "message": "..."}
         """
-        room = self._rooms.get(room_id)
-        if not room:
-            return {"success": False, "message": "房间不存在"}
-
-        is_creator = room["creator"].lower() == player_address.lower()
-        is_player2 = room["player2"] and room["player2"].lower() == player_address.lower()
-
-        if not (is_creator or is_player2):
-            return {"success": False, "message": "你不在此房间中"}
-
-        # 退出规则（与用户期望一致：除"游戏中（资金已上链）"外，所有阶段均可退出）：
-        # - GAME_STARTED 且资金已上链（chain_frozen/revealing）→ 不允许退出（对局进行中）
-        # - GAME_STARTED 但 player2 自己尚未 join 链上对局（其资金还没锁）→ 允许退出
-        # - GAME_STARTED 但资金仍为 local_frozen（链上对局创建失败/取消）→ 允许退出
-        # - GAME_STARTED 且 fund_stage=settled（已结算）→ 允许退出
-        # - FINISHED 状态 → 无条件允许退出（已结算完毕）
-        # - COUNTDOWN/JOINED/CREATED → 均允许退出
-        #   * COUNTDOWN 退出时自动取消倒计时，重置准备状态
-        if room["status"] == ROOM_STATUS["FINISHED"]:
-            # 🆕 FINISHED 状态无条件允许退出 — 不管 fund_stage 是什么
-            self._close_room(room_id, "game_finished", "对局已结束，房间已关闭")
-            return {"success": True, "action": "dissolved", "message": "对局已结束，房间已关闭"}
-
-        if room["status"] == ROOM_STATUS["GAME_STARTED"]:
-            fund_stage = room.get("fund_stage", "local_frozen")
-            # 资金未上链（createMatch 失败/取消）→ 允许安全退出
-            if fund_stage == "local_frozen":
-                self._close_room(room_id, "creator_chain_game_failed", "链上对局未创建，房间已关闭")
-                return {"success": True, "action": "dissolved", "message": "链上对局未创建成功，房间已关闭"}
-            # 已结算 → 允许退出（关闭房间）
-            if fund_stage == "settled":
+        if room_id in self._leaving_rooms:
+            return {"success": False, "message": "正在处理中，请稍后"}
+        self._leaving_rooms.add(room_id)
+        try:
+            room = self._rooms.get(room_id)
+            if not room:
+                return {"success": False, "message": "房间不存在"}
+    
+            is_creator = room["creator"].lower() == player_address.lower()
+            is_player2 = room["player2"] and room["player2"].lower() == player_address.lower()
+    
+            if not (is_creator or is_player2):
+                return {"success": False, "message": "你不在此房间中"}
+    
+            # 退出规则（与用户期望一致：除"游戏中（资金已上链）"外，所有阶段均可退出）：
+            # - GAME_STARTED 且资金已上链（chain_frozen/revealing）→ 不允许退出（对局进行中）
+            # - GAME_STARTED 但 player2 自己尚未 join 链上对局（其资金还没锁）→ 允许退出
+            # - GAME_STARTED 但资金仍为 local_frozen（链上对局创建失败/取消）→ 允许退出
+            # - GAME_STARTED 且 fund_stage=settled（已结算）→ 允许退出
+            # - FINISHED 状态 → 无条件允许退出（已结算完毕）
+            # - COUNTDOWN/JOINED/CREATED → 均允许退出
+            #   * COUNTDOWN 退出时自动取消倒计时，重置准备状态
+            if room["status"] == ROOM_STATUS["FINISHED"]:
+                # 🆕 FINISHED 状态无条件允许退出 — 不管 fund_stage 是什么
                 self._close_room(room_id, "game_finished", "对局已结束，房间已关闭")
                 return {"success": True, "action": "dissolved", "message": "对局已结束，房间已关闭"}
-            # player2 自己还没 join 链上对局（资金尚未上链）→ 允许离开
-            # 创建者已创建的链上对局由创建者自行 cancelMatch 回收资金
-            if not is_creator and not player2_chain_joined:
-                room["chain_game_id"] = None
-                room["game_id"] = None
-                room["fund_stage"] = "local_frozen"
-            else:
-                return {"success": False, "message": "游戏进行中（资金已上链），无法退出房间"}
-
-        # COUNTDOWN 阶段退出：取消倒计时，重置准备状态
-        if room["status"] == ROOM_STATUS["COUNTDOWN"]:
-            room["status"] = ROOM_STATUS["JOINED"]
-            room["countdown_start"] = None
+    
+            if room["status"] == ROOM_STATUS["GAME_STARTED"]:
+                fund_stage = room.get("fund_stage", "local_frozen")
+                # 资金未上链（createMatch 失败/取消）→ 允许安全退出
+                if fund_stage == "local_frozen":
+                    self._close_room(room_id, "creator_chain_game_failed", "链上对局未创建，房间已关闭")
+                    return {"success": True, "action": "dissolved", "message": "链上对局未创建成功，房间已关闭"}
+                # 已结算 → 允许退出（关闭房间）
+                if fund_stage == "settled":
+                    self._close_room(room_id, "game_finished", "对局已结束，房间已关闭")
+                    return {"success": True, "action": "dissolved", "message": "对局已结束，房间已关闭"}
+                # player2 自己还没 join 链上对局（资金尚未上链）→ 允许离开
+                # 创建者已创建的链上对局由创建者自行 cancelMatch 回收资金
+                if not is_creator and not player2_chain_joined:
+                    room["chain_game_id"] = None
+                    room["game_id"] = None
+                    room["fund_stage"] = "local_frozen"
+                else:
+                    return {"success": False, "message": "游戏进行中（资金已上链），无法退出房间"}
+    
+            # COUNTDOWN 阶段退出：取消倒计时，重置准备状态
+            if room["status"] == ROOM_STATUS["COUNTDOWN"]:
+                room["status"] = ROOM_STATUS["JOINED"]
+                room["countdown_start"] = None
+                room["creator_ready"] = False
+                room["player2_ready"] = False
+                self._stop_game_timer(room_id)
+                # 通知对方倒计时已取消
+                opponent_addr = room["player2"] if is_creator else room["creator"]
+                if opponent_addr:
+                    asyncio.create_task(ws_manager.send_to_player(opponent_addr, WSMessage(
+                        type="countdown_cancelled",
+                        data={"room_id": room_id, "message": "对手已退出房间，倒计时已取消"}
+                    )))
+    
+            if is_creator:
+                # 创建者退出 → 解散房间
+                player2 = room.get("player2")
+                self._rooms.pop(room_id, None)
+                # 清理所有计时器
+                self._stop_game_timer(room_id)
+                self._stop_lifetime_timer(room_id)
+                redis_client.delete_cached_room_state(room_id)
+    
+                # 清理玩家房间映射
+                creator_lower = player_address.lower()
+                self._player_rooms.pop(creator_lower, None)
+                self._stop_unready_timer(player_address)
+                if player2:
+                    player2_lower = player2.lower()
+                    if self._player_rooms.get(player2_lower) == room_id:
+                        self._player_rooms.pop(player2_lower, None)
+                    self._stop_unready_timer(player2)
+    
+                # 通知 player2（如有）房间已解散
+                if player2:
+                    asyncio.create_task(ws_manager.send_to_player(player2, WSMessage(
+                        type="room_dissolved",
+                        data={
+                            "room_id": room_id,
+                            "reason": "creator_left",
+                            "message": "创建者已离开，房间已解散",
+                        }
+                    )))
+    
+                # 广播房间列表变更（房间已从大厅消失）
+                self._broadcast_room_list_changed("room_dissolved", room_id)
+    
+                # 通知 Bot：房间已解散，释放其本地房间槽位
+                self._notify_bot_room_closed(room_id)
+    
+                return {"success": True, "action": "dissolved", "message": "房间已解散"}
+    
+            # player2 退出 → 重置房间为 CREATED 状态，保留在游戏大厅
+            room["player2"] = None
+            room["status"] = ROOM_STATUS["CREATED"]
             room["creator_ready"] = False
             room["player2_ready"] = False
-            self._stop_game_timer(room_id)
-            # 通知对方倒计时已取消
-            opponent_addr = room["player2"] if is_creator else room["creator"]
-            if opponent_addr:
-                asyncio.create_task(ws_manager.send_to_player(opponent_addr, WSMessage(
-                    type="countdown_cancelled",
-                    data={"room_id": room_id, "message": "对手已退出房间，倒计时已取消"}
-                )))
-
-        if is_creator:
-            # 创建者退出 → 解散房间
-            player2 = room.get("player2")
-            self._rooms.pop(room_id, None)
-            # 清理所有计时器
-            self._stop_game_timer(room_id)
-            self._stop_lifetime_timer(room_id)
-            redis_client.delete_cached_room_state(room_id)
-
-            # 清理玩家房间映射
-            creator_lower = player_address.lower()
-            self._player_rooms.pop(creator_lower, None)
+            room["countdown_start"] = None
+            self._rooms[room_id] = room
+            redis_client.cache_room_state(room_id, room)
+    
+            # 清理 player2 的玩家房间映射
+            player_lower = player_address.lower()
+            if self._player_rooms.get(player_lower) == room_id:
+                self._player_rooms.pop(player_lower, None)
             self._stop_unready_timer(player_address)
-            if player2:
-                player2_lower = player2.lower()
-                if self._player_rooms.get(player2_lower) == room_id:
-                    self._player_rooms.pop(player2_lower, None)
-                self._stop_unready_timer(player2)
-
-            # 通知 player2（如有）房间已解散
-            if player2:
-                asyncio.create_task(ws_manager.send_to_player(player2, WSMessage(
-                    type="room_dissolved",
+    
+            # 创建者的准备状态也重置，需要重新准备
+            creator = room.get("creator")
+            if creator:
+                room["creator_ready"] = False
+                # 重启创建者的未准备超时（因为需要重新准备）
+                self._start_unready_timer(creator, room_id)
+                asyncio.create_task(ws_manager.send_to_player(creator, WSMessage(
+                    type="player_left",
                     data={
                         "room_id": room_id,
-                        "reason": "creator_left",
-                        "message": "创建者已离开，房间已解散",
+                        "player2": player_address,
+                        "message": "对手已离开房间",
                     }
                 )))
-
-            # 广播房间列表变更（房间已从大厅消失）
-            self._broadcast_room_list_changed("room_dissolved", room_id)
-
-            # 通知 Bot：房间已解散，释放其本地房间槽位
-            self._notify_bot_room_closed(room_id)
-
-            return {"success": True, "action": "dissolved", "message": "房间已解散"}
-
-        # player2 退出 → 重置房间为 CREATED 状态，保留在游戏大厅
-        room["player2"] = None
-        room["status"] = ROOM_STATUS["CREATED"]
-        room["creator_ready"] = False
-        room["player2_ready"] = False
-        room["countdown_start"] = None
-        self._rooms[room_id] = room
-        redis_client.cache_room_state(room_id, room)
-
-        # 清理 player2 的玩家房间映射
-        player_lower = player_address.lower()
-        if self._player_rooms.get(player_lower) == room_id:
-            self._player_rooms.pop(player_lower, None)
-        self._stop_unready_timer(player_address)
-
-        # 创建者的准备状态也重置，需要重新准备
-        creator = room.get("creator")
-        if creator:
-            room["creator_ready"] = False
-            # 重启创建者的未准备超时（因为需要重新准备）
-            self._start_unready_timer(creator, room_id)
-            asyncio.create_task(ws_manager.send_to_player(creator, WSMessage(
-                type="player_left",
-                data={
-                    "room_id": room_id,
-                    "player2": player_address,
-                    "message": "对手已离开房间",
-                }
-            )))
-            # 通知 Bot（若创建者是 Bot）：对手离开了，需 cancelMatch 回收已锁定的资金
-            self._notify_bot_opponent_left(room_id)
-            # 房间已重置，若创建者是 Bot，需要重新自动准备
-            self._notify_bot_room_reset(room_id)
-
-        # 若离开者本身是 Bot（含未准备超时踢出），通知其释放本地房间槽位
-        self._notify_bot_player_removed(room_id, player_address)
-
-        # 广播房间列表变更（房间重新开放，回到大厅）
-        self._broadcast_room_list_changed("room_reopened", room_id)
-
-        return {"success": True, "action": "left", "message": "已离开房间"}
-
-    # 玩家 WebSocket 断开后的延迟房间清理
+                # 通知 Bot（若创建者是 Bot）：对手离开了，需 cancelMatch 回收已锁定的资金
+                self._notify_bot_opponent_left(room_id)
+                # 房间已重置，若创建者是 Bot，需要重新自动准备
+                self._notify_bot_room_reset(room_id)
+    
+            # 若离开者本身是 Bot（含未准备超时踢出），通知其释放本地房间槽位
+            self._notify_bot_player_removed(room_id, player_address)
+    
+            # 广播房间列表变更（房间重新开放，回到大厅）
+            self._broadcast_room_list_changed("room_reopened", room_id)
+    
+            return {"success": True, "action": "left", "message": "已离开房间"}
+    
+        # 玩家 WebSocket 断开后的延迟房间清理
+        finally:
+            self._leaving_rooms.discard(room_id)
     async def handle_player_disconnect(self, player_address: str):
         """
         玩家 WebSocket 断开后，延迟检查房间是否需要清理。
