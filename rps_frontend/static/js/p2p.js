@@ -83,15 +83,35 @@ const P2PChannel = (function () {
     }
 
     // ============ 信令 WebSocket ============
-    function _buildSignalingUrl() {
+
+    async function _fetchWsToken(baseUrl, address) {
+        try {
+            const apiBase = baseUrl.replace(/\/$/, '');
+            const resp = await fetch(`${apiBase}/api/auth/ws-token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address })
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return data.success ? data.token : null;
+        } catch (e) {
+            console.warn('[P2P] 获取 WS token 失败:', e);
+            return null;
+        }
+    }
+
+    function _buildSignalingUrl(token) {
         if (!wsBaseUrl || !roomId || !playerAddress) return null;
         const wsScheme = wsBaseUrl.startsWith('https') ? 'wss' : (wsBaseUrl.startsWith('http') ? 'ws' : '');
         const base = wsScheme ? wsBaseUrl.replace(/^https?/, wsScheme) : wsBaseUrl;
-        return `${base}/ws/signaling/${roomId}/${playerAddress}`;
+        const query = token ? `?token=${encodeURIComponent(token)}` : '';
+        return `${base}/ws/signaling/${roomId}/${playerAddress}${query}`;
     }
 
-    function _connectSignaling() {
-        const url = _buildSignalingUrl();
+    async function _connectSignaling() {
+        const wsToken = await _fetchWsToken(wsBaseUrl, playerAddress);
+        const url = _buildSignalingUrl(wsToken);
         if (!url) {
             console.warn('[P2P] 缺少参数，无法连接信令');
             return;
@@ -149,7 +169,7 @@ const P2PChannel = (function () {
         signalingReconnectTimer = setTimeout(() => {
             if (!isManuallyClosed) {
                 console.log(`[P2P] 信令重连第 ${signalingReconnectAttempts} 次`);
-                _connectSignaling();
+                _connectSignaling().catch(() => {});
             }
         }, SIGNALING_RECONNECT_DELAY);
     }
@@ -488,7 +508,7 @@ const P2PChannel = (function () {
     }
 
     // ============ 公共 API ============
-    function connect(wsUrl, address, rid) {
+    async function connect(wsUrl, address, rid) {
         wsBaseUrl = wsUrl;
         playerAddress = address;
         roomId = rid;
@@ -502,8 +522,8 @@ const P2PChannel = (function () {
         // 创建 PeerConnection
         _createPeerConnection();
 
-        // 连接信令通道
-        _connectSignaling();
+        // 连接信令通道（先 fetch 短期 WS token）
+        await _connectSignaling();
 
         console.log(`[P2P] 开始连接房间 ${roomId}（地址: ${playerAddress}）`);
     }

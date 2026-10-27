@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTML
 from contextlib import asynccontextmanager
 
 from rps_backend.config import HOST, PORT, WS_HEARTBEAT_INTERVAL, RPC_CHAIN_ID, BOT_ENABLED
+from rps_backend.config import CORS_ORIGINS, DEBUG, WS_TOKEN_EXPIRE_SECONDS
 from rps_backend.api.routes import router
 from rps_backend.websocket import ws_manager, websocket_endpoint, heartbeat_loop
 from rps_backend.websocket.heartbeat import check_connections
@@ -179,14 +180,15 @@ async def cleanup_loop():
 app = FastAPI(
     title="ChainRPS Backend",
     description="链上公平猜拳后端服务",
-    version="1.0.43",
+    version="1.0.44",
     lifespan=lifespan
 )
 
-# CORS 配置
+# CORS 配置（从 config 读取，生产环境必须显式配置域名）
+_cors_origins = CORS_ORIGINS if CORS_ORIGINS else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -229,26 +231,54 @@ app.mount("/img", StaticFiles(directory=os.path.join(STATIC_DIR, "img")), name="
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # WebSocket 端点
+from fastapi import Query as _Query
+
+
+def _verify_ws_token(websocket: WebSocket, player_address: str, token: str) -> bool:
+    """验证 WS 连接 token：JWT 签名合法且 sub 字段等于 player_address"""
+    try:
+        import jwt as _jwt
+        from rps_backend.config import JWT_SECRET, JWT_ALGORITHM
+        payload = _jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        sub = payload.get("sub", "")
+        if sub.lower() != player_address.lower():
+            return False
+        return True
+    except Exception:
+        return False
+
+
 @app.websocket("/ws/{player_address}")
-async def ws_endpoint(websocket: WebSocket, player_address: str):
+async def ws_endpoint(websocket: WebSocket, player_address: str, token: str = _Query(None)):
     """
     WebSocket 连接端点
 
     通过玩家地址建立 WebSocket 连接，用于实时推送对局状态。
+    需要携带 JWT token（查询参数 token=xxx），token 中的 sub 字段必须与 player_address 匹配。
     """
-    await websocket_endpoint(websocket, player_address)
+    if token and _verify_ws_token(websocket, player_address, token):
+        await websocket_endpoint(websocket, player_address)
+    else:
+        await websocket.close(code=4401, reason="WS auth failed: invalid or missing token")
 
 
-# WebSocket 信令端点（P2P 私密通信方案）
 @app.websocket("/ws/signaling/{room_id}/{player_address}")
-async def ws_signaling_endpoint(websocket: WebSocket, room_id: str, player_address: str):
+async def ws_signaling_endpoint(
+    websocket: WebSocket,
+    room_id: str,
+    player_address: str,
+    token: str = _Query(None),
+):
     """
     WebSocket 信令端点
 
     用于房间内两个玩家之间交换 WebRTC 信令（SDP/ICE）。
-    后端仅作信令中转，不转发游戏数据。
+    需要携带 JWT token（查询参数 token=xxx），token 中的 sub 字段必须与 player_address 匹配。
     """
-    await signaling_endpoint(websocket, room_id, player_address)
+    if token and _verify_ws_token(websocket, player_address, token):
+        await signaling_endpoint(websocket, room_id, player_address)
+    else:
+        await websocket.close(code=4401, reason="WS auth failed: invalid or missing token")
 
 
 # 健康检查
@@ -431,24 +461,25 @@ async def html_pages(filename: str):
 
 
 # 项目根目录原始文件访问（/rootfs/xxx → 根目录/xxx）
-@app.get("/rootfs/{filepath:path}")
-async def serve_project_file(filepath: str):
-    """直接访问项目根目录下的任意文件（仅开发/调试用）"""
-    from fastapi import HTTPException
-    # 安全校验：禁止访问 .env、.git 等敏感路径
-    dangerous = [".env", ".git", "venv", "__pycache__"]
-    parts = filepath.replace("\\", "/").split("/")
-    for p in parts:
-        if p.startswith(".") or p in dangerous:
-            raise HTTPException(status_code=403, detail=f"禁止访问: {p}")
-    file_path = os.path.join(PROJECT_ROOT, filepath)
-    real = os.path.realpath(file_path)
-    real_root = os.path.realpath(PROJECT_ROOT)
-    if not real.startswith(real_root):
-        raise HTTPException(status_code=403, detail="路径越界")
-    if not os.path.isfile(real):
-        raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(real)
+# 仅 DEBUG 模式注册，生产环境绝不暴露
+if DEBUG:
+    @app.get("/rootfs/{filepath:path}")
+    async def serve_project_file(filepath: str):
+        """直接访问项目根目录下的任意文件（仅开发/调试用）"""
+        from fastapi import HTTPException
+        dangerous = [".env", ".git", "venv", "__pycache__"]
+        parts = filepath.replace("\\", "/").split("/")
+        for p in parts:
+            if p.startswith(".") or p in dangerous:
+                raise HTTPException(status_code=403, detail=f"禁止访问: {p}")
+        file_path = os.path.join(PROJECT_ROOT, filepath)
+        real = os.path.realpath(file_path)
+        real_root = os.path.realpath(PROJECT_ROOT)
+        if not real.startswith(real_root):
+            raise HTTPException(status_code=403, detail="路径越界")
+        if not os.path.isfile(real):
+            raise HTTPException(status_code=404, detail="文件不存在")
+        return FileResponse(real)
 
 
 # 捕获所有未匹配的路由

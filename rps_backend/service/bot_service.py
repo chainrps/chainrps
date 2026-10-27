@@ -51,9 +51,10 @@ from rps_backend.config import (
     RPC_URL,
     RPC_SYMBOL,
     CONTRACT_ADDRESS,
+    ROOM_STATUS,
 )
 from rps_backend.models import Choice
-from rps_backend.service.room_service import room_manager, ROOM_STATUS
+from rps_backend.service.room_service import room_manager
 from rps_backend.service.game_service import game_manager
 from rps_backend.service.local_chain_service import get_local_chain_service
 from rps_backend.service.relayer_service import relayer_service

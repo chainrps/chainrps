@@ -1,27 +1,25 @@
 """
 游戏状态管理服务模块
 
-负责 ChainRPS 对局过程中的状态记录与 WebSocket 通知。
-
-重要约定（后端无博弈权限）：
-- 不做胜负判定，胜负结果由链上合约事件同步
-- 不做结算，结算由链上合约完成
-- 仅记录玩家提交与揭晓、推送通知、同步链上事件结果
+负责 ChainRPS 对局过程中的状态记录、通知、超时监控与本地判负。
+链上结算到达后通过 update_game_result_from_chain 覆盖本地 provisional 结果。
 """
+import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 import logging
 
 logger = logging.getLogger(__name__)
 
-from rps_backend.config import REVEAL_TIMEOUT
+from rps_backend import config
+from rps_backend.config import REVEAL_TIMEOUT, ROOM_STATUS, RPC_URL
 from rps_backend.models import GameState, Choice, WSMessage
 from rps_backend.repository import (
     get_game_record,
     update_game_record,
     update_player_stats,
 )
-from rps_backend.service.room_service import room_manager, ROOM_STATUS
+from rps_backend.service.room_service import room_manager
 from rps_backend.utils.helpers import now_timestamp
 from rps_backend.utils.helpers import calculate_deadline, deadline_to_iso
 from rps_backend.utils.redis_client import redis_client
@@ -148,14 +146,119 @@ class GameManager:
     """
     游戏状态管理器
 
-    仅负责对局状态的记录与通知，不做胜负判定与结算。
-    胜负结果由 contract_service 从链上事件同步后调用 update_game_result_from_chain 写入。
+    负责对局状态的记录、通知、超时监控与本地判负。
+    链上结算到达后通过 update_game_result_from_chain 覆盖本地 provisional 结果。
     """
 
-    # 初始化
     def __init__(self):
-        """初始化，后端不需要 Web3 实例（不发起任何链上交易）"""
-        pass #别删除，用于人工代码审核 便利
+        self._commit_timeout_timers: Dict[int, asyncio.Task] = {}
+        self._reveal_timeout_timers: Dict[int, asyncio.Task] = {}
+
+    def start_commit_timeout_timer(self, game_id: int, commit_deadline_ts: float):
+        self.stop_commit_timeout_timer(game_id)
+
+        async def _task():
+            await asyncio.sleep(max(0, commit_deadline_ts - now_timestamp()))
+            game = get_game_record(game_id)
+            if not game:
+                return
+            if game.get("state") != GameState.COMMIT_PHASE.value:
+                return
+            p1_committed = bool(game.get("commit1"))
+            p2_committed = bool(game.get("commit2"))
+            if p1_committed and p2_committed:
+                return
+            forfeiter = game.get("player1") if not p1_committed else game.get("player2")
+            await self._handle_local_timeout_forfeit(
+                game_id, "commit", forfeiter,
+                reason=f"提交超时（COMMIT_TIMEOUT={config.COMMIT_TIMEOUT}s）"
+            )
+
+        task = asyncio.create_task(_task())
+        self._commit_timeout_timers[game_id] = task
+
+    def stop_commit_timeout_timer(self, game_id: int):
+        task = self._commit_timeout_timers.pop(game_id, None)
+        if task:
+            task.cancel()
+
+    def start_reveal_timeout_timer(self, game_id: int, reveal_deadline_ts: float):
+        self.stop_reveal_timeout_timer(game_id)
+
+        async def _task():
+            await asyncio.sleep(max(0, reveal_deadline_ts - now_timestamp()))
+            game = get_game_record(game_id)
+            if not game:
+                return
+            if game.get("state") != GameState.REVEAL_PHASE.value:
+                return
+            p1_revealed = bool(game.get("reveal1"))
+            p2_revealed = bool(game.get("reveal2"))
+            if p1_revealed and p2_revealed:
+                return
+            forfeiter = game.get("player1") if not p1_revealed else game.get("player2")
+            await self._handle_local_timeout_forfeit(
+                game_id, "reveal", forfeiter,
+                reason=f"揭晓超时（REVEAL_TIMEOUT={config.REVEAL_TIMEOUT}s）"
+            )
+
+        task = asyncio.create_task(_task())
+        self._reveal_timeout_timers[game_id] = task
+
+    def stop_reveal_timeout_timer(self, game_id: int):
+        task = self._reveal_timeout_timers.pop(game_id, None)
+        if task:
+            task.cancel()
+
+    async def _handle_local_timeout_forfeit(
+        self, game_id: int, phase: str, forfeiter: str, reason: str
+    ):
+        game = get_game_record(game_id)
+        if not game:
+            return
+        if game.get("state") in (GameState.FINISHED.value, GameState.CANCELLED.value, GameState.DRAW.value):
+            return
+
+        player1 = game.get("player1")
+        player2 = game.get("player2")
+        winner = player2 if forfeiter == player1 else player1
+        bet_amount = game.get("bet_amount", 0.0) or 0.0
+
+        update_game_record(game_id, {
+            "state": GameState.FINISHED.value,
+            "winner": winner,
+            "is_draw": 0,
+            "finished_at": datetime.utcnow().isoformat(),
+            "settlement_source": "local_timeout_forfeit",
+            "provisional": True,
+        })
+
+        redis_client.delete_cached_game_state(game_id)
+
+        if winner:
+            update_player_stats(winner, "win", bet_amount)
+        if forfeiter:
+            update_player_stats(forfeiter, "loss", bet_amount)
+
+        await room_manager.mark_game_finished(game_id, winner, is_draw=False)
+
+        result_data = {
+            "game_id": game_id,
+            "winner": winner,
+            "is_draw": False,
+            "fee": 0,
+            "phase": phase,
+            "forfeit": True,
+            "reason": reason,
+            "provisional": True,
+        }
+        if player1:
+            await ws_manager.send_to_player(player1, WSMessage(type="game_result", data=result_data))
+        if player2:
+            await ws_manager.send_to_player(player2, WSMessage(type="game_result", data=result_data))
+
+        self.stop_commit_timeout_timer(game_id)
+        self.stop_reveal_timeout_timer(game_id)
 
     # 提交哈希承诺
     async def submit_commit(self, game_id: int, player_address: str, commit_hash: str) -> dict:
@@ -209,6 +312,8 @@ class GameManager:
                 "state": GameState.REVEAL_PHASE.value,
                 "reveal_deadline": reveal_deadline_iso,
             })
+
+            self.start_reveal_timeout_timer(game_id, reveal_deadline_ts)
 
             # 更新缓存
             if cached_state:
@@ -314,6 +419,9 @@ class GameManager:
             c2 = latest_game.get("choice2")
             chain_id = latest_game.get("chain_game_id")
             logger.info(f"[Reveal API] game_id={game_id} c1={c1} c2={c2} chain_id={chain_id}")
+            if c1 is not None and c2 is not None:
+                self.stop_reveal_timeout_timer(game_id)
+                self.stop_commit_timeout_timer(game_id)
             if c1 is not None and c2 is not None and not chain_id:
                 # = localOnly 模式，双方都已揭晓
                 # 🆕 choice 可能是字符串 ("rock"/"paper"/"scissors") 也可能是 int
@@ -325,10 +433,12 @@ class GameManager:
                 result = _determine_rps_result(c1_int, c2_int, latest_game.get("player1"), latest_game.get("player2"))
                 logger.info(f"[Reveal API] game_id={game_id} 双方都揭晓! 结果: winner={result.get('winner')[:12] if result.get('winner') else None} is_draw={result.get('is_draw')}")
                 update_game_record(game_id, {
-                    "state": "finished",  # 🆕 标记对局结束
+                    "state": GameState.FINISHED.value,
                     "winner": result.get("winner"),
-                    "is_draw": result.get("is_draw", False),
+                    "is_draw": 1 if result.get("is_draw") else 0,
                     "finished_at": datetime.utcnow().isoformat(),
+                    "settlement_source": "local_only",
+                    "provisional": True,
                 })
                 # 广播 game_result 给双方
                 p1 = latest_game.get("player1")
@@ -418,7 +528,7 @@ class GameManager:
                         if usdc_addr:
                             try:
                                 from web3 import Web3
-                                w3 = Web3(Web3.HTTPProvider("http://127.0.0.1:8686"))
+                                w3 = Web3(Web3.HTTPProvider(RPC_URL))
                                 # 找 Ganache 账号私钥
                                 pk_map = {}
                                 try:
@@ -496,12 +606,14 @@ class GameManager:
         if not game:
             return {"error": "Game not found"}
 
-        # 更新对局记录
+        # 更新对局记录（链上结算覆盖本地 provisional 结果）
         updates = {
             "state": GameState.FINISHED.value,
             "is_draw": 1 if is_draw else 0,
             "fee": fee,
             "finished_at": datetime.utcnow().isoformat(),
+            "settlement_source": "chain",
+            "provisional": False,
         }
         if winner:
             updates["winner"] = winner

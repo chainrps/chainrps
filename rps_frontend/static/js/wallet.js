@@ -209,7 +209,10 @@ const Wallet = (function() {
         // 没有真实钱包注入时：如果有真实钱包在 availableWallets 列表里就用它
         // 如果只有 debug 选项 → 报错，禁止静默回退到模拟钱包
         if (!hasRealEthereum && realWallets.length === 0) {
-            throw new Error('未检测到 Web3 钱包扩展（MetaMask / OKX Wallet 等），请先安装浏览器钱包插件');
+            const fileHint = window.location.protocol === 'file:'
+                ? '（检测到你用的是 file:// 协议！浏览器安全策略会阻止钱包扩展注入，请改用本地 HTTP 服务器：在 rps_frontend/static/ 目录运行 python -m http.server 8080，然后浏览器打开 http://localhost:8080/html/index.html）'
+                : '（请检查浏览器扩展是否已启用、网络是否在受支持列表内）';
+            throw new Error('未检测到 Web3 钱包扩展' + fileHint);
         }
 
         if (!type) {

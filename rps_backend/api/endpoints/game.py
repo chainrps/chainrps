@@ -40,7 +40,7 @@ from rps_backend.models import (
     # 方案B：Relayer 长期授权
     AuthorizeRelayerRequest,
 )
-from rps_backend.config import BOT_AUTO_CHAIN_MATCH
+from rps_backend.config import BOT_AUTO_CHAIN_MATCH, TERMINAL_STATES
 from rps_backend.repository import get_game_record, get_player_stats, get_leaderboard
 from rps_backend.service import game_manager, match_manager, room_manager
 from rps_backend.service.relayer_service import relayer_service
@@ -283,15 +283,18 @@ async def leave_room(request: LeaveRoomRequest):
     - 已 join（资金已上链）→ 不允许退出，需走链上索赔/撤销流程
     """
     _check_player_address(request.player_address)
-    # 权威检查：若退出者是 player2，先读链上确认其是否已 join
-    player2_chain_joined = True  # 安全默认值：链不可读时维持旧行为（拒绝）
+    # B-04 修复：先给宽松默认值，链可读时再覆盖
+    player2_chain_joined = False
     try:
         room = room_manager.get_room(request.room_id)
         if room and room.get("status") == "game_started":
             req_addr = (request.player_address or "").lower()
             is_creator = (room.get("creator") or "").lower() == req_addr
             chain_game_id = room.get("chain_game_id")
-            if not is_creator and chain_game_id:
+            # localOnly 模式 / fund_stage=local_frozen → 资金从未上链，player2 必然未 join
+            if room.get("fund_stage") == "local_frozen" or chain_game_id is None:
+                player2_chain_joined = False
+            elif not is_creator and chain_game_id:
                 from rps_backend.service.contract_service import contract_service
                 joined = await contract_service.is_player_joined(
                     int(chain_game_id), request.player_address
@@ -371,10 +374,10 @@ async def game_stats():
     # 活跃匹配请求数（正在排队的玩家）
     queue_count = len(match_manager.active_matches)
 
-    # 活跃房间数（内存态）
+    # 活跃房间数（内存态，非终态即算活跃）
     all_rooms = room_manager._rooms
     active_rooms = {k: v for k, v in all_rooms.items()
-                    if v.get("status") not in ("CLOSED", "FINISHED")}
+                    if v.get("status") not in TERMINAL_STATES}
 
     # 按状态分类
     status_counts = {}

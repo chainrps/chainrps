@@ -107,8 +107,26 @@ const GameSocket = (function() {
         });
     }
 
+    // 获取 WS 连接 token（短期 JWT，避免冒充玩家地址）
+    async function _fetchWsToken(baseUrl, address) {
+        try {
+            const apiBase = baseUrl.replace(/\/$/, '');
+            const resp = await fetch(`${apiBase}/api/auth/ws-token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address })
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return data.success ? data.token : null;
+        } catch (e) {
+            console.warn('[GameSocket] 获取 WS token 失败:', e);
+            return null;
+        }
+    }
+
     // 连接WebSocket服务器
-    function connect(wsUrl, address) {
+    async function connect(wsUrl, address) {
         if (!address) {
             throw new Error('玩家地址不能为空');
         }
@@ -117,7 +135,9 @@ const GameSocket = (function() {
         wsBaseUrl = wsUrl;
         isManuallyClosed = false;
 
-        const url = `${wsUrl.replace('http', 'ws').replace('https', 'wss')}/ws/${address}`;
+        const wsToken = await _fetchWsToken(wsUrl, address);
+        const query = wsToken ? `?token=${encodeURIComponent(wsToken)}` : '';
+        const url = `${wsUrl.replace('http', 'ws').replace('https', 'wss')}/ws/${address}${query}`;
 
         try {
             ws = new WebSocket(url);
@@ -167,8 +187,8 @@ const GameSocket = (function() {
                 const data = JSON.parse(event.data);
                 emit('message', data);
 
-                // 处理 pong 心跳响应
-                if (data.type === 'pong') {
+                // pong / heartbeat 都视为连接存活信号
+                if (data.type === 'pong' || data.type === 'heartbeat') {
                     lastPongTime = Date.now();
                     return;
                 }

@@ -10,6 +10,26 @@ ChainRPS 后端配置管理模块
 """
 import os
 
+# 房间状态常量（必须在最前面导入，避免循环依赖）
+from rps_backend.config.room_states import (
+    ROOM_STATUS,
+    CREATED,
+    JOINED,
+    COUNTDOWN,
+    GAME_STARTED,
+    FINISHED,
+    CLOSED,
+    PRE_GAME_STATES,
+    IN_GAME_STATES,
+    TERMINAL_STATES,
+    LOBBY_VISIBLE_STATES,
+    BOT_JOINABLE_STATES,
+    BOT_SKIP_STATES,
+    is_terminal,
+    is_pre_game,
+    is_in_game,
+)
+
 # 加载 .env 文件（让环境变量覆盖 config_schema.json 中的默认值）
 try:
     from dotenv import load_dotenv
@@ -57,6 +77,7 @@ RPC_SYMBOL = config_manager.get("RPC_SYMBOL", "POL")
 # 超时配置（秒）
 COMMIT_TIMEOUT = config_manager.get("COMMIT_TIMEOUT", 66)
 REVEAL_TIMEOUT = config_manager.get("REVEAL_TIMEOUT", 88)
+CHAIN_SETUP_TIMEOUT = config_manager.get("CHAIN_SETUP_TIMEOUT", 180)
 
 # WebSocket 配置
 WS_HEARTBEAT_INTERVAL = config_manager.get("WS_HEARTBEAT_INTERVAL", 30)
@@ -118,25 +139,61 @@ ADMIN_WHITELIST = [
 
 # 认证配置
 JWT_SECRET = os.getenv("JWT_SECRET", "chainrps-dev-secret-change-in-production-please")
-JWT_ALGORITHM = "HS256"  # 固定值，不允许修改
+JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = config_manager.get("JWT_EXPIRE_HOURS", 24)
 
 # 默认管理员配置
 DEFAULT_ADMIN_USERNAME = config_manager.get("DEFAULT_ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "ADMIN")
 
+# CORS 配置
+CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "*")
+CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
+
 # 环境标记
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-# 检查生产环境警告
-if not ADMIN_WHITELIST and not DEBUG:
-    import warnings
-    warnings.warn(
-        "ADMIN_WHITELIST 未配置！生产环境下所有管理员接口将无权限校验。"
-        "请在 .env 中设置 ADMIN_WHITELIST 或设置 DEBUG=true 以消除此警告。",
-        RuntimeWarning,
-        stacklevel=2,
-    )
+# WS Token 配置（短时效，用于 WS 连接鉴权）
+WS_TOKEN_EXPIRE_SECONDS = 300
+
+_DEFAULT_JWT_SECRET = "chainrps-dev-secret-change-in-production-please"
+_DEFAULT_ADMIN_PASSWORD = "ADMIN"
+
+import sys as _sys
+_blocking_errors = []
+
+if not DEBUG:
+    if JWT_SECRET == _DEFAULT_JWT_SECRET:
+        _blocking_errors.append(
+            "JWT_SECRET 未配置！生产环境禁止使用默认值。"
+            "请在 .env 中设置 JWT_SECRET=<强随机字符串>，或设置 DEBUG=true 进入开发模式。"
+        )
+    if DEFAULT_ADMIN_PASSWORD == _DEFAULT_ADMIN_PASSWORD:
+        _blocking_errors.append(
+            "DEFAULT_ADMIN_PASSWORD 未配置！生产环境禁止使用默认弱密码 'ADMIN'。"
+            "请在 .env 中设置 DEFAULT_ADMIN_PASSWORD=<强密码>，或设置 DEBUG=true 进入开发模式。"
+        )
+    if not ADMIN_WHITELIST:
+        import warnings as _w
+        _w.warn(
+            "ADMIN_WHITELIST 未配置！生产环境下所有管理员接口将无 IP 白名单保护。",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    if CORS_ORIGINS == ["*"]:
+        _blocking_errors.append(
+            "CORS_ORIGINS 未配置具体域名！生产环境禁止使用 '*'。"
+            "请在 .env 中设置 CORS_ORIGINS=https://your-frontend-domain.com"
+        )
+
+if _blocking_errors:
+    print("=" * 60)
+    print("🚨 生产环境安全检查未通过，拒绝启动！")
+    print("=" * 60)
+    for i, e in enumerate(_blocking_errors, 1):
+        print(f"  [{i}] {e}")
+    print("=" * 60)
+    _sys.exit(1)
 
 
 def reload_config():
@@ -147,6 +204,7 @@ def reload_config():
     global COMMIT_TIMEOUT, REVEAL_TIMEOUT, WS_HEARTBEAT_INTERVAL
     global ADMIN_WHITELIST, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS
     global DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, DEBUG
+    global CORS_ORIGINS, WS_TOKEN_EXPIRE_SECONDS
     global MATCH_QUEUE_PREFIX, GAME_CACHE_PREFIX, ROOM_CACHE_PREFIX
     global WS_PREFIX, REDIS_BROADCAST_CHANNEL, REDIS_DIRECT_CHANNEL
     global RELAYER_PRIVATE_KEY, RELAYER_ADDRESS
@@ -189,6 +247,8 @@ def reload_config():
     DEFAULT_ADMIN_USERNAME = config_manager.get("DEFAULT_ADMIN_USERNAME", "admin")
     DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "ADMIN")
     DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+    CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+    WS_TOKEN_EXPIRE_SECONDS = int(os.getenv("WS_TOKEN_EXPIRE_SECONDS", "300"))
     MATCH_QUEUE_PREFIX = config_manager.get("MATCH_QUEUE_PREFIX", "rps:match:")
     GAME_CACHE_PREFIX = config_manager.get("GAME_CACHE_PREFIX", "rps:game:")
     ROOM_CACHE_PREFIX = config_manager.get("ROOM_CACHE_PREFIX", "rps:room:")

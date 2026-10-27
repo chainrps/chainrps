@@ -115,7 +115,9 @@ def init_database():
                 commit_deadline TEXT,
                 reveal_deadline TEXT,
                 finished_at TEXT,
-                tx_hash TEXT
+                tx_hash TEXT,
+                settlement_source TEXT,
+                provisional INTEGER DEFAULT 0
             )
         """)
 
@@ -305,6 +307,18 @@ def init_database():
 
         # 初始化默认系统配置
         _init_default_config(cursor)
+
+        # 迁移：games 表补齐缺失列（旧版本没有 settlement_source / provisional）
+        try:
+            cursor.execute("PRAGMA table_info(games)")
+            existing = {row["name"] for row in cursor.fetchall()}
+            for col_name, col_type in [("settlement_source", "TEXT"), ("provisional", "INTEGER DEFAULT 0")]:
+                if col_name not in existing:
+                    cursor.execute(f"ALTER TABLE games ADD COLUMN {col_name} {col_type}")
+                    print(f"🔧 迁移 games 表：添加列 {col_name}")
+            conn.commit()
+        except Exception as e:
+            print(f"⚠️ games 表列迁移失败: {e}")
 
         conn.commit()
 

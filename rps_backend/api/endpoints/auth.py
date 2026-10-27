@@ -107,3 +107,49 @@ async def get_admins(request: Request):
     """列出所有管理员（需要登录）"""
     get_current_admin(request)
     return {"success": True, "admins": list_admins()}
+
+
+# ==================== WS 连接 Token ====================
+
+from datetime import datetime, timedelta, timezone as _tz
+
+
+class WsTokenRequest(BaseModel):
+    address: str
+
+
+@router.post("/ws-token")
+async def issue_ws_token(body: WsTokenRequest):
+    """
+    为游戏玩家签发短期 WS 连接 token（有效期 WS_TOKEN_EXPIRE_SECONDS 秒）。
+
+    前端流程：
+    1. 前端有 player_address（来自钱包连接）
+    2. 调本接口拿到 { token: "..." }
+    3. 连 WS 时拼 ?token=xxx 到 URL
+
+    安全设计：
+    - token 是 JWT，sub 字段 = player_address
+    - WS 路由验证 token 签名 + sub 与 URL 中路径参数匹配
+    - 有效期短（默认 300s），降低泄漏风险
+    """
+    import jwt as _jwt
+    from rps_backend.config import JWT_SECRET, JWT_ALGORITHM, WS_TOKEN_EXPIRE_SECONDS
+
+    address = body.address.strip()
+    if not address or len(address) < 10:
+        raise HTTPException(status_code=400, detail="无效的钱包地址")
+
+    now = datetime.now(_tz.utc)
+    payload = {
+        "sub": address.lower(),
+        "type": "ws",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=WS_TOKEN_EXPIRE_SECONDS)).timestamp()),
+    }
+    token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return {
+        "success": True,
+        "token": token,
+        "expires_in": WS_TOKEN_EXPIRE_SECONDS,
+    }

@@ -21,6 +21,7 @@ const App = (function () {
     let gamePhase = 'idle';
     let isLocalOnlyGame = false;  // 🆕 auto_chain_match=False 时为 true，commit/reveal 走后端 API 不走链上
     let autoRevealTimer = null; // 自动揭示计时器
+    function isPurePrivateMode() { return currentMode === 'B'; }
     let resultCountdownTimer = null; // 结果界面倒计时计时器
 
     // 🆕 统一设置游戏阶段 —— 同时更新变量 + body.dataset（CSS 依赖 dataset 隐藏/显示 game-board）
@@ -86,6 +87,11 @@ const App = (function () {
 
         // 处理 URL 路由
         handleRoute();
+
+        // file:// 协议警告：钱包扩展不注入 window.ethereum
+        if (window.location.protocol === 'file:') {
+            FWUI.Toast.warn('检测到 file:// 协议，钱包扩展可能无法注入。建议用本地 HTTP 服务器：cd rps_frontend/static && python -m http.server 8080');
+        }
 
         // 监听 URL 变化
         window.addEventListener('popstate', handleRoute);
@@ -272,7 +278,15 @@ const App = (function () {
 
     // 处理URL路由
     function handleRoute() {
-        const path = window.location.pathname;
+        let path = window.location.pathname;
+        const isFileProtocol = window.location.protocol === 'file:';
+
+        // file:// 协议下 pathname 是 /D:/Git/.../index.html 或 /home/.../index.html
+        // 没有标准路由结构，一律视为 lobby
+        if (isFileProtocol || /^\/[A-Za-z]:\//.test(path)) {
+            enterLobby();
+            return;
+        }
 
         if (path === '/' || path === '/lobby') {
             enterLobby();
@@ -641,7 +655,17 @@ const App = (function () {
                                 parts.push(`${data.results.POL} POL`);
                             if (parts.length) FWUI.Toast.info(`已到账: ${parts.join(' + ')}`);
                         }
-                        setTimeout(() => updateBalanceDisplay(), 2000);
+                        // === 关键修复：立即刷新 + 3 次重试 ===
+                        // 之前只靠 setTimeout 2s 一次性刷新，经常因为钱包 provider 还没同步
+                        // 到最新区块导致读到旧余额，看起来"没领成功"
+                        updateBalanceDisplay();                        // 立即刷 1 次
+                        let retry = 0;
+                        const retryTimer = setInterval(() => {
+                            retry++;
+                            updateBalanceDisplay();
+                            if (retry >= 3) clearInterval(retryTimer); // 共约 1+1+2 秒后停止
+                        }, 1000);
+                        setTimeout(() => updateBalanceDisplay(), 4000); // 兜底再刷一次
                         _markDripClaimed(dripBtn);
                     } else if (data.already_claimed) {
                         FWUI.Toast.info('📌 今天你已经领过了，明天再来～');
@@ -2068,8 +2092,8 @@ const App = (function () {
      * 收到 room_list_changed 事件后立即拉取最新房间列表
      * 未连接钱包时使用匿名地址连接，确保大厅实时更新
      */
-    function connectLobbySocket() {
-        if (!CONFIG.wsUrl) return;
+    async function connectLobbySocket() {
+        if (!CONFIG.wsUrl || isPurePrivateMode()) return;
 
         // 未连接钱包时生成随机匿名地址，避免多用户连接冲突
         let address = Wallet.getAddress();
@@ -2097,7 +2121,7 @@ const App = (function () {
                     loadRoomList();
                 }
             });
-            GameSocket.connect(CONFIG.wsUrl, address);
+            await GameSocket.connect(CONFIG.wsUrl, address);
         } else {
             // 已连接，直接注册事件
             registerLobbyListeners();
@@ -2105,17 +2129,20 @@ const App = (function () {
     }
 
     // 注册大厅事件监听器
+    let _pendingRoomRefreshTimer = null;
     function registerLobbyListeners() {
         if (!lobbyWsConnected) {
             lobbyWsConnected = true;
 
-            // 房间列表变更：实时刷新
+            // 房间列表变更：300ms 防抖合并，避免短时间多事件触发多次 HTTP 请求
             GameSocket.on('room_list_changed', (data) => {
-                console.log('[Lobby] 收到房间列表变更:', data);
-                // 只在大厅可见时刷新，避免无意义请求
                 const lobby = document.getElementById('stageLobby');
                 if (!lobby || lobby.classList.contains('hidden')) return;
-                loadRoomList();
+                if (_pendingRoomRefreshTimer) clearTimeout(_pendingRoomRefreshTimer);
+                _pendingRoomRefreshTimer = setTimeout(() => {
+                    _pendingRoomRefreshTimer = null;
+                    loadRoomList();
+                }, 300);
             });
         }
     }
@@ -3395,13 +3422,20 @@ const App = (function () {
         await loadRoomStatus();
         updateRoomUI();
         connectRoomSocket();
-        connectP2PChannel();
+        // === 关键修复：推迟 P2P WebRTC 连接 ===
+        // 原代码立即调用 connectP2PChannel()，WebRTC 握手（ICE/信令）可能阻塞主线程几毫秒，
+        // 让用户感觉"进入房间慢"。改为 requestIdleCallback / setTimeout 让 UI 先绘制完成。
+        // 房间内通信有 WS 兜底，P2P 慢一点不影响功能。
+        const scheduleIdle = window.requestIdleCallback
+            ? (cb) => window.requestIdleCallback(cb)
+            : (cb) => setTimeout(cb, 300);
+        scheduleIdle(() => connectP2PChannel());
         startRoomPolling();
     }
 
     // 连接房间WebSocket并注册事件
-    function connectRoomSocket() {
-        if (!CONFIG.wsUrl || !Wallet.getAddress()) return;
+    async function connectRoomSocket() {
+        if (!CONFIG.wsUrl || !Wallet.getAddress() || isPurePrivateMode()) return;
         if (!GameSocket.isConnected()) {
             // 监听 WS 关闭事件，重置连接状态以便恢复轮询
             GameSocket.on('close', () => {
@@ -3419,7 +3453,7 @@ const App = (function () {
                     loadRoomStatus();
                 }
             });
-            GameSocket.connect(CONFIG.wsUrl, Wallet.getAddress());
+            await GameSocket.connect(CONFIG.wsUrl, Wallet.getAddress());
         } else {
             // 已连接，直接注册事件
             registerRoomListeners();
@@ -3467,8 +3501,9 @@ const App = (function () {
                 });
             }
             // 连接 P2P 通道
-            P2PChannel.connect(CONFIG.wsUrl, Wallet.getAddress(), currentRoomId);
-            console.log(`[P2P] 连接房间 ${currentRoomId} 的 P2P 通道`);
+            P2PChannel.connect(CONFIG.wsUrl, Wallet.getAddress(), currentRoomId).catch(e => {
+                console.warn('[P2P] 连接失败:', e.message);
+            });
         } catch (e) {
             console.warn('[P2P] 连接失败，使用 WS 降级:', e.message);
         }
@@ -3892,7 +3927,12 @@ const App = (function () {
         if (!currentRoom) return;
 
         const myAddress = Wallet.getAddress();
-        const amICreator = (currentRoom.creator || '').toLowerCase() === (myAddress || '').toLowerCase();
+        const addrLower = (myAddress || '').toLowerCase();
+        // === 关键修复：钱包未连接时，myAddress 为空不能算"creator" ===
+        // 之前 (currentRoom.creator || '').toLowerCase() === (myAddress || '').toLowerCase()
+        // 两边都是 '' → 误判为 amICreator=true，导致 player2 看到"房主（自己）"标签
+        const amICreator = !!addrLower
+            && (currentRoom.creator || '').toLowerCase() === addrLower;
 
         UI.setRoomInfo(currentRoom, amICreator);
 
@@ -3983,7 +4023,8 @@ const App = (function () {
             if (stillInRoomWait && !roomGameStartedHandled && currentRoom.game_id) {
                 roomGameStartedHandled = true;
                 const myAddr = Wallet.getAddress();
-                const amICreator = currentRoom.creator.toLowerCase() === (myAddr || '').toLowerCase();
+                const addrL = (myAddr || '').toLowerCase();
+                const amICreator = !!addrL && currentRoom.creator.toLowerCase() === addrL;
                 handleRoomGameStarted({
                     room_id: currentRoom.room_id,
                     game_id: currentRoom.game_id,
@@ -5270,8 +5311,8 @@ const App = (function () {
             UI.showStage('stageLobby');
         });
 
-        if (CONFIG.wsUrl && Wallet.getAddress()) {
-            GameSocket.connect(CONFIG.wsUrl, Wallet.getAddress());
+        if (CONFIG.wsUrl && Wallet.getAddress() && !isPurePrivateMode()) {
+            GameSocket.connect(CONFIG.wsUrl, Wallet.getAddress()).catch(() => {});
 
             GameSocket.on('match_success', (data) => {
                 onMatchFound(data.game_id, data.opponent);
@@ -5465,7 +5506,7 @@ const App = (function () {
         stopLifecycleCountdown();
 
         // 订阅对局（后端可批量通知对局双方）
-        if (currentGameId && GameSocket.isConnected()) {
+        if (currentGameId && GameSocket.isConnected() && !isPurePrivateMode()) {
             GameSocket.subscribeGame(currentGameId);
         }
 
@@ -5613,43 +5654,45 @@ const App = (function () {
                 return;
             }
 
-            UI.setMyStatus('签名中...');
-
             let committed = false;
-            // 方案A：玩家做 EIP-712 链下签名（无 gas 费，秒级完成）
-            try {
-                const sigResult = await Contract.signCommit(currentGameId, myAddress, commitHash);
 
-                UI.setMyStatus('代提交中...');
+            if (!isPurePrivateMode()) {
+                UI.setMyStatus('签名中...');
+                try {
+                    const sigResult = await Contract.signCommit(currentGameId, myAddress, commitHash);
 
-                // 将签名发给后端，由 relayer 调用合约 submitCommitWithSig 代为上链
-                const res = await fetch(`${CONFIG.backendUrl}/api/game/submit-commit-sig`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        game_id: currentGameId,
-                        player_address: myAddress,
-                        commit_hash: commitHash,
-                        nonce: sigResult.nonce,
-                        v: sigResult.v,
-                        r: sigResult.r,
-                        s: sigResult.s,
-                    })
-                });
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    committed = true;
-                } else {
-                    console.warn('[Commit] 方案A代提交失败，回退到直接上链:', data.message);
+                    UI.setMyStatus('代提交中...');
+
+                    const res = await fetch(`${CONFIG.backendUrl}/api/game/submit-commit-sig`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            game_id: currentGameId,
+                            player_address: myAddress,
+                            commit_hash: commitHash,
+                            nonce: sigResult.nonce,
+                            v: sigResult.v,
+                            r: sigResult.r,
+                            s: sigResult.s,
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        committed = true;
+                    } else {
+                        console.warn('[Commit] 方案A代提交失败，回退到直接上链:', data.message);
+                    }
+                } catch (sigErr) {
+                    console.warn('[Commit] 方案A签名失败，回退到直接上链:', sigErr.message || sigErr);
                 }
-            } catch (sigErr) {
-                console.warn('[Commit] 方案A签名失败，回退到直接上链:', sigErr.message || sigErr);
+            } else {
+                console.log('[Commit] 纯私密模式：跳过 relayer，直接上链');
             }
 
             // 方案B回退：直接上链 submitCommit（需要 gas 费）
             if (!committed) {
                 UI.setMyStatus('直接上链提交中...');
-                FWUI.Toast.info('签名代提交不可用，将直接上链提交（需要 gas 费）');
+                FWUI.Toast.info(isPurePrivateMode() ? '私密模式：直接上链提交（需要 gas 费）' : '签名代提交不可用，将直接上链提交（需要 gas 费）');
                 await Contract.submitCommit(currentGameId, commitHash);
             }
 
@@ -5747,39 +5790,42 @@ const App = (function () {
             }
 
             let revealed = false;
-            // 方案A：玩家对 reveal 数据做 EIP-712 链下签名（无 gas 费）
-            try {
-                const sigResult = await Contract.signReveal(
-                    currentGameId, myAddress, selectedChoice, currentSalt
-                );
 
-                if (revealBtn) {
-                    revealBtn.textContent = '代提交中...';
-                }
+            if (!isPurePrivateMode()) {
+                try {
+                    const sigResult = await Contract.signReveal(
+                        currentGameId, myAddress, selectedChoice, currentSalt
+                    );
 
-                // 将签名发给后端，由 relayer 调用合约 revealChoiceWithSig 一次性上链完成揭晓
-                const res = await fetch(`${CONFIG.backendUrl}/api/game/reveal-choice-sig`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        game_id: currentGameId,
-                        player_address: myAddress,
-                        choice: selectedChoice,
-                        salt: currentSalt,
-                        nonce: sigResult.nonce,
-                        v: sigResult.v,
-                        r: sigResult.r,
-                        s: sigResult.s,
-                    })
-                });
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    revealed = true;
-                } else {
-                    console.warn('[Reveal] 方案A代提交失败，回退到直接上链:', data.message);
+                    if (revealBtn) {
+                        revealBtn.textContent = '代提交中...';
+                    }
+
+                    const res = await fetch(`${CONFIG.backendUrl}/api/game/reveal-choice-sig`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            game_id: currentGameId,
+                            player_address: myAddress,
+                            choice: selectedChoice,
+                            salt: currentSalt,
+                            nonce: sigResult.nonce,
+                            v: sigResult.v,
+                            r: sigResult.r,
+                            s: sigResult.s,
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        revealed = true;
+                    } else {
+                        console.warn('[Reveal] 方案A代提交失败，回退到直接上链:', data.message);
+                    }
+                } catch (sigErr) {
+                    console.warn('[Reveal] 方案A签名失败，回退到直接上链:', sigErr.message || sigErr);
                 }
-            } catch (sigErr) {
-                console.warn('[Reveal] 方案A签名失败，回退到直接上链:', sigErr.message || sigErr);
+            } else {
+                console.log('[Reveal] 纯私密模式：跳过 relayer，直接上链');
             }
 
             // 方案B回退：直接上链 revealChoice（需要 gas 费）
@@ -5787,7 +5833,7 @@ const App = (function () {
                 if (revealBtn) {
                     revealBtn.textContent = '直接上链揭晓中...';
                 }
-                FWUI.Toast.info('签名代提交不可用，将直接上链揭晓（需要 gas 费）');
+                FWUI.Toast.info(isPurePrivateMode() ? '私密模式：直接上链揭晓（需要 gas 费）' : '签名代提交不可用，将直接上链揭晓（需要 gas 费）');
                 await Contract.revealChoice(currentGameId, selectedChoice, currentSalt);
             }
 

@@ -15,24 +15,18 @@ CREATED (等待加入) -> JOINED (已加入，等待准备) -> COUNTDOWN (15秒�
 """
 import asyncio
 import uuid
+import logging
 from datetime import datetime
 from typing import Dict, Optional, List
 
-from rps_backend.config import BOT_AUTO_CHAIN_MATCH
+logger = logging.getLogger(__name__)
+
+from rps_backend.config import BOT_AUTO_CHAIN_MATCH, ROOM_STATUS
 from rps_backend.models import GameState, WSMessage
 from rps_backend.repository import create_game_record, update_game_record, get_system_config_value
 from rps_backend.utils.helpers import now_timestamp, calculate_deadline, deadline_to_iso
 from rps_backend.utils.redis_client import redis_client
 from rps_backend.websocket import ws_manager
-
-ROOM_STATUS = {
-    "CREATED": "created",
-    "JOINED": "joined",
-    "COUNTDOWN": "countdown",
-    "GAME_STARTED": "game_started",
-    "FINISHED": "finished",
-    "CLOSED": "closed",
-}
 
 # 未准备超时时间（秒）：加入房间后 60 秒未准备则自动踢出
 UNREADY_TIMEOUT = 60
@@ -126,6 +120,10 @@ class RoomManager:
         self._lifetime_timers: Dict[str, asyncio.Task] = {}
         # 空房间清理计时器：创建后 5 分钟没玩家加入则自动关闭
         self._empty_room_timers: Dict[str, asyncio.Task] = {}
+        # 倒计时取消信号：room_id -> asyncio.Event
+        self._countdown_cancel_events: Dict[str, asyncio.Event] = {}
+        # 链上设置阶段超时：game_started 后 creator 必须在 CHAIN_SETUP_TIMEOUT 内上报 chain_game_id
+        self._chain_setup_timers: Dict[str, asyncio.Task] = {}
 
     # 创建房间
     def create_room(self, creator_address: str, token: str, bet_amount: float) -> dict:
@@ -150,7 +148,7 @@ class RoomManager:
                 "existing_room_id": existing_room_id,
             }
 
-        room_id = str(uuid.uuid4())[:8]
+        room_id = str(uuid.uuid4())[:12]
 
         room = {
             "room_id": room_id,
@@ -235,7 +233,7 @@ class RoomManager:
         room["status"] = ROOM_STATUS["JOINED"]
 
         self._rooms[room_id] = room
-        print(f"[Room] ✅ join_room #{room_id}: status={room['status']} p2={player_address[:10]}")
+        logger.info(f"[Room] ✅ join_room #{room_id}: status={room['status']} p2={player_address[:10]}")
 
         # 有玩家加入了，停止空房间清理计时器
         self._stop_empty_room_timer(room_id)
@@ -320,6 +318,10 @@ class RoomManager:
         if was_countdown and not (room["creator_ready"] and room["player2_ready"]):
             room["status"] = ROOM_STATUS["JOINED"]
             room["countdown_start"] = None
+            # 立即中断倒计时协程的 sleep（F-01 修复：之前要等 sleep 结束才退出）
+            cancel_evt = self._countdown_cancel_events.pop(room_id, None)
+            if cancel_evt and not cancel_evt.is_set():
+                cancel_evt.set()
             # 通知双方倒计时已取消
             cancel_data = {
                 "room_id": room_id,
@@ -573,6 +575,37 @@ class RoomManager:
         if task:
             task.cancel()
 
+    def _start_chain_setup_timer(self, room_id: str):
+        """F-07 启动链上设置阶段超时计时器（creator 必须在 CHAIN_SETUP_TIMEOUT 内 createMatch + 上报 chain_game_id）"""
+        self._stop_chain_setup_timer(room_id)
+
+        async def timeout_task():
+            from rps_backend.config import CHAIN_SETUP_TIMEOUT
+            await asyncio.sleep(CHAIN_SETUP_TIMEOUT)
+            room = self._rooms.get(room_id)
+            if not room:
+                return
+            # 超时后 chain_game_id 仍为 None → creator 没完成 createMatch
+            if room["status"] == ROOM_STATUS["GAME_STARTED"] and not room.get("chain_game_id"):
+                logger.warning(f"[Room] F-07 chain setup timeout room={room_id} creator={room.get('creator','')[:10]}.. closing")
+                self._close_room(
+                    room_id,
+                    "chain_setup_timeout",
+                    f"游戏开始后 {CHAIN_SETUP_TIMEOUT}s 内未完成链上对局创建，房间已关闭",
+                )
+                self._broadcast_room_list_changed("room_closed", room_id)
+
+        task = asyncio.create_task(timeout_task())
+        self._chain_setup_timers[room_id] = task
+
+    def _stop_chain_setup_timer(self, room_id: str):
+        """链上设置完成后停止计时器（report_chain_game 里调用）"""
+        if not room_id:
+            return
+        task = self._chain_setup_timers.pop(room_id, None)
+        if task:
+            task.cancel()
+
     # 关闭房间
     def _close_room(self, room_id: str, reason: str, message: str):
         """
@@ -603,9 +636,15 @@ class RoomManager:
         self._rooms[room_id] = room
         redis_client.cache_room_state(room_id, room)
 
-        # 停止所有计时器
+        # 停止所有计时器（B-02 修复：之前遗漏了 unready 和 empty_room）
         self._stop_game_timer(room_id)
         self._stop_lifetime_timer(room_id)
+        self._stop_empty_room_timer(room_id)
+        self._stop_chain_setup_timer(room_id)
+        self._stop_unready_timer(room["creator"])
+        player2_in_room = room.get("player2")
+        if player2_in_room:
+            self._stop_unready_timer(player2_in_room)
 
         # 清理玩家房间映射
         creator_lower = room["creator"].lower()
@@ -681,29 +720,29 @@ class RoomManager:
         倒计时同步机制：
         - 开始时发送 countdown_start 事件（包含结束时间戳），前端基于此本地计算剩余时间
         - 每3秒发送一次 countdown_tick 作为同步校准（最后阶段每秒）
-        - 如果任一方取消准备，倒计时取消（toggle_ready 已发送 countdown_cancelled）
+        - 如果任一方取消准备，倒计时取消（cancel_event.set()，sleep 立即中断）
         - 倒计时结束后创建对局，进入提交阶段
         """
         room = self._rooms.get(room_id)
         if not room:
             return
 
-        # 协程启动时再次校验状态（防止在 create_task 调度间隙状态已被回退）
         if room["status"] != ROOM_STATUS["COUNTDOWN"]:
             return
 
-        # Bot 对局倒计时缩短为 5 秒
+        # 创建取消信号
+        cancel_event = asyncio.Event()
+        self._countdown_cancel_events[room_id] = cancel_event
+
         creator = room.get("creator")
         player2 = room.get("player2")
         has_bot = self._is_bot_address(creator) or self._is_bot_address(player2)
         countdown_total = 5 if has_bot else 15
-        print(f"[Room] _start_countdown room={room_id} creator={creator} player2={player2} has_bot={has_bot} countdown={countdown_total}s")
+        logger.info(f"[Room] _start_countdown room={room_id} creator={creator} player2={player2} has_bot={has_bot} countdown={countdown_total}s")
         countdown_end = room["countdown_start"] + countdown_total
 
         player1 = room["creator"]
-        player2 = room["player2"]
 
-        # 发送倒计时开始事件（包含结束时间戳，用于前端精确同步）
         start_data = {
             "room_id": room_id,
             "end_time": countdown_end,
@@ -721,25 +760,42 @@ class RoomManager:
                 data=start_data
             )))
 
-        # 倒计时循环：每3秒同步一次，最后5秒每秒同步一次
+        # 倒计时循环：sleep 可被 cancel_event 立即中断（F-01 修复）
         while True:
             remaining = max(0, int(countdown_end - now_timestamp()))
             if remaining <= 0:
                 break
 
-            # 计算下一次同步的间隔
             if remaining > 5:
                 sleep_time = min(3, remaining - 5)
             else:
                 sleep_time = 1
 
-            await asyncio.sleep(sleep_time)
+            # 用 gather 实现可中断 sleep：哪个先完成就继续
+            try:
+                sleep_task = asyncio.create_task(asyncio.sleep(sleep_time))
+                cancel_task = asyncio.create_task(cancel_event.wait())
+                done, pending = await asyncio.wait(
+                    [sleep_task, cancel_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                cancel_task.cancel()
+                sleep_task.cancel()
+                if cancel_event.is_set():
+                    logger.info(f"[Room] countdown cancelled room={room_id}")
+                    self._countdown_cancel_events.pop(room_id, None)
+                    return
+            except asyncio.CancelledError:
+                self._countdown_cancel_events.pop(room_id, None)
+                raise
 
             room = self._rooms.get(room_id)
             if not room:
+                self._countdown_cancel_events.pop(room_id, None)
                 return
 
             if room["status"] != ROOM_STATUS["COUNTDOWN"]:
+                self._countdown_cancel_events.pop(room_id, None)
                 return
 
             remaining = max(0, int(countdown_end - now_timestamp()))
@@ -765,7 +821,9 @@ class RoomManager:
                     data=tick_data
                 )))
 
-        # 倒计时结束，确保再等待一下到精确的结束时间
+        # 倒计时结束，清理 event
+        self._countdown_cancel_events.pop(room_id, None)
+
         final_remaining = countdown_end - now_timestamp()
         if final_remaining > 0:
             await asyncio.sleep(final_remaining)
@@ -829,46 +887,39 @@ class RoomManager:
         # 启动游戏总超时计时器（10分钟）
         self._start_game_timer(room_id)
 
+        # F-07 修复：链上模式下，creator 必须在 CHAIN_SETUP_TIMEOUT 内 createMatch + 上报 chain_game_id
+        if BOT_AUTO_CHAIN_MATCH:
+            self._start_chain_setup_timer(room_id)
+
+        # 启动 commit 超时监控（提交阶段超时未操作 → 后端主动判负）
+        from rps_backend.service.game_service import game_manager
+        game_manager.start_commit_timeout_timer(game_id, commit_deadline_ts)
+
         player1 = room["creator"]
         player2 = room["player2"]
         creator_is_bot = self._is_bot_address(player1)
         player2_is_bot = self._is_bot_address(player2)
 
-        # 通知创建者：需要调用 createMatch 创建链上对局
-        if player1:
-            await ws_manager.send_to_player(player1, WSMessage(
-                type="game_started",
-                data={
-                    "room_id": room_id,
-                    "game_id": game_id,
-                    "is_creator": True,
-                    "opponent": player2,
-                    "token": room["token"],
-                    "bet_amount": room["bet_amount"],
-                    "commit_deadline": commit_deadline_ts,
-                    "creator_is_bot": creator_is_bot,
-                    "player2_is_bot": player2_is_bot,
-                    "local_only": not BOT_AUTO_CHAIN_MATCH,
-                },
-            ))
-
-        # 通知 player2：等待创建者创建链上对局
-        if player2:
-            await ws_manager.send_to_player(player2, WSMessage(
-                type="game_started",
-                data={
-                    "room_id": room_id,
-                    "game_id": game_id,
-                    "is_creator": False,
-                    "opponent": player1,
-                    "token": room["token"],
-                    "bet_amount": room["bet_amount"],
-                    "commit_deadline": commit_deadline_ts,
-                    "creator_is_bot": creator_is_bot,
-                    "player2_is_bot": player2_is_bot,
-                    "local_only": not BOT_AUTO_CHAIN_MATCH,
-                },
-            ))
+        # P-05 修复：双方 WS 消息并行发送（之前串行 await）
+        msg1_data = {
+            "room_id": room_id, "game_id": game_id, "is_creator": True,
+            "opponent": player2, "token": room["token"],
+            "bet_amount": room["bet_amount"], "commit_deadline": commit_deadline_ts,
+            "creator_is_bot": creator_is_bot, "player2_is_bot": player2_is_bot,
+            "local_only": not BOT_AUTO_CHAIN_MATCH,
+        }
+        msg2_data = {
+            "room_id": room_id, "game_id": game_id, "is_creator": False,
+            "opponent": player1, "token": room["token"],
+            "bet_amount": room["bet_amount"], "commit_deadline": commit_deadline_ts,
+            "creator_is_bot": creator_is_bot, "player2_is_bot": player2_is_bot,
+            "local_only": not BOT_AUTO_CHAIN_MATCH,
+        }
+        await asyncio.gather(
+            ws_manager.send_to_player(player1, WSMessage(type="game_started", data=msg1_data)) if player1 else asyncio.sleep(0),
+            ws_manager.send_to_player(player2, WSMessage(type="game_started", data=msg2_data)) if player2 else asyncio.sleep(0),
+            return_exceptions=False,
+        )
 
         # 广播房间列表变更（房间状态变为 game_started，大厅卡片需要更新）
         self._broadcast_room_list_changed("game_started", room_id)
@@ -898,6 +949,8 @@ class RoomManager:
             return {"success": False, "message": "仅创建者可上报链上对局 ID"}
 
         room["chain_game_id"] = chain_game_id
+        # 链上对局已创建，停止链上设置超时计时器（F-07 修复）
+        self._stop_chain_setup_timer(room_id)
         # 双方资金已通过 createMatch + joinMatch 上链锁定
         room["fund_stage"] = "chain_frozen"
         self._rooms[room_id] = room
@@ -908,32 +961,31 @@ class RoomManager:
         if local_game_id:
             update_game_record(local_game_id, {"chain_game_id": chain_game_id})
 
-        # 通知 player2 链上对局已创建，可以加入
+        # P-05 修复：双方 WS 消息并行发送
         player2 = room["player2"]
-        if player2:
-            await ws_manager.send_to_player(player2, WSMessage(
-                type="chain_game_created",
-                data={
-                    "room_id": room_id,
-                    "chain_game_id": chain_game_id,
-                    "creator": room["creator"],
-                    "token": room["token"],
-                    "bet_amount": room["bet_amount"],
-                },
-            ))
+        p2_task = ws_manager.send_to_player(player2, WSMessage(
+            type="chain_game_created",
+            data={
+                "room_id": room_id,
+                "chain_game_id": chain_game_id,
+                "creator": room["creator"],
+                "token": room["token"],
+                "bet_amount": room["bet_amount"],
+            },
+        )) if player2 else asyncio.sleep(0)
 
-        # 同时通知创建者：上报已成功接收，后端已通知 player2 加入
         creator = room["creator"]
-        if creator:
-            await ws_manager.send_to_player(creator, WSMessage(
-                type="chain_game_reported",
-                data={
-                    "room_id": room_id,
-                    "chain_game_id": chain_game_id,
-                    "message": "链上对局 ID 已上报，等待对手加入",
-                    "timestamp": now_timestamp(),
-                },
-            ))
+        creator_task = ws_manager.send_to_player(creator, WSMessage(
+            type="chain_game_reported",
+            data={
+                "room_id": room_id,
+                "chain_game_id": chain_game_id,
+                "message": "链上对局 ID 已上报，等待对手加入",
+                "timestamp": now_timestamp(),
+            },
+        )) if creator else asyncio.sleep(0)
+
+        await asyncio.gather(p2_task, creator_task)
 
         # 通知 Bot：链上对局已创建
         self._notify_bot_chain_game_created(room_id, chain_game_id)
@@ -1320,10 +1372,18 @@ class RoomManager:
         玩家 WebSocket 断开后，延迟检查房间是否需要清理。
 
         策略：
-        - 延迟 10 秒后检查（给页面刷新/短暂断网留出重连窗口）
+        - 延迟 30 秒后检查（给页面刷新/短暂断网/钱包切换留出充足重连窗口）
+        - 延迟结束时立即二次检查：若该玩家已重新建立 WebSocket 连接 → 放弃清理
         - 仅处理 CREATED/JOINED/COUNTDOWN 状态（无链上资金的安全阶段）
         - 若房间内所有玩家均不在线 → 关闭房间并广播
         - 若仅 player2 断开且创建者仍在线 → 重置房间为 CREATED
+
+        关键修复（Issue #3：取消准备提示"你不是本房间玩家"）：
+        之前仅延迟 10 秒，用户刷新页面/钱包切换导致 WS 短暂断开，10 秒内
+        新 WS 尚未建立时 handle_player_disconnect 已把 player2 清成 None，
+        后端 toggle_ready 校验到 room["player2"] == None，返回
+        "你不是这个房间的玩家"。现在延迟 30 秒 + 二次重连检查，彻底避免
+        短暂断网导致的误清理。
         """
         addr_lower = player_address.lower()
         room_id = self._player_rooms.get(addr_lower)
@@ -1342,8 +1402,21 @@ class RoomManager:
         ]:
             return
 
-        # 延迟 10 秒检查，给页面刷新重连留出窗口
-        await asyncio.sleep(10)
+        creator = room.get("creator")
+        player2 = room.get("player2")
+
+        # 确定断开者角色（B-05 修复：延迟期间可能有新玩家加入同一位置）
+        disconnected_is_creator = (creator and addr_lower == creator.lower())
+        disconnected_is_player2 = (player2 and addr_lower == player2.lower())
+
+        # 延迟 30 秒检查，给页面刷新重连留出充足窗口
+        await asyncio.sleep(30)
+
+        # === 关键修复：二次重连检查 ===
+        # 若该玩家在延迟期间已重新建立 WS 连接 → 放弃清理
+        if addr_lower in ws_manager.active_connections:
+            logger.info(f"[Room] 玩家 {player_address} 在延迟期间已重连，跳过房间清理")
+            return
 
         # 重新获取房间（可能在延迟期间已被关闭或移除）
         room = self._rooms.get(room_id)
@@ -1355,8 +1428,29 @@ class RoomManager:
             # 延迟期间游戏已开始，不再清理
             return
 
+        # B-05 修复：延迟结束时检查断开者的角色位置是否已被新玩家替换
+        # 例如：A 断开 player2，延迟期间 B 加入成为新 player2 → 不再清理
+        current_creator = room.get("creator")
+        current_player2 = room.get("player2")
+        if disconnected_is_player2 and current_player2 and current_player2.lower() != addr_lower:
+            logger.info(f"[Room] B-05 fix: player2 slot already taken by {current_player2[:10]}.. skipping cleanup")
+            return
+        if disconnected_is_creator and current_creator and current_creator.lower() != addr_lower:
+            logger.info(f"[Room] B-05 fix: creator slot changed, skipping cleanup")
+            return
+
         creator = room.get("creator")
         player2 = room.get("player2")
+
+        # 二次重连检查：延迟结束时再看一次是否已恢复连接
+        # 某些情况下玩家 re-connect 的 WS 可能还在 ws_manager.connect 的 accept() 过程中
+        # 这里给一个宽松窗口：只要 creator 或 player2 中任意一方已重连，就保留房间
+        if creator and creator.lower() in ws_manager.active_connections:
+            # 创建者还在线 → 保留 player2 玩家记录（哪怕 player2 此刻离线）
+            # 因为 player2 可能只是 F5 刷新页面，马上会回来
+            # 只有当 creator 在线且 player2 已经连续 30s 不在线时才清理
+            pass  # 下面的 creator_online / player2_online 会处理
+
         # Bot 是服务端实体，不维护 WebSocket 连接，视为始终在线，
         # 否则人类玩家短暂刷新页面时，Bot 房间会被误判为"所有人离线"而关闭
         creator_online = bool(creator) and (
@@ -1372,11 +1466,11 @@ class RoomManager:
             # 所有人都不在线 → 关闭房间
             self._close_room(room_id, "all_players_disconnected", "所有玩家已离线，房间已关闭")
             self._broadcast_room_list_changed("room_closed", room_id)
-            print(f"[Room] 房间 {room_id} 因所有玩家离线已关闭")
+            logger.info(f"[Room] 房间 {room_id} 因所有玩家离线已关闭")
             return
 
         # 若创建者在线但 player2 断开且房间在 JOINED/COUNTDOWN → 重置为 CREATED
-        print(f"[Room] _handle_player_disconnect #{room_id}: creator_online={creator_online} p2_online={player2_online} status={room['status']}")
+        logger.info(f"[Room] _handle_player_disconnect #{room_id}: creator_online={creator_online} p2_online={player2_online} status={room['status']}")
         if creator_online and not player2_online and player2:
             if room["status"] in [ROOM_STATUS["JOINED"], ROOM_STATUS["COUNTDOWN"]]:
                 room["player2"] = None
@@ -1401,7 +1495,19 @@ class RoomManager:
                 self._broadcast_room_list_changed("room_reopened", room_id)
                 # 房间已重置，若创建者是 Bot，需要重新自动准备
                 self._notify_bot_room_reset(room_id)
-                print(f"[Room] 房间 {room_id} 的 player2 离线，重置为 CREATED")
+                logger.info(f"[Room] 房间 {room_id} 的 player2 离线，重置为 CREATED")
+
+    async def mark_game_finished(self, game_id: int, winner: Optional[str] = None, is_draw: bool = False):
+        """根据 game_id 找到关联房间，更新房间状态为 FINISHED，清理 timer"""
+        for rid, rm in list(self._rooms.items()):
+            if rm.get("game_id") == game_id:
+                rm["status"] = ROOM_STATUS["FINISHED"]
+                self._rooms[rid] = rm
+                redis_client.cache_room_state(rid, rm)
+                self._stop_game_timer(rid)
+                self._stop_lifetime_timer(rid)
+                self._broadcast_room_list_changed("game_finished", rid)
+                return
 
     def reset_room_for_rematch(self, room_id: str, player_address: str) -> dict:
         """

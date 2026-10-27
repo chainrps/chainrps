@@ -6,9 +6,10 @@ ChainRPS 数据模型定义模块
 """
 from datetime import datetime
 from enum import Enum
+import re
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ==================== 枚举定义 ====================
@@ -140,11 +141,30 @@ class HandleDrawRequest(BaseModel):
 
 
 # ==================== 房间模式模型 ====================
+_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+
+
 class CreateRoomRequest(BaseModel):
     """创建房间请求"""
     token: Token
     bet_amount: float
     player_address: str
+
+    @field_validator("bet_amount")
+    @classmethod
+    def _check_bet_amount(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("bet_amount must be positive")
+        if v > 1e12:
+            raise ValueError("bet_amount too large")
+        return round(v, 6)
+
+    @field_validator("player_address")
+    @classmethod
+    def _check_address(cls, v: str) -> str:
+        if not _ADDRESS_RE.match(v):
+            raise ValueError("player_address must be a valid 0x-prefixed EVM address")
+        return v.lower()
 
 
 class JoinRoomRequest(BaseModel):
@@ -152,11 +172,32 @@ class JoinRoomRequest(BaseModel):
     room_id: str
     player_address: str
 
+    @field_validator("player_address")
+    @classmethod
+    def _check_address(cls, v: str) -> str:
+        if not _ADDRESS_RE.match(v):
+            raise ValueError("player_address must be a valid 0x-prefixed EVM address")
+        return v.lower()
+
+    @field_validator("room_id")
+    @classmethod
+    def _check_room_id(cls, v: str) -> str:
+        if not v or len(v) < 8:
+            raise ValueError("room_id too short")
+        return v
+
 
 class ToggleReadyRequest(BaseModel):
     """准备/取消准备请求"""
     room_id: str
     player_address: str
+
+    @field_validator("player_address")
+    @classmethod
+    def _check_address(cls, v: str) -> str:
+        if not _ADDRESS_RE.match(v):
+            raise ValueError("player_address must be a valid 0x-prefixed EVM address")
+        return v.lower()
 
 
 class LeaveRoomRequest(BaseModel):
@@ -164,11 +205,25 @@ class LeaveRoomRequest(BaseModel):
     room_id: str
     player_address: str
 
+    @field_validator("player_address")
+    @classmethod
+    def _check_address(cls, v: str) -> str:
+        if not _ADDRESS_RE.match(v):
+            raise ValueError("player_address must be a valid 0x-prefixed EVM address")
+        return v.lower()
+
 
 class ResetRoomRequest(BaseModel):
     """重置房间（再来一局）请求"""
     room_id: str
     player_address: str
+
+    @field_validator("player_address")
+    @classmethod
+    def _check_address(cls, v: str) -> str:
+        if not _ADDRESS_RE.match(v):
+            raise ValueError("player_address must be a valid 0x-prefixed EVM address")
+        return v.lower()
 
 
 class ReportChainGameRequest(BaseModel):
