@@ -515,12 +515,12 @@ class RoomManager:
                             state = game_state.get("state")
                             commit1 = game_state.get("commit1")
                             commit2 = game_state.get("commit2")
-                            reveal1 = game_state.get("reveal1")
-                            reveal2 = game_state.get("reveal2")
+                            choice1_rv = game_state.get("choice1")
+                            choice2_rv = game_state.get("choice2")
                             # 已揭晓至少 1 人，或 state 已越过 reveal_phase → 等待结算完成
                             if (
-                                reveal1 is not None
-                                or reveal2 is not None
+                                choice1_rv is not None
+                                or choice2_rv is not None
                                 or state in ["reveal_phase", "finished", "settled"]
                             ):
                                 force_close = False
@@ -645,6 +645,16 @@ class RoomManager:
         player2_in_room = room.get("player2")
         if player2_in_room:
             self._stop_unready_timer(player2_in_room)
+
+        # 清理 game_service 层的 commit/reveal 超时计时器
+        gid = room.get("game_id")
+        if gid:
+            try:
+                from rps_backend.service.game_service import game_manager
+                game_manager.stop_commit_timeout_timer(gid)
+                game_manager.stop_reveal_timeout_timer(gid)
+            except Exception:
+                pass
 
         # 清理玩家房间映射
         creator_lower = room["creator"].lower()
@@ -1642,6 +1652,16 @@ class RoomManager:
             # 清理所有计时器
             self._stop_game_timer(room_id)
             self._stop_lifetime_timer(room_id)
+            self._stop_chain_setup_timer(room_id)
+            # 清理 game_service 层的 commit/reveal 超时计时器
+            gid = room.get("game_id")
+            if gid:
+                try:
+                    from rps_backend.service.game_service import game_manager
+                    game_manager.stop_commit_timeout_timer(gid)
+                    game_manager.stop_reveal_timeout_timer(gid)
+                except Exception:
+                    pass
             # 清理玩家房间映射
             creator = room.get("creator")
             player2 = room.get("player2")

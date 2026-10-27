@@ -519,6 +519,9 @@ class ContractService:
                 "reveal_deadline": reveal_deadline_iso,
             })
 
+            from rps_backend.service.game_service import game_manager
+            game_manager.start_reveal_timeout_timer(game["id"], reveal_deadline_ts)
+
             # 通知双方进入揭晓阶段
             reveal_start_data = {
                 "game_id": game["id"],
@@ -599,7 +602,11 @@ class ContractService:
         # 检查双方是否都已揭晓
         latest_game = get_game_record(game["id"])
         if latest_game and latest_game.get("choice1") and latest_game.get("choice2"):
-            # 双方都已揭晓，通知双方揭晓完成，等待链上结算
+            # 双方都已揭晓，停止超时计时器，通知双方揭晓完成，等待链上结算
+            from rps_backend.service.game_service import game_manager
+            game_manager.stop_reveal_timeout_timer(game["id"])
+            game_manager.stop_commit_timeout_timer(game["id"])
+
             reveal_complete_data = {
                 "game_id": game["id"],
                 "chain_game_id": chain_game_id,

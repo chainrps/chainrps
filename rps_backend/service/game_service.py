@@ -208,8 +208,8 @@ class GameManager:
                 return
             if game.get("state") != GameState.REVEAL_PHASE.value:
                 return
-            p1_revealed = bool(game.get("reveal1"))
-            p2_revealed = bool(game.get("reveal2"))
+            p1_revealed = bool(game.get("choice1"))
+            p2_revealed = bool(game.get("choice2"))
             if p1_revealed and p2_revealed:
                 return
             await self._handle_local_timeout_random(
@@ -684,6 +684,9 @@ class GameManager:
         if winner:
             updates["winner"] = winner
         update_game_record(game_id, updates)
+
+        self.stop_commit_timeout_timer(game_id)
+        self.stop_reveal_timeout_timer(game_id)
 
         # 更新玩家统计
         player1 = game.get("player1")
