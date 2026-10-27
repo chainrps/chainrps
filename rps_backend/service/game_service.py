@@ -5,6 +5,8 @@
 链上结算到达后通过 update_game_result_from_chain 覆盖本地 provisional 结果。
 """
 import asyncio
+import random
+import secrets
 from datetime import datetime
 from typing import Optional, Dict
 import logging
@@ -141,6 +143,21 @@ def _determine_winner(choice1: str, choice2: str) -> Optional[int]:
     return 2
 
 
+
+
+# 随机出拳辅助（localOnly 模式超时自动随机出拳）
+def _generate_random_choice_and_commit(address: str) -> tuple:
+    import secrets as _s
+    from eth_hash.auto import keccak as _keccak
+    choice_int = random.randint(1, 3)
+    choice_str = {1: 'rock', 2: 'paper', 3: 'scissors'}[choice_int]
+    salt_bytes = _s.token_bytes(32)
+    packed = bytes([choice_int]) + salt_bytes + bytes.fromhex(address[2:] if address.startswith('0x') else address)
+    commit_hash = '0x' + _keccak(packed).hex()
+    salt_hex = '0x' + salt_bytes.hex()
+    return choice_str, salt_hex, commit_hash
+
+
 # 游戏状态管理器
 class GameManager:
     """
@@ -168,9 +185,8 @@ class GameManager:
             p2_committed = bool(game.get("commit2"))
             if p1_committed and p2_committed:
                 return
-            forfeiter = game.get("player1") if not p1_committed else game.get("player2")
-            await self._handle_local_timeout_forfeit(
-                game_id, "commit", forfeiter,
+            await self._handle_local_timeout_random(
+                game_id, "commit",
                 reason=f"提交超时（COMMIT_TIMEOUT={config.COMMIT_TIMEOUT}s）"
             )
 
@@ -196,9 +212,8 @@ class GameManager:
             p2_revealed = bool(game.get("reveal2"))
             if p1_revealed and p2_revealed:
                 return
-            forfeiter = game.get("player1") if not p1_revealed else game.get("player2")
-            await self._handle_local_timeout_forfeit(
-                game_id, "reveal", forfeiter,
+            await self._handle_local_timeout_random(
+                game_id, "reveal",
                 reason=f"揭晓超时（REVEAL_TIMEOUT={config.REVEAL_TIMEOUT}s）"
             )
 
@@ -210,57 +225,108 @@ class GameManager:
         if task:
             task.cancel()
 
-    async def _handle_local_timeout_forfeit(
-        self, game_id: int, phase: str, forfeiter: str, reason: str
-    ):
+    async def _handle_local_timeout_random(self, game_id: int, phase: str, reason: str):
         game = get_game_record(game_id)
         if not game:
             return
-        if game.get("state") in (GameState.FINISHED.value, GameState.CANCELLED.value, GameState.DRAW.value):
+        if game.get("state") in (GameState.FINISHED.value, GameState.CANCELLED.value):
             return
 
         player1 = game.get("player1")
         player2 = game.get("player2")
-        winner = player2 if forfeiter == player1 else player1
         bet_amount = game.get("bet_amount", 0.0) or 0.0
+        auto_random = []
 
-        update_game_record(game_id, {
-            "state": GameState.FINISHED.value,
-            "winner": winner,
-            "is_draw": 0,
-            "finished_at": datetime.utcnow().isoformat(),
-            "settlement_source": "local_timeout_forfeit",
-            "provisional": True,
-        })
+        updates = {}
+        for idx, (addr, commit_f, choice_f, salt_f) in enumerate([
+            (player1, 'commit1', 'choice1', 'salt1'),
+            (player2, 'commit2', 'choice2', 'salt2'),
+        ], start=1):
+            if not addr:
+                continue
+            existing_choice = game.get(choice_f)
+            if existing_choice is not None:
+                continue
+            choice_str, salt_hex, commit_hash = _generate_random_choice_and_commit(addr)
+            updates[choice_f] = choice_str
+            updates[salt_f] = salt_hex
+            if not game.get(commit_f):
+                updates[commit_f] = commit_hash
+            auto_random.append(addr[:12])
+            logger.warning(f"[Timeout] game_id={game_id} auto-assigned random choice={choice_str} to player{idx}={addr[:12]}")
+
+        if updates:
+            update_game_record(game_id, updates)
+
+        latest_game = get_game_record(game_id)
+        c1 = latest_game.get('choice1')
+        c2 = latest_game.get('choice2')
+        if c1 and c2:
+            self.stop_commit_timeout_timer(game_id)
+            self.stop_reveal_timeout_timer(game_id)
+
+            c1_int = _CHOICE_NAME_TO_INT.get(c1, c1)
+            c2_int = _CHOICE_NAME_TO_INT.get(c2, c2)
+            result = _determine_rps_result(c1_int, c2_int, player1, player2)
+
+            update_game_record(game_id, {
+                'state': GameState.FINISHED.value,
+                'winner': result.get('winner'),
+                'is_draw': 1 if result.get('is_draw') else 0,
+                'finished_at': datetime.utcnow().isoformat(),
+                'settlement_source': 'local_timeout_random',
+                'provisional': True,
+            })
+
+            try:
+                if result.get('winner'):
+                    update_player_stats(result['winner'], 'win', bet_amount)
+                if not result.get('is_draw'):
+                    loser_addr = player2 if result.get('winner') and result['winner'].lower() == (player1 or '').lower() else player1
+                    if loser_addr:
+                        update_player_stats(loser_addr, 'loss', bet_amount)
+            except Exception as e:
+                logger.warning(f'Failed to update stats after timeout random: {e}')
+
+            winner = result.get('winner')
+            is_draw = result.get('is_draw', False)
+            try:
+                await room_manager.mark_game_finished(game_id, winner, is_draw=is_draw)
+            except Exception as e:
+                logger.warning(f'Failed to mark game finished: {e}')
+
+            for addr in [player1, player2]:
+                if not addr:
+                    continue
+                my_choice = c1 if addr.lower() == (player1 or '').lower() else c2
+                opp_choice = c2 if my_choice == c1 else c1
+                await ws_manager.send_to_player(addr, WSMessage(
+                    type='game_result',
+                    data={
+                        'game_id': game_id,
+                        'winner': winner,
+                        'is_draw': is_draw,
+                        'my_choice': my_choice,
+                        'opponent_choice': opp_choice,
+                        'settlement_source': 'local_timeout_random',
+                        'auto_random_choices': auto_random,
+                        'reason': reason,
+                    }
+                ))
+        else:
+            logger.error(f'[Timeout] game_id={game_id} still missing choices after random fill: c1={c1} c2={c2}')
+            update_game_record(game_id, {
+                'state': GameState.FINISHED.value,
+                'is_draw': 1,
+                'finished_at': datetime.utcnow().isoformat(),
+                'settlement_source': 'local_timeout_fallback_draw',
+                'provisional': True,
+            })
+            self.stop_commit_timeout_timer(game_id)
+            self.stop_reveal_timeout_timer(game_id)
 
         redis_client.delete_cached_game_state(game_id)
 
-        if winner:
-            update_player_stats(winner, "win", bet_amount)
-        if forfeiter:
-            update_player_stats(forfeiter, "loss", bet_amount)
-
-        await room_manager.mark_game_finished(game_id, winner, is_draw=False)
-
-        result_data = {
-            "game_id": game_id,
-            "winner": winner,
-            "is_draw": False,
-            "fee": 0,
-            "phase": phase,
-            "forfeit": True,
-            "reason": reason,
-            "provisional": True,
-        }
-        if player1:
-            await ws_manager.send_to_player(player1, WSMessage(type="game_result", data=result_data))
-        if player2:
-            await ws_manager.send_to_player(player2, WSMessage(type="game_result", data=result_data))
-
-        self.stop_commit_timeout_timer(game_id)
-        self.stop_reveal_timeout_timer(game_id)
-
-    # 提交哈希承诺
     async def submit_commit(self, game_id: int, player_address: str, commit_hash: str) -> dict:
         """
         提交哈希承诺
