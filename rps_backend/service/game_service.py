@@ -343,14 +343,19 @@ class GameManager:
         if not game:
             return {"error": "Game not found"}
 
+        if game.get("state") in (GameState.FINISHED.value, GameState.CANCELLED.value):
+            return {"error": "Game already finished or cancelled"}
+
         player_addr_lower = player_address.lower() if player_address else ""
         is_player1 = (game.get("player1") or "").lower() == player_addr_lower
         is_player2 = (game.get("player2") or "").lower() == player_addr_lower
         if not (is_player1 or is_player2):
             return {"error": "Not a player in this game"}
 
-        # 记录提交
         commit_field = "commit1" if is_player1 else "commit2"
+        existing_commit = game.get(commit_field)
+        if existing_commit and existing_commit == commit_hash:
+            return {"success": True, "game_id": game_id, "skipped": "already_submitted"}
         update_game_record(game_id, {commit_field: commit_hash})
 
         # 更新缓存
@@ -427,6 +432,10 @@ class GameManager:
         if not game:
             logger.warning(f"[Reveal API] game_id={game_id} NOT FOUND")
             return {"error": "Game not found"}
+
+        if game.get("state") == GameState.FINISHED.value:
+            logger.info(f"[Reveal API] game_id={game_id} already FINISHED, skip duplicate reveal")
+            return {"success": True, "game_id": game_id, "skipped": "already_finished"}
 
         player_addr_lower = player_address.lower() if player_address else ""
         is_player1 = (game.get("player1") or "").lower() == player_addr_lower
@@ -671,6 +680,10 @@ class GameManager:
         game = get_game_record(game_id)
         if not game:
             return {"error": "Game not found"}
+
+        if game.get("state") == GameState.FINISHED.value and game.get("settlement_source") == "chain":
+            logger.info(f"[ChainSettle] game_id={game_id} already settled by chain, skip duplicate event")
+            return {"success": True, "game_id": game_id, "skipped": "already_chain_settled"}
 
         # 更新对局记录（链上结算覆盖本地 provisional 结果）
         updates = {
