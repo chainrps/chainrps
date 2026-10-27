@@ -484,6 +484,9 @@ class ContractService:
         if not game:
             return
 
+        if game.get("state") == GameState.FINISHED.value:
+            return
+
         player_lower = (player or "").lower()
         is_player1 = player_lower == (game.get("player1") or "").lower()
         is_player2 = player_lower == (game.get("player2") or "").lower()
@@ -491,7 +494,11 @@ class ContractService:
             return
 
         commit_field = "commit1" if is_player1 else "commit2"
-        update_game_record(game["id"], {commit_field: str(commit) if commit else None})
+        existing_commit = game.get(commit_field)
+        new_commit = str(commit) if commit else None
+        if existing_commit and existing_commit == new_commit:
+            return
+        update_game_record(game["id"], {commit_field: new_commit})
 
         # 通知对手：对方已提交哈希
         opponent = game.get("player2") if is_player1 else game.get("player1")
@@ -576,6 +583,9 @@ class ContractService:
         if not game:
             return
 
+        if game.get("state") == GameState.FINISHED.value:
+            return
+
         player_lower = (player or "").lower()
         is_player1 = player_lower == (game.get("player1") or "").lower()
         is_player2 = player_lower == (game.get("player2") or "").lower()
@@ -583,6 +593,9 @@ class ContractService:
             return
 
         choice_field = "choice1" if is_player1 else "choice2"
+        existing_choice = game.get(choice_field)
+        if existing_choice and existing_choice == choice_str:
+            return
         update_game_record(game["id"], {choice_field: choice_str})
 
         # 通知对手：对方已揭晓，包含出拳内容（揭晓阶段双方同时获取对方出拳）
