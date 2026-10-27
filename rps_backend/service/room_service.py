@@ -31,14 +31,14 @@ from rps_backend.websocket import ws_manager
 # 未准备超时时间（秒）：加入房间后 60 秒未准备则自动踢出
 UNREADY_TIMEOUT = 60
 
-# 房间游戏总超时时间（秒）：游戏开始后 10 分钟未结束则自动关闭房间
-ROOM_GAME_TIMEOUT = 600
+# GAME_STARTED 阶段最长持续时间（秒）：30 分钟
+ROOM_GAME_TIMEOUT = 1800
 
-# 空房间清理超时（秒）：创建后 5 分钟没玩家加入 = 僵尸房间，自动清理
-EMPTY_ROOM_TIMEOUT = 300
+# 等待对手加入超时（秒）：创建后 10 分钟没玩家加入则清理
+EMPTY_ROOM_TIMEOUT = 600
 
-# 房间默认最大生命周期（秒）：1 小时（可通过配置 room_max_lifetime 覆盖）
-DEFAULT_ROOM_MAX_LIFETIME = 3600
+# 房间最大生命周期：3 小时（可通过配置 room_max_lifetime 覆盖）
+DEFAULT_ROOM_MAX_LIFETIME = 10800
 
 
 def _get_room_max_lifetime() -> int:
@@ -1498,14 +1498,19 @@ class RoomManager:
                 logger.info(f"[Room] 房间 {room_id} 的 player2 离线，重置为 CREATED")
 
     async def mark_game_finished(self, game_id: int, winner: Optional[str] = None, is_draw: bool = False):
-        """根据 game_id 找到关联房间，更新房间状态为 FINISHED，清理 timer"""
+        """根据 game_id 找到关联房间，更新房间状态为 FINISHED，清理 timer + 清理玩家映射"""
         for rid, rm in list(self._rooms.items()):
             if rm.get("game_id") == game_id:
                 rm["status"] = ROOM_STATUS["FINISHED"]
+                rm["fund_stage"] = rm.get("fund_stage") or "settled"
                 self._rooms[rid] = rm
                 redis_client.cache_room_state(rid, rm)
                 self._stop_game_timer(rid)
                 self._stop_lifetime_timer(rid)
+                # 🆕 清理玩家房间映射（关键：防止"已在其他房间"冲突）
+                for key in list(self._player_rooms.keys()):
+                    if self._player_rooms[key] == rid:
+                        self._player_rooms.pop(key, None)
                 self._broadcast_room_list_changed("game_finished", rid)
                 return
 

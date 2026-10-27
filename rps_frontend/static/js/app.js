@@ -3834,7 +3834,7 @@ const App = (function () {
                 UI.setGameStatus(`对局已结算 · ${resultText}`);
                 FWUI.Toast.success(`对局结束：${resultText}`);
 
-                // 🆕 切到结算界面 + PK 动画
+                // 切到结算界面 + PK 动画
                 showResult({
                     type: resultType,
                     myChoice: data.my_choice ?? selectedChoice,
@@ -3843,6 +3843,22 @@ const App = (function () {
 
                 // 游戏结束，清理 localOnly 状态
                 document.body.dataset.localOnly = '';
+
+                // 🆕 自动回大厅：结算展示 8 秒后自动返回大厅
+                if (window._autoReturnTimer) clearTimeout(window._autoReturnTimer);
+                window._autoReturnTimer = setTimeout(() => {
+                    console.info('[GameResult] 自动返回大厅...');
+                    currentGameId = null;
+                    currentRoomId = null;
+                    currentRoom = null;
+                    currentGame = null;
+                    stopRoomPolling();
+                    stopAllCountdowns();
+                    stopGameTimer();
+                    stopAutoReveal();
+                    enterLobby();
+                    navigateTo('/');
+                }, 8000);
             }
         });
 

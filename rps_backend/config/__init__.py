@@ -236,8 +236,16 @@ def reload_config():
     RPC_LOCAL_ACCOUNT_COUNT = config_manager.get("RPC_LOCAL_ACCOUNT_COUNT", 10)
     RPC_LOCAL_BALANCE = config_manager.get("RPC_LOCAL_BALANCE", 100000)
     RPC_LOCAL_SYMBOL = config_manager.get("RPC_LOCAL_SYMBOL", "POL")
+    # ---- 游戏各阶段超时（秒）----
     COMMIT_TIMEOUT = config_manager.get("COMMIT_TIMEOUT", 66)
     REVEAL_TIMEOUT = config_manager.get("REVEAL_TIMEOUT", 88)
+
+    # ---- 房间生命周期分层超时（秒）----
+    WAITING_JOIN_TIMEOUT = config_manager.get("WAITING_JOIN_TIMEOUT", 600)        # 创建后等待对手加入
+    WAITING_READY_TIMEOUT = config_manager.get("WAITING_READY_TIMEOUT", 300)      # 双方加入后等待准备
+    GAME_PHASE_MAX_DURATION = config_manager.get("GAME_PHASE_MAX_DURATION", 1800) # GAME_STARTED 后最长
+    ROOM_MAX_LIFETIME = config_manager.get("ROOM_MAX_LIFETIME", 10800)            # 房间总最大存在: 3h
+    SETTLEMENT_WAIT_TIMEOUT = config_manager.get("SETTLEMENT_WAIT_TIMEOUT", 600)  # 结算等待链上确认
     WS_HEARTBEAT_INTERVAL = config_manager.get("WS_HEARTBEAT_INTERVAL", 30)
     ADMIN_WHITELIST = [
         addr.strip() for addr in os.getenv("ADMIN_WHITELIST", "").split(",") if addr.strip()
