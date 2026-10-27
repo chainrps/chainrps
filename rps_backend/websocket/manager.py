@@ -54,9 +54,15 @@ class WebSocketManager:
     # 建立连接
     async def connect(self, websocket: WebSocket, player_address: str):
         """建立 WebSocket 连接，注册并发送欢迎消息"""
-        # 统一使用小写地址作为 key
         addr_lower = player_address.lower()
-        # 接收连接
+
+        old_ws = self.active_connections.get(addr_lower)
+        if old_ws is not None and old_ws is not websocket:
+            try:
+                await old_ws.close(code=1001, reason="replaced_by_reconnect")
+            except Exception:
+                pass
+
         await websocket.accept()
         self.active_connections[addr_lower] = websocket
         self._original_addresses[addr_lower] = player_address
