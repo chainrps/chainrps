@@ -120,6 +120,7 @@ class RoomManager:
         self._countdown_started: set = set()
         self._game_starting: set = set()
         self._joining_rooms: set = set()
+        self._creating_players: set = set()
 
     # 创建房间
     def create_room(self, creator_address: str, token: str, bet_amount: float) -> dict:
@@ -136,6 +137,8 @@ class RoomManager:
         """
         # 检查是否已在其他房间中
         creator_lower = creator_address.lower()
+        if creator_lower in self._creating_players:
+            return {"success": False, "message": "正在创建房间中，请稍后"}
         if creator_lower in self._player_rooms:
             existing_room_id = self._player_rooms[creator_lower]
             return {
@@ -144,6 +147,13 @@ class RoomManager:
                 "existing_room_id": existing_room_id,
             }
 
+        self._creating_players.add(creator_lower)
+        try:
+            return self._create_room_inner(creator_address, token, bet_amount, creator_lower)
+        finally:
+            self._creating_players.discard(creator_lower)
+
+    def _create_room_inner(self, creator_address, token, bet_amount, creator_lower):
         room_id = str(uuid.uuid4())[:12]
 
         room = {
