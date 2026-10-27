@@ -506,6 +506,10 @@ class GameManager:
                 self.stop_reveal_timeout_timer(game_id)
                 self.stop_commit_timeout_timer(game_id)
             if c1 is not None and c2 is not None and not chain_id:
+                if game_id in self._settling:
+                    return {"success": True, "game_id": game_id, "skipped": "already_settling"}
+                self._settling.add(game_id)
+
                 # = localOnly 模式，双方都已揭晓
                 # 🆕 choice 可能是字符串 ("rock"/"paper"/"scissors") 也可能是 int
                 c1_int = _CHOICE_NAME_TO_INT.get(c1, c1 if isinstance(c1, int) else None)
@@ -657,6 +661,7 @@ class GameManager:
                 except Exception as e:
                     logger.warning(f"[RevealSettle] 结算异常: {e}")
 
+        self._settling.discard(game_id)
         return {"success": True, "game_id": game_id}
 
     # 处理平局
