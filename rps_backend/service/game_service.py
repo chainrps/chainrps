@@ -170,6 +170,8 @@ class GameManager:
     def __init__(self):
         self._commit_timeout_timers: Dict[int, asyncio.Task] = {}
         self._reveal_timeout_timers: Dict[int, asyncio.Task] = {}
+        self._settling: set = set()
+        self._reveal_started: set = set()
 
     def start_commit_timeout_timer(self, game_id: int, commit_deadline_ts: float):
         self.stop_commit_timeout_timer(game_id)
@@ -226,106 +228,113 @@ class GameManager:
             task.cancel()
 
     async def _handle_local_timeout_random(self, game_id: int, phase: str, reason: str):
+        if game_id in self._settling:
+            return
+
         game = get_game_record(game_id)
         if not game:
             return
         if game.get("state") in (GameState.FINISHED.value, GameState.CANCELLED.value):
             return
 
-        player1 = game.get("player1")
-        player2 = game.get("player2")
-        bet_amount = game.get("bet_amount", 0.0) or 0.0
-        auto_random = []
+        self._settling.add(game_id)
+        try:
+            player1 = game.get("player1")
+            player2 = game.get("player2")
+            bet_amount = game.get("bet_amount", 0.0) or 0.0
+            auto_random = []
 
-        updates = {}
-        for idx, (addr, commit_f, choice_f, salt_f) in enumerate([
-            (player1, 'commit1', 'choice1', 'salt1'),
-            (player2, 'commit2', 'choice2', 'salt2'),
-        ], start=1):
-            if not addr:
-                continue
-            existing_choice = game.get(choice_f)
-            if existing_choice is not None:
-                continue
-            choice_str, salt_hex, commit_hash = _generate_random_choice_and_commit(addr)
-            updates[choice_f] = choice_str
-            updates[salt_f] = salt_hex
-            if not game.get(commit_f):
-                updates[commit_f] = commit_hash
-            auto_random.append(addr[:12])
-            logger.warning(f"[Timeout] game_id={game_id} auto-assigned random choice={choice_str} to player{idx}={addr[:12]}")
-
-        if updates:
-            update_game_record(game_id, updates)
-
-        latest_game = get_game_record(game_id)
-        c1 = latest_game.get('choice1')
-        c2 = latest_game.get('choice2')
-        if c1 and c2:
-            self.stop_commit_timeout_timer(game_id)
-            self.stop_reveal_timeout_timer(game_id)
-
-            c1_int = _CHOICE_NAME_TO_INT.get(c1, c1)
-            c2_int = _CHOICE_NAME_TO_INT.get(c2, c2)
-            result = _determine_rps_result(c1_int, c2_int, player1, player2)
-
-            update_game_record(game_id, {
-                'state': GameState.FINISHED.value,
-                'winner': result.get('winner'),
-                'is_draw': 1 if result.get('is_draw') else 0,
-                'finished_at': datetime.utcnow().isoformat(),
-                'settlement_source': 'local_timeout_random',
-                'provisional': True,
-            })
-
-            try:
-                if result.get('winner'):
-                    update_player_stats(result['winner'], 'win', bet_amount)
-                if not result.get('is_draw'):
-                    loser_addr = player2 if result.get('winner') and result['winner'].lower() == (player1 or '').lower() else player1
-                    if loser_addr:
-                        update_player_stats(loser_addr, 'loss', bet_amount)
-            except Exception as e:
-                logger.warning(f'Failed to update stats after timeout random: {e}')
-
-            winner = result.get('winner')
-            is_draw = result.get('is_draw', False)
-            try:
-                await room_manager.mark_game_finished(game_id, winner, is_draw=is_draw)
-            except Exception as e:
-                logger.warning(f'Failed to mark game finished: {e}')
-
-            for addr in [player1, player2]:
+            updates = {}
+            for idx, (addr, commit_f, choice_f, salt_f) in enumerate([
+                (player1, 'commit1', 'choice1', 'salt1'),
+                (player2, 'commit2', 'choice2', 'salt2'),
+            ], start=1):
                 if not addr:
                     continue
-                my_choice = c1 if addr.lower() == (player1 or '').lower() else c2
-                opp_choice = c2 if my_choice == c1 else c1
-                await ws_manager.send_to_player(addr, WSMessage(
-                    type='game_result',
-                    data={
-                        'game_id': game_id,
-                        'winner': winner,
-                        'is_draw': is_draw,
-                        'my_choice': my_choice,
-                        'opponent_choice': opp_choice,
-                        'settlement_source': 'local_timeout_random',
-                        'auto_random_choices': auto_random,
-                        'reason': reason,
-                    }
-                ))
-        else:
-            logger.error(f'[Timeout] game_id={game_id} still missing choices after random fill: c1={c1} c2={c2}')
-            update_game_record(game_id, {
-                'state': GameState.FINISHED.value,
-                'is_draw': 1,
-                'finished_at': datetime.utcnow().isoformat(),
-                'settlement_source': 'local_timeout_fallback_draw',
-                'provisional': True,
-            })
-            self.stop_commit_timeout_timer(game_id)
-            self.stop_reveal_timeout_timer(game_id)
+                existing_choice = game.get(choice_f)
+                if existing_choice is not None:
+                    continue
+                choice_str, salt_hex, commit_hash = _generate_random_choice_and_commit(addr)
+                updates[choice_f] = choice_str
+                updates[salt_f] = salt_hex
+                if not game.get(commit_f):
+                    updates[commit_f] = commit_hash
+                auto_random.append(addr[:12])
+                logger.warning(f"[Timeout] game_id={game_id} auto-assigned random choice={choice_str} to player{idx}={addr[:12]}")
 
-        redis_client.delete_cached_game_state(game_id)
+            if updates:
+                update_game_record(game_id, updates)
+
+            latest_game = get_game_record(game_id)
+            c1 = latest_game.get('choice1')
+            c2 = latest_game.get('choice2')
+            if c1 and c2:
+                self.stop_commit_timeout_timer(game_id)
+                self.stop_reveal_timeout_timer(game_id)
+
+                c1_int = _CHOICE_NAME_TO_INT.get(c1, c1)
+                c2_int = _CHOICE_NAME_TO_INT.get(c2, c2)
+                result = _determine_rps_result(c1_int, c2_int, player1, player2)
+
+                update_game_record(game_id, {
+                    'state': GameState.FINISHED.value,
+                    'winner': result.get('winner'),
+                    'is_draw': 1 if result.get('is_draw') else 0,
+                    'finished_at': datetime.utcnow().isoformat(),
+                    'settlement_source': 'local_timeout_random',
+                    'provisional': True,
+                })
+
+                try:
+                    if result.get('winner'):
+                        update_player_stats(result['winner'], 'win', bet_amount)
+                    if not result.get('is_draw'):
+                        loser_addr = player2 if result.get('winner') and result['winner'].lower() == (player1 or '').lower() else player1
+                        if loser_addr:
+                            update_player_stats(loser_addr, 'loss', bet_amount)
+                except Exception as e:
+                    logger.warning(f'Failed to update stats after timeout random: {e}')
+
+                winner = result.get('winner')
+                is_draw = result.get('is_draw', False)
+                try:
+                    await room_manager.mark_game_finished(game_id, winner, is_draw=is_draw)
+                except Exception as e:
+                    logger.warning(f'Failed to mark game finished: {e}')
+
+                for addr in [player1, player2]:
+                    if not addr:
+                        continue
+                    my_choice = c1 if addr.lower() == (player1 or '').lower() else c2
+                    opp_choice = c2 if my_choice == c1 else c1
+                    await ws_manager.send_to_player(addr, WSMessage(
+                        type='game_result',
+                        data={
+                            'game_id': game_id,
+                            'winner': winner,
+                            'is_draw': is_draw,
+                            'my_choice': my_choice,
+                            'opponent_choice': opp_choice,
+                            'settlement_source': 'local_timeout_random',
+                            'auto_random_choices': auto_random,
+                            'reason': reason,
+                        }
+                    ))
+            else:
+                logger.error(f'[Timeout] game_id={game_id} still missing choices after random fill: c1={c1} c2={c2}')
+                update_game_record(game_id, {
+                    'state': GameState.FINISHED.value,
+                    'is_draw': 1,
+                    'finished_at': datetime.utcnow().isoformat(),
+                    'settlement_source': 'local_timeout_fallback_draw',
+                    'provisional': True,
+                })
+                self.stop_commit_timeout_timer(game_id)
+                self.stop_reveal_timeout_timer(game_id)
+
+            redis_client.delete_cached_game_state(game_id)
+        finally:
+            self._settling.discard(game_id)
 
     async def submit_commit(self, game_id: int, player_address: str, commit_hash: str) -> dict:
         """
@@ -375,40 +384,39 @@ class GameManager:
         # 检查双方是否都已提交
         latest_game = get_game_record(game_id)
         if latest_game and latest_game.get("commit1") and latest_game.get("commit2"):
-            # 进入揭晓阶段
-            reveal_deadline_ts = calculate_deadline(REVEAL_TIMEOUT)
-            reveal_deadline_iso = deadline_to_iso(reveal_deadline_ts)
+            if game_id not in self._reveal_started:
+                self._reveal_started.add(game_id)
+                reveal_deadline_ts = calculate_deadline(REVEAL_TIMEOUT)
+                reveal_deadline_iso = deadline_to_iso(reveal_deadline_ts)
 
-            update_game_record(game_id, {
-                "state": GameState.REVEAL_PHASE.value,
-                "reveal_deadline": reveal_deadline_iso,
-            })
+                update_game_record(game_id, {
+                    "state": GameState.REVEAL_PHASE.value,
+                    "reveal_deadline": reveal_deadline_iso,
+                })
 
-            self.start_reveal_timeout_timer(game_id, reveal_deadline_ts)
+                self.start_reveal_timeout_timer(game_id, reveal_deadline_ts)
 
-            # 更新缓存
-            if cached_state:
-                cached_state["state"] = GameState.REVEAL_PHASE.value
-                cached_state["reveal_deadline"] = reveal_deadline_ts
-                redis_client.cache_game_state(game_id, cached_state)
+                if cached_state:
+                    cached_state["state"] = GameState.REVEAL_PHASE.value
+                    cached_state["reveal_deadline"] = reveal_deadline_ts
+                    redis_client.cache_game_state(game_id, cached_state)
 
-            # 通知双方进入揭晓阶段
-            player1 = latest_game.get("player1")
-            player2 = latest_game.get("player2")
-            reveal_start_data = {
-                "game_id": game_id,
-                "reveal_deadline": reveal_deadline_ts,
-            }
-            if player1:
-                await ws_manager.send_to_player(player1, WSMessage(
-                    type="reveal_start",
-                    data=reveal_start_data,
-                ))
-            if player2:
-                await ws_manager.send_to_player(player2, WSMessage(
-                    type="reveal_start",
-                    data=reveal_start_data,
-                ))
+                player1 = latest_game.get("player1")
+                player2 = latest_game.get("player2")
+                reveal_start_data = {
+                    "game_id": game_id,
+                    "reveal_deadline": reveal_deadline_ts,
+                }
+                if player1:
+                    await ws_manager.send_to_player(player1, WSMessage(
+                        type="reveal_start",
+                        data=reveal_start_data,
+                    ))
+                if player2:
+                    await ws_manager.send_to_player(player2, WSMessage(
+                        type="reveal_start",
+                        data=reveal_start_data,
+                    ))
 
         return {"success": True, "game_id": game_id}
 
