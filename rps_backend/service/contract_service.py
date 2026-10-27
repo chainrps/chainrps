@@ -751,6 +751,7 @@ class ContractService:
         from rps_backend.models import GameState, WSMessage
         from rps_backend.websocket import ws_manager
         from rps_backend.utils.helpers import now_timestamp
+        from rps_backend.service.game_service import game_manager
 
         args = event_data.get("args", {})
         chain_game_id = args.get("gameId")
@@ -762,20 +763,21 @@ class ContractService:
         if not game:
             return
 
-        update_game_record(game["id"], {
+        game_id = game["id"]
+        update_game_record(game_id, {
             "state": GameState.CANCELLED.value,
         })
 
-        # 同步清理 room_service 内存态：房间及其 player_rooms 映射
+        game_manager.stop_commit_timeout_timer(game_id)
+        game_manager.stop_reveal_timeout_timer(game_id)
+
         room_id = game.get("room_id")
         if room_id:
             try:
                 from rps_backend.service.room_service import room_manager
-                # 标记房间 cancelled，清理计时器、广播房间列表变更
                 room_manager.remove_room(room_id)
-                print(f"[MatchCancelled] 清理房间内存态: room_id={room_id}")
-            except Exception as e:
-                print(f"[MatchCancelled] 清理房间内存态失败: {e}")
+            except Exception:
+                pass
 
         # 通知双方对局已被取消
         cancel_data = {
